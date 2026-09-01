@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="refresh" content="0; url=/home" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>GRIOT Mobile</title>
+    <meta name="description" content="Mobile companion and control center for the GRIOT ecosystem with chat, project tracking, capture, and ModelOS controls." />
+    <meta property="og:title" content="GRIOT Mobile" />
+    <meta property="og:description" content="Mobile companion and control center for the GRIOT ecosystem with chat, project tracking, capture, and ModelOS controls." />
+    <link rel="icon" href="/griot-mark.svg" type="image/svg+xml" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #060608;
+        color: #f3f4f6;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        cursor: pointer;
+      }
+      .splash-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        animation: fadeIn 0.3s ease-out;
+      }
+      .logo-mark {
+        width: 140px;
+        height: 140px;
+        max-width: 40vw;
+        max-height: 40vw;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: scale(0.96);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+    </style>
+  </head>
+  <body onclick="window.location.replace('/home')">
+    <div class="splash-container">
+      <svg class="logo-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+        <defs>
+          <linearGradient id="griot-monochrome" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#FFFFFF" />
+            <stop offset="60%" stop-color="#E4E4E7" />
+            <stop offset="100%" stop-color="#91919E" />
+          </linearGradient>
+          <radialGradient id="ambient-glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.08" />
+            <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <rect width="512" height="512" rx="128" fill="#060608" />
+        <circle cx="256" cy="256" r="200" fill="url(#ambient-glow)" />
+        <g transform="translate(2, 0)">
+          <path
+            d="M 196 186 
+                   C 130 186, 130 256, 196 256 
+                   C 262 256, 262 326, 328 326 
+                   C 394 326, 394 256, 328 256 
+                   C 262 256, 262 186, 196 186 Z"
+            fill="none"
+            stroke="url(#griot-monochrome)"
+            stroke-width="26"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <line
+            x1="328"
+            y1="256"
+            x2="385"
+            y2="256"
+            stroke="url(#griot-monochrome)"
+            stroke-width="26"
+            stroke-linecap="round"
+          />
+        </g>
+      </svg>
+    </div>
+
+    <script>
+      (function () {
+        if (window.location.pathname !== "/home") {
+          setTimeout(function () {
+            window.location.replace("/home");
+          }, 350);
+        }
+      })();
+    </script>
+  </body>
+</html>

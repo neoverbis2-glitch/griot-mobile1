@@ -1,0 +1,72 @@
+name: GRIOT Mobile Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate runtime runner
+        run: |
+          node --check runtime-runner/server.mjs
+          node --test runtime-runner/runtime-runner.test.mjs
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync GRIOT native integration
+        run: node scripts/sync-griot-native.mjs
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK
+        run: |
+          APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
+          test -n "$APK"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          sha256sum "$APK"
+          ls -lh "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: griot-mobile-v1-debug-apk
+          path: ${{ env.APK }}
+          if-no-files-found: error
+          retention-days: 30
