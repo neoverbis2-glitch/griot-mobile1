@@ -45,14 +45,36 @@ export const Route = createFileRoute("/api/chat")({
 
         const rawModel = typeof body.model === "string" ? body.model : "";
         const isAppModel = rawModel.startsWith("app:");
-        const [maybeProvider, ...modelParts] = rawModel.includes(":") ? rawModel.split(":") : [];
-        const provider =
-          !isAppModel &&
-          maybeProvider &&
-          ["gemini", "openai", "anthropic", "groq", "openrouter"].includes(maybeProvider)
-            ? maybeProvider
-            : "gemini";
-        const model = !isAppModel && modelParts.length ? modelParts.join(":") : undefined;
+        let provider = "gemini";
+        let model: string | undefined = undefined;
+
+        if (isAppModel) {
+          const target = rawModel.slice(4).toLowerCase();
+          if (target.includes("chatgpt") || target.includes("openai")) {
+            provider = "openai";
+            model = "gpt-4o";
+          } else if (target.includes("claude") || target.includes("anthropic")) {
+            provider = "anthropic";
+            model = "claude-3-5-sonnet-20241022";
+          } else if (target.includes("deepseek")) {
+            provider = "deepseek";
+            model = "deepseek-chat";
+          } else if (target.includes("gemini")) {
+            provider = "gemini";
+            model = "gemini-1.5-flash";
+          } else {
+            provider = "gemini";
+            model = "gemini-1.5-flash";
+          }
+        } else {
+          const [maybeProvider, ...modelParts] = rawModel.includes(":") ? rawModel.split(":") : [];
+          provider =
+            maybeProvider &&
+            ["gemini", "openai", "anthropic", "groq", "openrouter", "deepseek"].includes(maybeProvider)
+              ? maybeProvider
+              : "gemini";
+          model = modelParts.length ? modelParts.join(":") : undefined;
+        }
 
         const encoder = new TextEncoder();
         const stream = new ReadableStream<Uint8Array>({

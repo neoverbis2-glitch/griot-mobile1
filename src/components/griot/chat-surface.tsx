@@ -532,61 +532,6 @@ export function ChatSurface({ userId }: { userId: string }) {
     }
 
     try {
-      if (isApp) {
-        if (!targetAppId || !boundThreadTitle) throw new Error(t("App de IA não configurada."));
-        const appCfg = AI_OBSERVER_APPS[targetAppId];
-        if (!appCfg?.androidPackage || !nativeObserverBridge.getStatus().serviceEnabled) {
-          throw new Error(t("Ativa o Observador de Acessibilidade do Android para usar uma AppChat externa."));
-        }
-
-        const injected = await nativeObserverBridge.sendAppMessage(
-          appCfg.androidPackage,
-          boundThreadTitle,
-          base[base.length - 1]?.content || "",
-        );
-        if (!injected.success) {
-          throw new Error(t("Não foi possível iniciar a automação da AppChat."));
-        }
-
-        const external = await nativeObserverBridge.waitForAppResponse(
-          appCfg.androidPackage,
-          base[base.length - 1]?.content || "",
-        );
-        const externalAnswer = stripActionBlocks(external.text).trim();
-        if (!externalAnswer) throw new Error(t("A AppChat não devolveu uma resposta utilizável."));
-
-        answer = externalAnswer;
-        setStreaming(answer);
-        lastAnswerRef.current = answer;
-
-        await observerEngine.processIncomingAIMessage(
-          {
-            provider: targetAppId as any,
-            model,
-            sessionTitle: boundThreadTitle,
-            appId: targetAppId,
-          },
-          external.text,
-          conversationId || "main",
-        );
-
-        const { data: saved } = await supabase
-          .from("messages")
-          .insert({
-            user_id: userId,
-            conversation_id: conversationId,
-            role: "assistant",
-            content: answer,
-            model,
-          })
-          .select("id, role, content, created_at, feedback")
-          .single();
-        if (saved) {
-          const row = saved as unknown as Row;
-          setMessages((current) => current.some((m) => m.id === row.id) ? current : [...current, row]);
-        }
-        return;
-      }
 
       // Real backend call: /api/chat now proxies to the actual GRIOT
       // orchestrator, which is workspace-scoped and needs the caller's
@@ -1303,13 +1248,15 @@ export function ChatSurface({ userId }: { userId: string }) {
       </div>
 
       {scope === "quick" && (
-        <div className="absolute inset-x-0 top-[calc(env(safe-area-inset-top,0px)+52px)] z-30">
-          <DeliberationBar
-            activeMission={deliberationMission}
-            roleEngines={roleEngines}
-            onSelectMission={(m) => setDeliberationMission(m)}
-            onChangeRoleEngine={(r, e) => setRoleEngines((prev) => ({ ...prev, [r]: e }))}
-          />
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-30 pointer-events-none">
+          <div className="pointer-events-auto">
+            <DeliberationBar
+              activeMission={deliberationMission}
+              roleEngines={roleEngines}
+              onSelectMission={(m) => setDeliberationMission(m)}
+              onChangeRoleEngine={(r, e) => setRoleEngines((prev) => ({ ...prev, [r]: e }))}
+            />
+          </div>
         </div>
       )}
 
@@ -1856,23 +1803,6 @@ export function ChatSurface({ userId }: { userId: string }) {
               </div>
             ) : (
               <>
-                {model.startsWith("app:") && conversationId ? (
-                  <div className="flex items-center gap-1.5 px-2 pb-1.5 text-[11.5px] text-muted-foreground animate-fade-in select-none">
-                    <span className="relative flex size-2 shrink-0">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-                    </span>
-                    <span className="font-medium text-foreground/90 shrink-0">
-                      {modelLabel(model)}
-                    </span>
-                    <span className="truncate max-w-[170px] text-muted-foreground/80 font-mono text-[11px]">
-                      {`[GRIOT] ${conversation?.title || "Sessão"}`}
-                    </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium ml-auto shrink-0">
-                      {t("Chat Fixo · Observer")}
-                    </span>
-                  </div>
-                ) : null}
                 <textarea
                   rows={1}
                   value={draft}

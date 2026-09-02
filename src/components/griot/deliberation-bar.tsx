@@ -1,6 +1,6 @@
 /**
  * GRIOT AI Deliberation Room Bar Component
- * Rendered at the top of Quick Mode in Chat. Matches native GRIOT UI design.
+ * Rendered at the center of Quick Mode in Chat. Pure GRIOT monochrome design.
  */
 
 import { useState } from "react";
@@ -11,7 +11,36 @@ import {
   type DeliberationRoleId,
 } from "@/lib/runtime/deliberation-room";
 import { useT } from "@/lib/i18n";
-import { Sparkles, ChevronDown, Cpu, Layers } from "lucide-react";
+import {
+  Brain,
+  ChevronDown,
+  FlaskConical,
+  Lightbulb,
+  Search,
+  Shield,
+  Swords,
+  Target,
+  TrendingUp,
+  Wrench,
+} from "lucide-react";
+
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  brain: Brain,
+  search: Search,
+  lightbulb: Lightbulb,
+  shield: Shield,
+  swords: Swords,
+  wrench: Wrench,
+  "trending-up": TrendingUp,
+  "flask-conical": FlaskConical,
+  target: Target,
+};
+
+function RoleIcon({ name, className }: { name: string; className?: string }) {
+  const Icon = ICON_MAP[name];
+  if (Icon) return <Icon className={className} />;
+  return <Brain className={className} />;
+}
 
 interface DeliberationBarProps {
   activeMission: DeliberationMissionId;
@@ -43,23 +72,22 @@ export function DeliberationBar({
     DELIBERATION_MISSIONS.find((m) => m.id === activeMission) || DELIBERATION_MISSIONS[0];
 
   return (
-    <div className="w-full border-b border-hairline bg-surface/80 backdrop-blur-md px-4 py-2.5 transition-all">
+    <div className="w-full px-4 py-3">
       {/* Top Row: Mission Selector */}
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => setMissionOpen(!missionOpen)}
-          className="flex items-center gap-2 rounded-xl border border-hairline bg-background/60 px-3 py-1.5 text-[13px] font-medium text-foreground transition-transform active:scale-[0.98]"
+          className="flex items-center gap-2 rounded-2xl border border-hairline bg-surface/60 px-3.5 py-2 text-[13px] font-medium text-foreground transition-transform active:scale-[0.98]"
         >
-          <span className="text-[15px]">{currentMissionObj.icon}</span>
+          <RoleIcon name={currentMissionObj.icon} className="size-4 text-foreground/80" />
           <span className="truncate max-w-[200px]">{t(currentMissionObj.label)}</span>
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </button>
 
-        <div className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
-          <Sparkles className="size-3 text-primary animate-pulse" />
-          <span>Quick Deliberation Room</span>
-        </div>
+        <span className="text-[10.5px] font-medium tracking-wider text-muted-foreground/60 uppercase">
+          {t("Quick Deliberation Room")}
+        </span>
       </div>
 
       {/* Mission Dropdown Selector */}
@@ -79,12 +107,12 @@ export function DeliberationBar({
                 }}
                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] transition-colors ${
                   activeMission === mission.id
-                    ? "bg-primary/10 font-medium text-primary"
-                    : "hover:bg-surface text-foreground"
+                    ? "bg-white/[0.06] font-medium text-foreground"
+                    : "hover:bg-surface text-foreground/80"
                 }`}
               >
                 <div className="flex items-center gap-2.5">
-                  <span className="text-[16px]">{mission.icon}</span>
+                  <RoleIcon name={mission.icon} className="size-4 text-foreground/70" />
                   <div>
                     <p className="font-medium leading-none">{t(mission.label)}</p>
                     <p className="mt-1 text-[11.5px] text-muted-foreground leading-tight">
@@ -99,12 +127,11 @@ export function DeliberationBar({
       )}
 
       {/* Bottom Row: Active 4 Roles Bar */}
-      <div className="mt-2.5 grid grid-cols-4 gap-1.5">
+      <div className="mt-3 grid grid-cols-4 gap-2">
         {(["strategist", "analyst", "innovator", "critic"] as DeliberationRoleId[]).map((roleId) => {
           const role = DELIBERATION_ROLES[roleId];
           const engine = roleEngines[roleId] || role.defaultEngine;
           const engineObj = ENGINE_OPTIONS.find((e) => e.id === engine);
-          const isApp = engine.startsWith("app:");
 
           return (
             <div key={roleId} className="relative">
@@ -113,17 +140,13 @@ export function DeliberationBar({
                 onClick={() =>
                   setRoleSelectOpen(roleSelectOpen === roleId ? null : roleId)
                 }
-                className="flex flex-col items-center justify-center w-full rounded-xl border border-hairline bg-background/80 px-2 py-1.5 text-center transition-all hover:border-primary/40 active:scale-[0.97]"
+                className="flex flex-col items-center justify-center w-full rounded-2xl border border-hairline bg-surface/40 px-2 py-2 text-center transition-all hover:border-foreground/20 active:scale-[0.97]"
               >
-                <span className="text-[14px] leading-none">{role.icon}</span>
-                <span className="mt-1 text-[11px] font-medium text-foreground truncate max-w-full">
+                <RoleIcon name={role.icon} className="size-5 text-foreground/80" />
+                <span className="mt-1.5 text-[11px] font-medium text-foreground truncate max-w-full">
                   {role.label}
                 </span>
-                <span
-                  className={`mt-0.5 text-[9.5px] font-mono px-1 rounded truncate max-w-full ${
-                    isApp ? "bg-amber-500/10 text-amber-500" : "bg-primary/10 text-primary"
-                  }`}
-                >
+                <span className="mt-0.5 text-[9.5px] text-muted-foreground/70 truncate max-w-full">
                   {engineObj ? engineObj.label.split(" ")[0] : "Gemini"}
                 </span>
               </button>
@@ -131,8 +154,9 @@ export function DeliberationBar({
               {/* Role Engine Selector Popover */}
               {roleSelectOpen === roleId && (
                 <div className="absolute left-0 top-full z-50 mt-1 w-44 rounded-2xl border border-hairline bg-background p-1.5 shadow-xl rise">
-                  <p className="px-2 py-1 text-[10px] font-mono text-muted-foreground uppercase">
-                    {role.icon} {role.label} IA Engine
+                  <p className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase">
+                    <RoleIcon name={role.icon} className="size-3 text-foreground/60" />
+                    {role.label}
                   </p>
                   <div className="space-y-0.5">
                     {ENGINE_OPTIONS.map((opt) => (
@@ -145,8 +169,8 @@ export function DeliberationBar({
                         }}
                         className={`w-full rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors ${
                           engine === opt.id
-                            ? "bg-primary text-primary-foreground font-medium"
-                            : "hover:bg-surface text-foreground"
+                            ? "bg-white/[0.08] text-foreground font-medium"
+                            : "hover:bg-surface text-foreground/80"
                         }`}
                       >
                         {opt.label}

@@ -89,10 +89,10 @@ export function RuntimeObserverCard() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-[14px] font-semibold tracking-tight truncate">
-                  {t("GRIOT Observer & Runtime")}
+                  {t("GRIOT Observer")}
                 </p>
-                <span className="text-[10.5px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-hairline text-muted-foreground font-mono">
-                  {connectedAppsList.length}/8 Apps
+                <span className="text-[11px] text-muted-foreground/70">
+                  {connectedAppsList.length}/8 {t("ativas")}
                 </span>
               </div>
               <p className="text-[12px] text-muted-foreground truncate mt-0.5">
