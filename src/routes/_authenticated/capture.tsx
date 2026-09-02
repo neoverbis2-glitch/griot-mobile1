@@ -8,8 +8,8 @@ import { toast } from "sonner";
 import { Camera } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { CaptureDetail } from "@/components/griot/capture-detail";
-import type { CaptureRow } from "@/lib/capture-share";
 import { uploadToStorageBucket, STORAGE_BUCKETS } from "@/lib/storage";
+import { useCurrentUser } from "@/hooks/use-user";
 
 export const Route = createFileRoute("/_authenticated/capture")({
   head: () => ({
@@ -32,7 +32,7 @@ export const Route = createFileRoute("/_authenticated/capture")({
 
 function CapturePage() {
   const t = useT();
-  const { user } = Route.useRouteContext();
+  const { user } = useCurrentUser();
   const queryClient = useQueryClient();
   const [sheet, setSheet] = useState(false);
   const [note, setNote] = useState("");

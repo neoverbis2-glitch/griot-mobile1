@@ -12,7 +12,7 @@ async function main() {
 
   const svgBuffer = fs.readFileSync(SVG_PATH);
 
-  console.log("Generating base 1024x1024 and splash assets...");
+  console.log("Generating base 1024x1024 and splash assets with enlarged GRIOT mark...");
 
   // 1. icon-only.png (1024x1024)
   await sharp(svgBuffer).resize(1024, 1024).png().toFile(path.join(ASSETS_DIR, "icon-only.png"));
@@ -29,8 +29,7 @@ async function main() {
     .png()
     .toFile(path.join(ASSETS_DIR, "icon-background.png"));
 
-  // 3. icon-foreground.png (1024x1024 with symbol padded for adaptive icons)
-  // Adaptive icons foreground needs ~432dp with safe zone in the center 66% (approx 680px)
+  // 3. icon-foreground.png (1024x1024 with symbol occupying ~72% of canvas, matching ChatGPT/Claude/Grok proportions)
   const foregroundSvg = `
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1024" height="1024">
     <defs>
@@ -40,12 +39,12 @@ async function main() {
         <stop offset="100%" stop-color="#91919E" />
       </linearGradient>
       <radialGradient id="ambient-glow" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.12" />
+        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16" />
         <stop offset="100%" stop-color="#000000" stop-opacity="0" />
       </radialGradient>
     </defs>
-    <circle cx="256" cy="256" r="220" fill="url(#ambient-glow)" />
-    <g transform="translate(2, 0)">
+    <circle cx="256" cy="256" r="230" fill="url(#ambient-glow)" />
+    <g transform="translate(256, 256) scale(1.68) translate(-257, -256)">
       <path d="M 196 186 
                C 130 186, 130 256, 196 256 
                C 262 256, 262 326, 328 326 
@@ -63,7 +62,7 @@ async function main() {
     </g>
   </svg>`;
 
-  const symbolBuffer = await sharp(Buffer.from(foregroundSvg)).resize(680, 680).toBuffer();
+  const symbolBuffer = await sharp(Buffer.from(foregroundSvg)).resize(740, 740).toBuffer();
 
   await sharp({
     create: {
@@ -78,7 +77,7 @@ async function main() {
     .toFile(path.join(ASSETS_DIR, "icon-foreground.png"));
 
   // 4. splash.png (2732x2732 dark background with center logo)
-  const splashSymbol = await sharp(svgBuffer).resize(768, 768).toBuffer();
+  const splashSymbol = await sharp(svgBuffer).resize(920, 920).toBuffer();
 
   await sharp({
     create: {
@@ -110,7 +109,7 @@ async function main() {
         fs.mkdirSync(targetDir, { recursive: true });
       }
 
-      // ic_launcher.png & ic_launcher_round.png
+      // ic_launcher.png & ic_launcher_round.png with black background and enlarged symbol
       await sharp(svgBuffer)
         .resize(m.size, m.size)
         .png()
@@ -121,9 +120,9 @@ async function main() {
         .png()
         .toFile(path.join(targetDir, "ic_launcher_round.png"));
 
-      // ic_launcher_foreground.png
+      // ic_launcher_foreground.png (scaled to fill ~72% of safe zone)
       const fgPadded = await sharp(Buffer.from(foregroundSvg))
-        .resize(Math.round(m.fgSize * 0.66), Math.round(m.fgSize * 0.66))
+        .resize(Math.round(m.fgSize * 0.72), Math.round(m.fgSize * 0.72))
         .toBuffer();
 
       await sharp({
@@ -140,7 +139,7 @@ async function main() {
     }
   }
 
-  console.log("All icons generated successfully!");
+  console.log("All icons generated successfully with enlarged GRIOT mark!");
 }
 
 main().catch((err) => {

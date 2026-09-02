@@ -21,21 +21,21 @@ import { initNativeNotificationListeners } from "../lib/native-notifications";
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center select-none">
+      <div className="flex flex-col items-center max-w-xs">
+        <GriotMark className="size-16 mb-5 opacity-80" />
+        <h2 className="text-[20px] font-semibold tracking-tight text-foreground">
+          Página não encontrada
+        </h2>
+        <p className="mt-2 text-[13.5px] text-muted-foreground leading-relaxed">
+          O ecrã que procuras não existe ou foi movido.
         </p>
-        <div className="mt-6">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Go home
-          </Link>
-        </div>
+        <Link
+          to="/home"
+          className="mt-6 inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-[14.5px] font-semibold text-black transition-transform active:scale-[0.98]"
+        >
+          Voltar ao Início
+        </Link>
       </div>
     </div>
   );
@@ -49,30 +49,36 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   }, [error]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center select-none">
+      <div className="flex flex-col items-center max-w-xs">
+        <GriotMark className="size-16 mb-5 opacity-90" />
+        <h2 className="text-[20px] font-semibold tracking-tight text-foreground">
+          Algo correu mal
+        </h2>
+        <p className="mt-2 text-[13.5px] text-muted-foreground leading-relaxed">
+          Não foi possível carregar o ecossistema.
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <div className="mt-6 flex flex-col w-full gap-2.5">
           <button
+            type="button"
             onClick={() => {
               router.invalidate();
               reset();
             }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="flex w-full items-center justify-center rounded-2xl bg-white py-3 text-[14.5px] font-semibold text-black transition-transform active:scale-[0.98]"
           >
-            Try again
+            Tentar novamente
           </button>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          <button
+            type="button"
+            onClick={() => {
+              void router.navigate({ to: "/home" });
+              reset();
+            }}
+            className="flex w-full items-center justify-center rounded-2xl border border-hairline bg-surface py-3 text-[14px] font-medium text-foreground transition-transform active:scale-[0.98]"
           >
-            Go home
-          </a>
+            Voltar ao Início
+          </button>
         </div>
       </div>
     </div>

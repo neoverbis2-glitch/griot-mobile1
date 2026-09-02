@@ -35,6 +35,9 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Generate Android Assets (Icons & Splash)
+        run: node scripts/generate-android-assets.mjs
+
       - name: Validate runtime runner
         run: |
           node --check runtime-runner/server.mjs
