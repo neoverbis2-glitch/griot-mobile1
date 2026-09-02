@@ -152,7 +152,7 @@ function createSupabaseClient() {
       ? window.localStorage.getItem("VITE_SUPABASE_PUBLISHABLE_KEY")
       : null;
 
-  const SUPABASE_URL =
+  let rawUrl =
     localUrl ||
     import.meta.env["VITE_SUPABASE_URL"] ||
     envMap["NEXT_PUBLIC_SUPABASE_URL"] ||
@@ -160,7 +160,7 @@ function createSupabaseClient() {
     process.env["NEXT_PUBLIC_SUPABASE_URL"] ||
     "https://placeholder-griot.supabase.co";
 
-  const SUPABASE_PUBLISHABLE_KEY =
+  let rawKey =
     localKey ||
     import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
     envMap["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
@@ -168,16 +168,39 @@ function createSupabaseClient() {
     process.env["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key";
 
-  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: {
-      fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
-    },
-    auth: {
-      storage: brokeredPreviewStorage(),
-      persistSession: true,
-      autoRefreshToken: true,
-    },
-  });
+  rawUrl = String(rawUrl).trim().replace(/^["']|["']$/g, "");
+  rawKey = String(rawKey).trim().replace(/^["']|["']$/g, "");
+
+  if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+    rawUrl = "https://placeholder-griot.supabase.co";
+  }
+  if (!rawKey || rawKey.length < 10) {
+    rawKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key";
+  }
+
+  try {
+    return createClient<Database>(rawUrl, rawKey, {
+      global: {
+        fetch: createSupabaseFetch(rawKey),
+      },
+      auth: {
+        storage: brokeredPreviewStorage(),
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
+  } catch (err) {
+    console.warn("Falha ao criar cliente Supabase, usando fallback seguro:", err);
+    return createClient<Database>(
+      "https://placeholder-griot.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key",
+      {
+        global: {
+          fetch: createSupabaseFetch("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key"),
+        },
+      },
+    );
+  }
 }
 
 let _supabase: ReturnType<typeof createSupabaseClient> | undefined;

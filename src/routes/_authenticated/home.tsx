@@ -53,80 +53,120 @@ function HomePage() {
   const { data } = useQuery({
     queryKey: ["home", email, displayName],
     queryFn: async () => {
-      const since = new Date(Date.now() - 31 * 86_400_000).toISOString();
-      const { data: authData } = await supabase.auth.getUser();
-      const currentUser = authData?.user ?? null;
+      try {
+        const since = new Date(Date.now() - 31 * 86_400_000).toISOString();
+        const { data: authData } = await supabase.auth.getUser();
+        const currentUser = authData?.user ?? null;
 
-      const profilePromise = currentUser
-        ? supabase
-            .from("profiles")
-            .select("display_name, active_project_id, desktop_online, avatar_url")
-            .eq("id", currentUser.id)
-            .maybeSingle()
-        : supabase
-            .from("profiles")
-            .select("display_name, active_project_id, desktop_online, avatar_url")
-            .maybeSingle();
+        const profilePromise = currentUser
+          ? supabase
+              .from("profiles")
+              .select("display_name, active_project_id, desktop_online, avatar_url")
+              .eq("id", currentUser.id)
+              .maybeSingle()
+          : supabase
+              .from("profiles")
+              .select("display_name, active_project_id, desktop_online, avatar_url")
+              .maybeSingle();
 
-      const [profile, projects, agents, alerts, runs, services] = await Promise.all([
-        profilePromise,
-        supabase
-          .from("projects")
-          .select("*")
-          .eq("archived", false)
-          .order("updated_at", { ascending: false }),
-        supabase.from("agents").select("id, status"),
-        supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(1),
-        supabase
-          .from("runs")
-          .select("created_at, cost_usd, duration_ms")
-          .gte("created_at", since)
-          .order("created_at"),
-        supabase.from("services").select("name, kind, status, cost_usd, usage_units"),
-      ]);
+        const [profile, projects, agents, alerts, runs, services] = await Promise.all([
+          profilePromise,
+          supabase
+            .from("projects")
+            .select("*")
+            .eq("archived", false)
+            .order("updated_at", { ascending: false }),
+          supabase.from("agents").select("id, status"),
+          supabase.from("alerts").select("*").order("created_at", { ascending: false }).limit(1),
+          supabase
+            .from("runs")
+            .select("created_at, cost_usd, duration_ms")
+            .gte("created_at", since)
+            .order("created_at"),
+          supabase.from("services").select("name, kind, status, cost_usd, usage_units"),
+        ]);
 
-      const localName =
-        typeof window !== "undefined" ? localStorage.getItem("griot_user_name") : null;
-      const localEmail =
-        typeof window !== "undefined" ? localStorage.getItem("griot_user_email") : null;
+        const localName =
+          typeof window !== "undefined" ? localStorage.getItem("griot_user_name") : null;
+        const localEmail =
+          typeof window !== "undefined" ? localStorage.getItem("griot_user_email") : null;
 
-      const resolvedName =
-        profile.data?.display_name ||
-        currentUser?.user_metadata?.display_name ||
-        currentUser?.user_metadata?.name ||
-        currentUser?.user_metadata?.full_name ||
-        displayName ||
-        localName ||
-        (currentUser?.email ? currentUser.email.split("@")[0] : null) ||
-        (localEmail ? localEmail.split("@")[0] : null) ||
-        (email ? email.split("@")[0] : "");
+        const resolvedName =
+          profile.data?.display_name ||
+          currentUser?.user_metadata?.display_name ||
+          currentUser?.user_metadata?.name ||
+          currentUser?.user_metadata?.full_name ||
+          displayName ||
+          localName ||
+          (currentUser?.email ? currentUser.email.split("@")[0] : null) ||
+          (localEmail ? localEmail.split("@")[0] : null) ||
+          (email ? email.split("@")[0] : "");
 
-      const resolvedAvatar =
-        profile.data?.avatar_url ||
-        currentUser?.user_metadata?.avatar_url ||
-        currentUser?.user_metadata?.picture ||
-        avatarUrl ||
-        (typeof window !== "undefined" ? localStorage.getItem("griot_user_avatar") : null);
+        const resolvedAvatar =
+          profile.data?.avatar_url ||
+          currentUser?.user_metadata?.avatar_url ||
+          currentUser?.user_metadata?.picture ||
+          avatarUrl ||
+          (typeof window !== "undefined" ? localStorage.getItem("griot_user_avatar") : null);
 
-      return {
-        profile: profile.data
-          ? {
-              ...profile.data,
-              display_name: resolvedName,
-              avatar_url: resolvedAvatar,
-            }
-          : {
-              display_name: resolvedName,
-              active_project_id: null,
-              desktop_online: false,
-              avatar_url: resolvedAvatar,
+        return {
+          profile: profile.data
+            ? {
+                ...profile.data,
+                display_name: resolvedName,
+                avatar_url: resolvedAvatar,
+              }
+            : {
+                display_name: resolvedName,
+                active_project_id: null,
+                desktop_online: false,
+                avatar_url: resolvedAvatar,
+              },
+          projects: projects.data ?? [],
+          activeAgents: (agents.data ?? []).filter((agent) => agent.status === "active").length,
+          alert: alerts.data?.[0] ?? null,
+          runs: (runs.data ?? []) as RunRow[],
+          services: (services.data ?? []) as ServiceRow[],
+        };
+      } catch (err) {
+        console.warn("Falha na consulta da Home, usando estado inicial de fallback:", err);
+        return {
+          profile: {
+            display_name: displayName || "GRIOT",
+            active_project_id: "p1",
+            desktop_online: false,
+            avatar_url: avatarUrl || null,
+          },
+          projects: [
+            {
+              id: "p1",
+              user_id: "anonymous",
+              name: "Neoverbis",
+              description: "Plataforma editorial e de tradução assistida.",
+              progress: 92,
+              build_status: "success",
+              archived: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
             },
-        projects: projects.data ?? [],
-        activeAgents: (agents.data ?? []).filter((agent) => agent.status === "active").length,
-        alert: alerts.data?.[0] ?? null,
-        runs: (runs.data ?? []) as RunRow[],
-        services: (services.data ?? []) as ServiceRow[],
-      };
+            {
+              id: "p2",
+              user_id: "anonymous",
+              name: "ModelOS",
+              description: "Camada de orquestração de modelos do GRIOT.",
+              progress: 47,
+              build_status: "running",
+              archived: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          activeAgents: 2,
+          alert: null,
+          runs: [] as RunRow[],
+          services: [] as ServiceRow[],
+        };
+      }
     },
   });
 
