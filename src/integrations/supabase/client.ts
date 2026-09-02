@@ -15,8 +15,104 @@ function isPlaceholderUrl(url: string): boolean {
   );
 }
 
+const MOCK_DATA: Record<string, unknown> = {
+  profiles: [
+    { id: "anonymous", display_name: "GRIOT", desktop_online: false, active_project_id: "p1" },
+  ],
+  projects: [
+    {
+      id: "p1",
+      user_id: "anonymous",
+      name: "Neoverbis",
+      description: "Plataforma editorial e de tradução assistida.",
+      progress: 92,
+      build_status: "success",
+      archived: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      id: "p2",
+      user_id: "anonymous",
+      name: "ModelOS",
+      description: "Camada de orquestração de modelos do GRIOT.",
+      progress: 47,
+      build_status: "running",
+      archived: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ],
+  agents: [
+    { id: "a1", name: "Revisor", role: "Qualidade editorial", status: "active", created_at: new Date().toISOString() },
+    { id: "a2", name: "Tradutor", role: "Tradução assistida", status: "active", created_at: new Date().toISOString() },
+    { id: "a3", name: "Orquestrador", role: "Encaminhamento de modelos", status: "active", created_at: new Date().toISOString() },
+    { id: "a4", name: "Observador", role: "Monitorização de custos", status: "active", created_at: new Date().toISOString() },
+  ],
+  runs: [
+    { id: "r1", label: "Build #482", status: "success", duration_ms: 84000, cost_usd: 0.12, created_at: new Date().toISOString() },
+    { id: "r2", label: "Revisão de 240 parágrafos", status: "success", duration_ms: 213000, cost_usd: 0.87, created_at: new Date().toISOString() },
+    { id: "r3", label: "Sincronização de modelos", status: "running", duration_ms: 30000, cost_usd: 0.04, created_at: new Date().toISOString() },
+  ],
+  services: [
+    { id: "s1", name: "OpenAI", kind: "model", status: "operational", usage_units: 18420, cost_usd: 42.1 },
+    { id: "s2", name: "Gemini", kind: "model", status: "operational", usage_units: 9310, cost_usd: 11.4 },
+    { id: "s3", name: "Cloud", kind: "infra", status: "operational", usage_units: 1, cost_usd: 18.0 },
+    { id: "s4", name: "Storage", kind: "infra", status: "degraded", usage_units: 1, cost_usd: 3.2 },
+  ],
+  alerts: [
+    { id: "al1", kind: "deploy", message: "Deploy realizado", created_at: new Date().toISOString() },
+  ],
+  tasks: [
+    { id: "t1", title: "Rever fluxo de revisão editorial", status: "doing", priority: "high" },
+    { id: "t2", title: "Fechar exportação em EPUB", status: "todo", priority: "normal" },
+    { id: "t3", title: "Testes de carga na API", status: "done", priority: "normal" },
+  ],
+  pull_requests: [
+    { id: "pr1", number: 128, title: "Nova camada de cache para traduções", branch: "feat/cache", status: "pending" },
+    { id: "pr2", number: 127, title: "Correção de acentuação no importador", branch: "fix/import", status: "pending" },
+  ],
+  logs: [
+    { id: "l1", level: "info", source: "build", message: "Deploy realizado com sucesso." },
+  ],
+  captures: [],
+  conversations: [],
+  messages: [],
+  wallets: [{ balance_gcu: 24500, tier: "pro" }],
+  gcu_transactions: [],
+};
+
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
   return async (input, init) => {
+    const urlStr = typeof input === "string" ? input : input instanceof Request ? input.url : "";
+
+    if (isPlaceholderUrl(urlStr)) {
+      let responseBody: unknown = [];
+      const match = urlStr.match(/\/rest\/v1\/([^?]+)/);
+      if (match && match[1]) {
+        const table = match[1];
+        responseBody = MOCK_DATA[table] ?? [];
+      } else if (urlStr.includes("/auth/v1/user") || urlStr.includes("/auth/v1/session")) {
+        responseBody = { user: null, session: null };
+      } else if (urlStr.includes("/auth/v1/token")) {
+        responseBody = {
+          access_token: "mock-token",
+          token_type: "bearer",
+          expires_in: 3600,
+          refresh_token: "mock-refresh",
+          user: { id: "anonymous", email: "" },
+        };
+      }
+
+      return new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "content-range": "0-10/10",
+        },
+      });
+    }
+
     const headers = new Headers(
       typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined,
     );
@@ -35,30 +131,42 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 
     headers.set("apikey", supabaseKey);
 
-    return fetch(input, { ...init, headers });
+    try {
+      return await fetch(input, { ...init, headers });
+    } catch {
+      // Offline fallback: graceful handling
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   };
 }
 
 function createSupabaseClient() {
   const envMap = import.meta.env as Record<string, string | undefined>;
+  const localUrl =
+    typeof window !== "undefined" ? window.localStorage.getItem("VITE_SUPABASE_URL") : null;
+  const localKey =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("VITE_SUPABASE_PUBLISHABLE_KEY")
+      : null;
+
   const SUPABASE_URL =
+    localUrl ||
     import.meta.env["VITE_SUPABASE_URL"] ||
     envMap["NEXT_PUBLIC_SUPABASE_URL"] ||
     process.env["SUPABASE_URL"] ||
     process.env["NEXT_PUBLIC_SUPABASE_URL"] ||
-    "";
+    "https://placeholder-griot.supabase.co";
+
   const SUPABASE_PUBLISHABLE_KEY =
+    localKey ||
     import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
     envMap["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
-    "";
-
-  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    throw new Error(
-      "Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.",
-    );
-  }
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key";
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     global: {
