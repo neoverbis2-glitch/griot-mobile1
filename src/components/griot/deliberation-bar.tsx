@@ -13,6 +13,7 @@ import {
 import { useT } from "@/lib/i18n";
 import {
   Brain,
+  Check,
   ChevronDown,
   FlaskConical,
   Lightbulb,
@@ -22,6 +23,7 @@ import {
   Target,
   TrendingUp,
   Wrench,
+  X,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -90,38 +92,52 @@ export function DeliberationBar({
         </span>
       </div>
 
-      {/* Mission Dropdown Selector */}
+      {/* Mission Modal Selector */}
       {missionOpen && (
-        <div className="mt-2.5 rounded-2xl border border-hairline bg-background p-2 shadow-lg rise">
-          <p className="px-2 py-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
-            {t("Escolher Missão da Sala")}
-          </p>
-          <div className="mt-1 space-y-1">
-            {DELIBERATION_MISSIONS.map((mission) => (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-hairline bg-surface/95 p-3.5 shadow-2xl backdrop-blur-2xl rise">
+            <div className="flex items-center justify-between px-1 pb-2.5 border-b border-hairline">
+              <p className="text-[13px] font-semibold text-foreground">
+                {t("Escolher Missão da Sala")}
+              </p>
               <button
-                key={mission.id}
                 type="button"
-                onClick={() => {
-                  onSelectMission(mission.id);
-                  setMissionOpen(false);
-                }}
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] transition-colors ${
-                  activeMission === mission.id
-                    ? "bg-white/[0.06] font-medium text-foreground"
-                    : "hover:bg-surface text-foreground/80"
-                }`}
+                onClick={() => setMissionOpen(false)}
+                className="grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground hover:text-foreground"
               >
-                <div className="flex items-center gap-2.5">
-                  <RoleIcon name={mission.icon} className="size-4 text-foreground/70" />
-                  <div>
-                    <p className="font-medium leading-none">{t(mission.label)}</p>
-                    <p className="mt-1 text-[11.5px] text-muted-foreground leading-tight">
-                      {t(mission.description)}
-                    </p>
-                  </div>
-                </div>
+                <X className="size-3.5" />
               </button>
-            ))}
+            </div>
+            <div className="mt-2 space-y-1 max-h-[55vh] overflow-y-auto no-scrollbar">
+              {DELIBERATION_MISSIONS.map((mission) => (
+                <button
+                  key={mission.id}
+                  type="button"
+                  onClick={() => {
+                    onSelectMission(mission.id);
+                    setMissionOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-[13px] transition-colors ${
+                    activeMission === mission.id
+                      ? "bg-white/[0.08] font-medium text-foreground"
+                      : "hover:bg-white/[0.04] text-foreground/80"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <RoleIcon name={mission.icon} className="size-4 text-foreground/80 shrink-0" />
+                    <div>
+                      <p className="font-medium leading-none">{t(mission.label)}</p>
+                      <p className="mt-1 text-[11px] text-muted-foreground leading-tight">
+                        {t(mission.description)}
+                      </p>
+                    </div>
+                  </div>
+                  {activeMission === mission.id && (
+                    <Check className="size-4 text-foreground shrink-0 ml-2" />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -134,55 +150,76 @@ export function DeliberationBar({
           const engineObj = ENGINE_OPTIONS.find((e) => e.id === engine);
 
           return (
-            <div key={roleId} className="relative">
-              <button
-                type="button"
-                onClick={() =>
-                  setRoleSelectOpen(roleSelectOpen === roleId ? null : roleId)
-                }
-                className="flex flex-col items-center justify-center w-full rounded-2xl border border-hairline bg-surface/40 px-2 py-2 text-center transition-all hover:border-foreground/20 active:scale-[0.97]"
-              >
-                <RoleIcon name={role.icon} className="size-5 text-foreground/80" />
-                <span className="mt-1.5 text-[11px] font-medium text-foreground truncate max-w-full">
-                  {role.label}
-                </span>
-                <span className="mt-0.5 text-[9.5px] text-muted-foreground/70 truncate max-w-full">
-                  {engineObj ? engineObj.label.split(" ")[0] : "Gemini"}
-                </span>
-              </button>
-
-              {/* Role Engine Selector Popover */}
-              {roleSelectOpen === roleId && (
-                <div className="absolute left-0 top-full z-50 mt-1 w-44 rounded-2xl border border-hairline bg-background p-1.5 shadow-xl rise">
-                  <p className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase">
-                    <RoleIcon name={role.icon} className="size-3 text-foreground/60" />
-                    {role.label}
-                  </p>
-                  <div className="space-y-0.5">
-                    {ENGINE_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => {
-                          onChangeRoleEngine(roleId, opt.id);
-                          setRoleSelectOpen(null);
-                        }}
-                        className={`w-full rounded-lg px-2 py-1.5 text-left text-[11.5px] transition-colors ${
-                          engine === opt.id
-                            ? "bg-white/[0.08] text-foreground font-medium"
-                            : "hover:bg-surface text-foreground/80"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            <button
+              key={roleId}
+              type="button"
+              onClick={() => setRoleSelectOpen(roleId)}
+              className="flex flex-col items-center justify-center w-full rounded-2xl border border-hairline bg-surface/40 px-2 py-2 text-center transition-all hover:border-foreground/20 active:scale-[0.97]"
+            >
+              <RoleIcon name={role.icon} className="size-5 text-foreground/80" />
+              <span className="mt-1.5 text-[11px] font-medium text-foreground truncate max-w-full">
+                {role.label}
+              </span>
+              <span className="mt-0.5 text-[9.5px] text-muted-foreground/70 truncate max-w-full">
+                {engineObj ? engineObj.label.split(" ")[0] : "Gemini"}
+              </span>
+            </button>
           );
         })}
       </div>
+
+      {/* Role Engine Selector Centered Modal */}
+      {roleSelectOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-xs overflow-hidden rounded-3xl border border-hairline bg-surface/95 p-3.5 shadow-2xl backdrop-blur-2xl rise">
+            <div className="flex items-center justify-between px-1 pb-2 border-b border-hairline">
+              <div className="flex items-center gap-2">
+                <RoleIcon name={DELIBERATION_ROLES[roleSelectOpen].icon} className="size-4 text-foreground/80" />
+                <p className="text-[13px] font-semibold text-foreground">
+                  {DELIBERATION_ROLES[roleSelectOpen].label}
+                </p>
+              </div>
+              <span className="text-[10px] text-muted-foreground uppercase font-mono tracking-wider">
+                Motor IA
+              </span>
+            </div>
+
+            <div className="mt-2 space-y-1 max-h-[45vh] overflow-y-auto no-scrollbar">
+              {ENGINE_OPTIONS.map((opt) => {
+                const currentEngine =
+                  roleEngines[roleSelectOpen] || DELIBERATION_ROLES[roleSelectOpen].defaultEngine;
+                const isSelected = currentEngine === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      onChangeRoleEngine(roleSelectOpen, opt.id);
+                      setRoleSelectOpen(null);
+                    }}
+                    className={`w-full flex items-center justify-between rounded-xl px-3 py-2.5 text-left text-[12.5px] transition-colors ${
+                      isSelected
+                        ? "bg-white/[0.08] text-foreground font-medium"
+                        : "hover:bg-white/[0.04] text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {isSelected && <Check className="size-3.5 text-foreground shrink-0 ml-2" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setRoleSelectOpen(null)}
+              className="mt-3 w-full rounded-xl bg-secondary py-2 text-center text-[12px] font-medium text-muted-foreground hover:text-foreground active:scale-[0.98]"
+            >
+              {t("Fechar")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

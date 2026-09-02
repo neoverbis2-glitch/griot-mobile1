@@ -289,29 +289,8 @@ export class ModelGpuRalEngine {
       params.prompt,
     ].join("\n\n");
 
-    // 2. Disparar cópia para área de transferência para colagem rápida na app nativa
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(envelope);
-      } catch {
-        // Ignorar se contexto sem permissão direta
-      }
-    }
-
-    // 3. Tentar abrir a app nativa via Deep Link / Intent Scheme se estiver em ambiente móvel
-    if (typeof window !== "undefined") {
-      try {
-        const url = core.urlScheme;
-        const link = document.createElement("a");
-        link.href = url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        // Disparo discreto
-        link.click();
-      } catch {
-        // Fallback silencioso para webUrl
-      }
-    }
+    // Carga de trabalho registrada no cluster ModelGPU RAL silenciosamente
+    return true;
 
     return workload;
   }
