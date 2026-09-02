@@ -44,7 +44,7 @@ async function main() {
       </radialGradient>
     </defs>
     <circle cx="256" cy="256" r="230" fill="url(#ambient-glow)" />
-    <g transform="translate(256, 256) scale(1.68) translate(-257, -256)">
+    <g transform="translate(256, 256) scale(1.20) translate(-257, -256)">
       <path d="M 196 186 
                C 130 186, 130 256, 196 256 
                C 262 256, 262 326, 328 326 
@@ -62,7 +62,7 @@ async function main() {
     </g>
   </svg>`;
 
-  const symbolBuffer = await sharp(Buffer.from(foregroundSvg)).resize(740, 740).toBuffer();
+  const symbolBuffer = await sharp(Buffer.from(foregroundSvg)).resize(520, 520).toBuffer();
 
   await sharp({
     create: {
@@ -120,9 +120,9 @@ async function main() {
         .png()
         .toFile(path.join(targetDir, "ic_launcher_round.png"));
 
-      // ic_launcher_foreground.png (scaled to fill ~72% of safe zone)
+      // ic_launcher_foreground.png (balanced at ~50% of safe zone)
       const fgPadded = await sharp(Buffer.from(foregroundSvg))
-        .resize(Math.round(m.fgSize * 0.72), Math.round(m.fgSize * 0.72))
+        .resize(Math.round(m.fgSize * 0.50), Math.round(m.fgSize * 0.50))
         .toBuffer();
 
       await sharp({

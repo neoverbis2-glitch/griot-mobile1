@@ -17,7 +17,15 @@ import { AI_OBSERVER_APPS, getObserverSourceForApp } from "./apps";
 import { loadPrefs, AI_CHAT_APPS } from "@/lib/settings";
 import { supabase } from "@/integrations/supabase/client";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
-import { sendGriotNotification } from "@/lib/native-notifications";
+
+async function notify(options: any) {
+  try {
+    const mod = await import("@/lib/native-notifications");
+    if (mod?.sendGriotNotification) {
+      await mod.sendGriotNotification(options);
+    }
+  } catch {}
+}
 
 type EventListener = (event: ObserverEvent) => void;
 type ActionEventListener = (action: GriotAction, result?: GriotExecutionResult) => void;
@@ -178,7 +186,7 @@ export class GriotObserverEngine {
         // Notificação nativa com logo do GRIOT e botões Aprovar / Rejeitar
         const payloadStr =
           JSON.stringify(action.params);
-        void sendGriotNotification({
+        void notify({
           type: "approval",
           title: `Aprovação Requerida (${action.type})`,
           message: payloadStr.slice(0, 160),
@@ -205,14 +213,14 @@ export class GriotObserverEngine {
           (action.type === "shell.exec" && JSON.stringify(action.params).includes("deploy"))
         ) {
           const deployUrl = result.stdout.match(/https?:\/\/[^\s]+/)?.[0] || "https://griot.ai";
-          void sendGriotNotification({
+          void notify({
             type: "deploy",
             title: "Site Deployado com Sucesso! 🚀",
             message: `O teu projeto está ativo no ar.`,
             url: deployUrl,
           });
         } else if (action.type === "shell.exec" || action.type === "fs.write_file") {
-          void sendGriotNotification({
+          void notify({
             type: "task",
             title: `Tarefa Concluída (${action.type})`,
             message: result.stdout?.slice(0, 120) || "Comando executado com sucesso.",
@@ -259,14 +267,14 @@ export class GriotObserverEngine {
         (action.type === "shell.exec" && JSON.stringify(action.params).includes("deploy"))
       ) {
         const deployUrl = result.stdout.match(/https?:\/\/[^\s]+/)?.[0] || "https://griot.ai";
-        void sendGriotNotification({
+        void notify({
           type: "deploy",
           title: "Site Deployado com Sucesso! 🚀",
           message: `O teu projeto está ativo no ar.`,
           url: deployUrl,
         });
       } else {
-        void sendGriotNotification({
+        void notify({
           type: "task",
           title: `Ação Concluída (${action.type})`,
           message: result.stdout?.slice(0, 120) || "Execução aprovada finalizada com êxito.",

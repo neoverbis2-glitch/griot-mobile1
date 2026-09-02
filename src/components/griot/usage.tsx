@@ -125,6 +125,11 @@ function ChartTip({ suffix }: { suffix: string }) {
 export function UsageSection({ runs, services }: { runs: RunRow[]; services: ServiceRow[] }) {
   const t = useT();
   const [range, setRange] = useState<7 | 14 | 30>(14);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const daily = useMemo(() => buildDaily(runs, range), [runs, range]);
   const week = useMemo(() => buildDaily(runs, 7), [runs]);
@@ -156,6 +161,19 @@ export function UsageSection({ runs, services }: { runs: RunRow[]; services: Ser
   );
 
   const serviceTotal = serviceData.reduce((sum, item) => sum + item.value, 0);
+
+  if (!mounted) {
+    return (
+      <div className="space-y-4">
+        <Chrome title="Gastos GCU" value={totalGcu.toFixed(2)}>
+          <div className="h-[132px] w-full rounded-2xl bg-surface/30 border border-hairline/40" />
+        </Chrome>
+        <Chrome title="Uso semanal" value={`${weekRuns} ${t("execuções")}`}>
+          <div className="h-[124px] w-full rounded-2xl bg-surface/30 border border-hairline/40" />
+        </Chrome>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

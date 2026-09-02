@@ -58,6 +58,11 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <p className="mt-2 text-[13.5px] text-muted-foreground leading-relaxed">
           Não foi possível carregar o ecossistema.
         </p>
+        {error?.message && (
+          <p className="mt-2.5 text-[11px] font-mono text-muted-foreground/60 break-all max-w-xs">
+            {String(error.message)}
+          </p>
+        )}
         <div className="mt-6 flex flex-col w-full gap-2.5">
           <button
             type="button"

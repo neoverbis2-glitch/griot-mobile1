@@ -20,8 +20,8 @@
   <!-- Luz de Fundo sutil -->
   <circle cx="256" cy="256" r="230" fill="url(#ambient-glow)" />
 
-  <!-- SÍMBOLO PRINCIPAL (O ELO INFINITO 'G' — Proporção ampliada no estilo ChatGPT/Claude/Grok) -->
-  <g transform="translate(256, 256) scale(1.68) translate(-257, -256)">
+  <!-- SÍMBOLO PRINCIPAL (O ELO INFINITO 'G' — Proporção equilibrada, um pouco maior que a versão original) -->
+  <g transform="translate(256, 256) scale(1.20) translate(-257, -256)">
     <!-- O Nó de Memória Contínuo -->
     <path d="M 196 186 
              C 130 186, 130 256, 196 256 
