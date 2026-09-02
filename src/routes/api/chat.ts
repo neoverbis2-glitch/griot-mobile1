@@ -110,7 +110,7 @@ export const Route = createFileRoute("/api/chat")({
             } catch (error) {
               console.error("api/chat -> griot-orchestrator error:", error);
               emit("text", "Não foi possível contactar o GRIOT. Verifica a tua ligação.");
-            } font-medium: {
+            } finally {
               controller.close();
             }
           },
