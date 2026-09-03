@@ -424,7 +424,9 @@ public class GriotObserverService extends AccessibilityService {
 
             if (!sent && inputNode != null) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    sent = inputNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ACTION.getId());
+                    try {
+                        sent = inputNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+                    } catch (Exception ignored) {}
                 }
             }
 
