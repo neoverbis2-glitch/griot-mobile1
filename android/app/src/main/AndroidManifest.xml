@@ -62,7 +62,7 @@
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
-            android:name=".MainActivity"
+            android:name="com.griot.app.MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
@@ -82,12 +82,12 @@
             android:grantUriPermissions="true">
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"></meta-data>
+                android:resource="@xml/file_paths" />
         </provider>
 
         <!-- GRIOT Observer Accessibility Service -->
         <service
-            android:name=".observer.GriotObserverService"
+            android:name="com.griot.app.observer.GriotObserverService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -100,7 +100,7 @@
 
         <!-- GRIOT Notification Observer Service -->
         <service
-            android:name=".observer.GriotNotificationObserverService"
+            android:name="com.griot.app.observer.GriotNotificationObserverService"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -110,7 +110,7 @@
 
         <!-- GRIOT Notification Action Receiver (Aprovar / Rejeitar) -->
         <receiver
-            android:name=".notifications.GriotNotificationActionReceiver"
+            android:name="com.griot.app.notifications.GriotNotificationActionReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.griot.app.ACTION_APPROVE" />

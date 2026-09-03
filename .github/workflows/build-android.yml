@@ -21,16 +21,16 @@ jobs:
         with:
           node-version: '22.13.0'
 
-      - name: Setup Java 21
-        uses: actions/setup-java@v5
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -61,20 +61,21 @@ jobs:
           chmod +x ./gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK
+      - name: Verify APK Integrity and Badging
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.5-debug.apk
-          echo "APK=GRIOT-v1.0.5-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.5-debug.apk
-          ls -lh GRIOT-v1.0.5-debug.apk
+          cp "$APK" GRIOT-v1.0.6-debug.apk
+          echo "APK=GRIOT-v1.0.6-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.6-debug.apk
+          ls -lh GRIOT-v1.0.6-debug.apk
+          $ANDROID_HOME/build-tools/34.0.0/aapt2 dump badging GRIOT-v1.0.6-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.5-debug.apk
+          path: GRIOT-v1.0.6-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -82,9 +83,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.5
-          name: "GRIOT Mobile v1.0.5"
-          body: "Instalação direta do APK debug (sem necessidade de extrair zip). Inclui Observer Service nativo e suporte completo aos 8 AppChats."
-          files: GRIOT-v1.0.5-debug.apk
+          tag_name: v1.0.6
+          name: "GRIOT Mobile v1.0.6"
+          body: "Instalação direta do APK debug (compatível com Android 14 / One UI 6, assinatura determinística e suporte nativo ao Observer)."
+          files: GRIOT-v1.0.6-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
