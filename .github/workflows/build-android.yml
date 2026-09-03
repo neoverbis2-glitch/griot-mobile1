@@ -65,24 +65,26 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          echo "APK=$APK" >> "$GITHUB_ENV"
-          sha256sum "$APK"
-          ls -lh "$APK"
+          cp "$APK" GRIOT-v1.0.5-debug.apk
+          echo "APK=GRIOT-v1.0.5-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.5-debug.apk
+          ls -lh GRIOT-v1.0.5-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: ${{ env.APK }}
+          path: GRIOT-v1.0.5-debug.apk
           if-no-files-found: error
           retention-days: 30
 
       - name: Create or Update GitHub Release with Raw APK
+        uses: softprops/action-gh-release@v2
         continue-on-error: true
+        with:
+          tag_name: v1.0.5
+          name: "GRIOT Mobile v1.0.5"
+          body: "Instalação direta do APK debug (sem necessidade de extrair zip). Inclui Observer Service nativo e suporte completo aos 8 AppChats."
+          files: GRIOT-v1.0.5-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create v1.0.5 "${{ env.APK }}#GRIOT-v1.0.5-debug.apk" \
-            --title "GRIOT Mobile v1.0.5" \
-            --notes "Instalação direta do APK debug (sem necessidade de extrair zip). Inclui Observer Service nativo e suporte completo aos 8 AppChats." \
-            --clobber || true
