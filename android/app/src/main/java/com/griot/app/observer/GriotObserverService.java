@@ -336,10 +336,11 @@ public class GriotObserverService extends AccessibilityService {
             return;
         }
 
-        AccessibilityNodeInfo rootNode = null;
+        AccessibilityNodeInfo tempRoot = null;
         try {
-            rootNode = getRootInActiveWindow();
+            tempRoot = getRootInActiveWindow();
         } catch (Exception ignored) {}
+        final AccessibilityNodeInfo rootNode = tempRoot;
 
         if (rootNode == null) {
             automationHandler.postDelayed(() -> attemptInjectionWithRetries(message, attempt + 1), 300);
@@ -355,7 +356,7 @@ public class GriotObserverService extends AccessibilityService {
             return;
         }
 
-        AccessibilityNodeInfo inputNode = findInputNode(rootNode);
+        final AccessibilityNodeInfo inputNode = findInputNode(rootNode);
         if (inputNode == null) {
             try { rootNode.recycle(); } catch (Exception ignored) {}
             automationHandler.postDelayed(() -> attemptInjectionWithRetries(message, attempt + 1), 300);
