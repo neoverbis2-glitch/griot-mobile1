@@ -65,17 +65,17 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.6-debug.apk
-          echo "APK=GRIOT-v1.0.6-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.6-debug.apk
-          ls -lh GRIOT-v1.0.6-debug.apk
-          $ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging GRIOT-v1.0.6-debug.apk
+          cp "$APK" GRIOT-v1.0.7-debug.apk
+          echo "APK=GRIOT-v1.0.7-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.7-debug.apk
+          ls -lh GRIOT-v1.0.7-debug.apk
+          $ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging GRIOT-v1.0.7-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.6-debug.apk
+          path: GRIOT-v1.0.7-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -83,9 +83,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.6
-          name: "GRIOT Mobile v1.0.6"
-          body: "Instalação direta do APK debug (compatível com Android 14 / One UI 6, assinatura determinística e suporte nativo ao Observer)."
-          files: GRIOT-v1.0.6-debug.apk
+          tag_name: v1.0.7
+          name: "GRIOT Mobile v1.0.7"
+          body: "Instalação direta do APK debug (compatível com Android 14 / One UI 6, assinatura dupla v1+v2 determinística e suporte nativo ao Observer)."
+          files: GRIOT-v1.0.7-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
