@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-android:
@@ -76,3 +76,13 @@ jobs:
           path: ${{ env.APK }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Create or Update GitHub Release with Raw APK
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create v1.0.5 "${{ env.APK }}#GRIOT-v1.0.5-debug.apk" \
+            --title "GRIOT Mobile v1.0.5" \
+            --notes "Instalação direta do APK debug (sem necessidade de extrair zip). Inclui Observer Service nativo e suporte completo aos 8 AppChats." \
+            --clobber || true
