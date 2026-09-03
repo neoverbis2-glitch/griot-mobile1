@@ -66,13 +66,11 @@ export class GriotNativeObserverBridge {
     window.addEventListener("griot:native-accessibility-event", (e: any) => {
       const detail = e.detail;
       if (detail?.package && detail?.content) {
-        if (/<griot_action\b|```griot[:\n]|\[GRIOT:/.test(detail.content)) {
-          this.handleNativeScrapedContent(
-            detail.package,
-            detail.content,
-            detail.appName || detail.package,
-          );
-        }
+        this.handleNativeScrapedContent(
+          detail.package,
+          detail.content,
+          detail.appName || detail.package,
+        );
       }
     });
 
@@ -176,8 +174,8 @@ export class GriotNativeObserverBridge {
     pkg: string,
     threadTitle: string,
     message: string,
-  ): Promise<{ success: boolean; injected: boolean }> {
-    if (typeof window === "undefined") return { success: false, injected: false };
+  ): Promise<{ success: boolean; injected: boolean; error?: string }> {
+    if (typeof window === "undefined") return { success: false, injected: false, error: "Ambiente não suportado" };
 
     if ((window as any).Capacitor?.isNativePlatform?.()) {
       try {
@@ -189,65 +187,102 @@ export class GriotNativeObserverBridge {
         return {
           success: res?.success === true,
           injected: res?.injected === true,
+          error: res?.error,
         };
-      } catch (err) {
+      } catch (err: any) {
         console.warn("Falha ao injetar mensagem via plugin nativo:", err);
+        return {
+          success: false,
+          injected: false,
+          error: err?.message || "Falha na comunicação nativa",
+        };
       }
     }
 
-    return { success: false, injected: false };
+    return {
+      success: false,
+      injected: false,
+      error: "O GRIOT Observer requer a app móvel Android para comunicar com apps externas.",
+    };
   }
 
-  /** Aguarda uma fotografia estável da UI da app alvo depois da injeção. */
+  /** Aguarda resposta em streaming ou fotografia estável da app alvo depois da injeção. */
   public waitForAppResponse(
     pkg: string,
     prompt: string,
-    timeoutMs = 60_000,
+    threadTitle = "",
+    timeoutMs = 75_000,
+    onProgress?: (chunk: string) => void,
   ): Promise<{ text: string; package: string }> {
     if (typeof window === "undefined") return Promise.reject(new Error("Window indisponível."));
 
     return new Promise((resolve, reject) => {
-      const startedAt = Date.now();
       const normalize = (value: string) => value.replace(/\s+/g, " ").trim();
       const promptNorm = normalize(prompt);
       let lastCandidate = "";
       let stableCount = 0;
+      let lastStreamChunk = "";
 
       const cleanup = () => {
-        window.removeEventListener("griot:native-accessibility-event", onEvent as EventListener);
+        window.removeEventListener("griot:native-accessibility-event", onAccessibilityEvent as EventListener);
+        window.removeEventListener("griot:app-stream-chunk", onStreamChunk as EventListener);
         window.clearTimeout(timeout);
       };
 
       const timeout = window.setTimeout(() => {
         cleanup();
-        reject(new Error("A app externa não devolveu uma resposta dentro do tempo limite."));
+        if (lastStreamChunk.trim().length > 10) {
+          resolve({ text: lastStreamChunk.trim(), package: pkg });
+        } else {
+          reject(new Error("Tempo limite excedido a aguardar resposta da app externa."));
+        }
       }, timeoutMs);
 
-      const onEvent = (event: Event) => {
+      // 1. Escuta chunks de streaming diretos do GriotObserverService
+      const onStreamChunk = (event: Event) => {
+        const detail = (event as CustomEvent).detail as { threadTitle?: string; text?: string; isDone?: boolean };
+        if (!detail?.text) return;
+        if (threadTitle && detail.threadTitle && detail.threadTitle !== threadTitle) return;
+
+        lastStreamChunk = detail.text;
+        onProgress?.(detail.text);
+
+        if (detail.isDone) {
+          cleanup();
+          resolve({ text: detail.text, package: pkg });
+        }
+      };
+
+      // 2. Escuta snapshots brutos de acessibilidade
+      const onAccessibilityEvent = (event: Event) => {
         const detail = (event as CustomEvent).detail as { package?: string; content?: string };
         if (detail?.package !== pkg || typeof detail.content !== "string") return;
 
         let candidate = detail.content.trim();
         if (!candidate) return;
 
-        // Never expose our own injected prompt as an assistant answer.
         if (promptNorm) {
           candidate = candidate.replace(prompt, "").trim();
         }
         if (!candidate) return;
 
         const clean = normalize(candidate);
-        if (clean === lastCandidate) stableCount += 1;
-        else { lastCandidate = clean; stableCount = 1; }
+        if (clean === lastCandidate) {
+          stableCount += 1;
+        } else {
+          lastCandidate = clean;
+          stableCount = 1;
+          onProgress?.(candidate);
+        }
 
-        // Two identical snapshots indicate a stable UI state rather than a streaming frame.
-        if (stableCount >= 2) {
+        if (stableCount >= 2 && candidate.length > 15) {
           cleanup();
           resolve({ text: candidate, package: pkg });
         }
       };
 
-      window.addEventListener("griot:native-accessibility-event", onEvent as EventListener);
+      window.addEventListener("griot:app-stream-chunk", onStreamChunk as EventListener);
+      window.addEventListener("griot:native-accessibility-event", onAccessibilityEvent as EventListener);
     });
   }
 
@@ -279,3 +314,17 @@ export class GriotNativeObserverBridge {
 }
 
 export const nativeObserverBridge = GriotNativeObserverBridge.getInstance();
+
+export function getPackageForAppId(appId: string): string {
+  const map: Record<string, string> = {
+    chatgpt: "com.openai.chatgpt",
+    claude: "com.anthropic.claude",
+    gemini: "com.google.gemini",
+    deepseek: "com.deepseek.chat",
+    kimi: "com.moonshot.kimi",
+    grok: "ai.x.grok",
+    perplexity: "ai.perplexity.app.android",
+    mistral: "ai.mistral.chat",
+  };
+  return map[appId.toLowerCase()] || `com.ai.${appId}`;
+}

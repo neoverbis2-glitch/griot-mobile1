@@ -44,20 +44,31 @@ function ProjectsPage() {
           .order("created_at", { ascending: false });
 
         if (cancelled) return;
-        if (data && data.length > 0) {
-          setProjects(data as unknown as ProjectRow[]);
-        } else {
-          // Limpo por padrão para produção real
-          const stored = typeof window !== "undefined" ? localStorage.getItem("griot_local_projects") : null;
+        let merged: ProjectRow[] = (data || []) as unknown as ProjectRow[];
+        if (typeof window !== "undefined") {
+          const stored = localStorage.getItem("griot_local_projects");
           if (stored) {
-            setProjects(JSON.parse(stored));
+            try {
+              const localList: ProjectRow[] = JSON.parse(stored);
+              for (const lp of localList) {
+                if (!merged.some((p) => p.id === lp.id)) {
+                  merged.push(lp);
+                }
+              }
+            } catch {}
+          }
+        }
+        setProjects(merged);
+      } catch (err) {
+        console.warn("Carregamento de projetos:", err);
+        if (!cancelled) {
+          if (typeof window !== "undefined") {
+            const stored = localStorage.getItem("griot_local_projects");
+            setProjects(stored ? JSON.parse(stored) : []);
           } else {
             setProjects([]);
           }
         }
-      } catch (err) {
-        console.warn("Carregamento de projetos:", err);
-        if (!cancelled) setProjects([]);
       } finally {
         if (!cancelled) setLoading(false);
       }

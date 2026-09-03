@@ -33,6 +33,7 @@ import {
   modelGpuRalEngine,
   threadBinder,
   nativeObserverBridge,
+  getPackageForAppId,
   AI_OBSERVER_APPS,
 } from "@/lib/runtime";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
@@ -445,12 +446,41 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (sheet !== "projects") return;
-    void supabase
-      .from("projects")
-      .select("id, name")
-      .eq("archived", false)
-      .order("updated_at", { ascending: false })
-      .then(({ data }) => setProjects(data ?? []));
+    async function fetchProjects() {
+      try {
+        const { data } = await supabase
+          .from("projects")
+          .select("id, name")
+          .eq("archived", false)
+          .order("updated_at", { ascending: false });
+
+        let list: { id: string; name: string }[] = data ? [...data] : [];
+        if (typeof window !== "undefined") {
+          const raw = localStorage.getItem("griot_local_projects");
+          if (raw) {
+            try {
+              const localList = JSON.parse(raw);
+              for (const lp of localList) {
+                if (!list.some((p) => p.id === lp.id)) {
+                  list.push({ id: lp.id, name: lp.name });
+                }
+              }
+            } catch {}
+          }
+        }
+        setProjects(list);
+      } catch {
+        if (typeof window !== "undefined") {
+          const raw = localStorage.getItem("griot_local_projects");
+          if (raw) {
+            try {
+              setProjects(JSON.parse(raw));
+            } catch {}
+          }
+        }
+      }
+    }
+    void fetchProjects();
   }, [sheet]);
 
   // Capture no “+”: primeiro as marcadas como rápidas, depois as mais recentes.
@@ -546,91 +576,129 @@ export function ChatSurface({ userId }: { userId: string }) {
       );
       boundThreadTitle = binding.fixedTitle;
       threadBinder.registerMessageExchange(conversationId, targetAppId);
-
     }
 
     try {
+      const lastMsg = base[base.length - 1]?.content || "";
+      const mLabel = modelLabel(model);
 
-      let streamedAny = false;
+      if (isApp && targetAppId) {
+        const pkg = getPackageForAppId(targetAppId);
+        setStreaming(`A contactar ${mLabel} via GRIOT Observer...`);
 
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          },
-          body: JSON.stringify({
-            model,
-            effort: activeEffort,
-            messages: base,
-            capsule: context,
-            voice: voiceMode,
-            conversationId,
-            conversationTitle: conversation?.title,
-          }),
-          signal: controller.signal,
-        });
+        const isNative = typeof window !== "undefined" && (window as any).Capacitor?.isNativePlatform?.();
+        if (!isNative) {
+          toast.error(`A ligação direta à app ${mLabel} requer o GRIOT instalado no telemóvel Android.`);
+          setBusy(false);
+          setStreaming("");
+          return;
+        }
 
-        if (response.ok && response.body) {
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
+        const sendRes = await nativeObserverBridge.sendAppMessage(pkg, boundThreadTitle, lastMsg);
+        if (!sendRes.success) {
+          toast.error(
+            sendRes.error || `Não foi possível comunicar com ${mLabel}. Verifica se o GRIOT Observer está ativado em Acessibilidade.`,
+            {
+              duration: 8000,
+              action: {
+                label: "Ativar Acessibilidade",
+                onClick: () => void nativeObserverBridge.requestAccessibilityPermission(),
+              },
+            },
+          );
+          setBusy(false);
+          setStreaming("");
+          return;
+        }
 
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              try {
-                const event = JSON.parse(line) as { t: string; d: string };
-                if (event.t === "text") {
-                  answer += event.d;
-                  setStreaming(answer);
-                  streamedAny = true;
-                  if (voiceMode) sessionRef.current?.feed(event.d);
-                } else if (event.t === "reason") {
-                  setReasoning((current) => current + event.d);
-                } else if (event.t === "step") {
-                  setSteps((current) => current + 1);
+        setStreaming(`Mensagem enviada para ${mLabel}. A capturar resposta em direto...`);
+
+        try {
+          const captured = await nativeObserverBridge.waitForAppResponse(
+            pkg,
+            lastMsg,
+            boundThreadTitle,
+            75000,
+            (liveChunk) => {
+              if (liveChunk) {
+                setStreaming(liveChunk);
+                if (voiceMode) sessionRef.current?.feed(liveChunk);
+              }
+            },
+          );
+          answer = captured.text;
+          setStreaming(answer);
+        } catch (waitErr: any) {
+          toast.error(`Não foi possível capturar a resposta de ${mLabel}: ${waitErr?.message || "tempo limite excedido"}`);
+          setBusy(false);
+          setStreaming("");
+          return;
+        }
+      } else {
+        let streamedAny = false;
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          const accessToken = sessionData?.session?.access_token;
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            },
+            body: JSON.stringify({
+              model,
+              effort: activeEffort,
+              messages: base,
+              capsule: context,
+              voice: voiceMode,
+              conversationId,
+              conversationTitle: conversation?.title,
+            }),
+            signal: controller.signal,
+          });
+
+          if (response.ok && response.body) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                  const event = JSON.parse(line) as { t: string; d: string };
+                  if (event.t === "text") {
+                    answer += event.d;
+                    setStreaming(answer);
+                    streamedAny = true;
+                    if (voiceMode) sessionRef.current?.feed(event.d);
+                  } else if (event.t === "reason") {
+                    setReasoning((current) => current + event.d);
+                  } else if (event.t === "step") {
+                    setSteps((current) => current + 1);
+                  }
+                } catch {
+                  // fragmento incompleto
                 }
-              } catch {
-                // fragmento incompleto
               }
             }
           }
-        }
-      } catch (networkErr) {
-        console.warn("fetch /api/chat falhou no ambiente:", networkErr);
-      }
-
-      // Se o endpoint remoto não enviou texto (ex: standalone no APK Android sem servidor local),
-      // o motor de inteligência do GRIOT responde diretamente ao modelo escolhido
-      if (!streamedAny || !answer.trim()) {
-        const lastMsg = base[base.length - 1]?.content || "";
-        const mLabel = modelLabel(model);
-        let synthetic = "";
-
-        if (/^(oi|ol[aá]|bom dia|boa tarde|boa noite|hey|hi|hello)\b/i.test(lastMsg.trim())) {
-          synthetic = `Olá! O motor **${mLabel}** está pronto e ativo no GRIOT. Em que posso colaborar contigo hoje?`;
-        } else {
-          synthetic = `Compreendido. Com base no modelo **${mLabel}**, aqui está a análise sobre o teu pedido:\n\n` +
-            `Em relação a "${lastMsg.slice(0, 110)}${lastMsg.length > 110 ? "..." : ""}":\n\n` +
-            `O processamento foi concluído pelo motor cognitivo do GRIOT. Se precisares de estruturar em código, detalhar cenários ou avançar com a implementação, diz-me!`;
+        } catch (networkErr) {
+          console.warn("fetch /api/chat falhou no ambiente:", networkErr);
         }
 
-        const words = synthetic.split(/(\s+)/);
-        for (const word of words) {
-          if (controller.signal.aborted) break;
-          answer += word;
-          setStreaming(answer);
-          if (voiceMode) sessionRef.current?.feed(word);
-          await new Promise((resolve) => setTimeout(resolve, 25));
+        if (!streamedAny || !answer.trim()) {
+          toast.error(
+            `Sem ligação ao modelo ${mLabel}. Configura uma chave de API ou seleciona uma das 8 Apps (ChatGPT, Claude, Kimi, etc.) para utilizar via Observer.`,
+          );
+          setBusy(false);
+          setStreaming("");
+          return;
         }
       }
 
@@ -1148,10 +1216,27 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   async function assignProject(projectId: string) {
     if (!conversation) return;
-    await supabase
-      .from("conversations")
-      .update({ project_id: projectId })
-      .eq("id", conversation.id);
+    try {
+      await supabase
+        .from("conversations")
+        .update({ project_id: projectId })
+        .eq("id", conversation.id);
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("griot_conversations_v1");
+        if (raw) {
+          const list = JSON.parse(raw);
+          const updated = list.map((c: any) =>
+            c.id === conversation.id ? { ...c, project_id: projectId } : c,
+          );
+          localStorage.setItem("griot_conversations_v1", JSON.stringify(updated));
+        }
+      } catch {}
+    }
+
+    setConversation((prev) => (prev ? { ...prev, project_id: projectId } : null));
     toast.success(t("Conversa ligada ao projeto."));
     setSheet(null);
   }
@@ -1225,7 +1310,7 @@ export function ChatSurface({ userId }: { userId: string }) {
         opacity: drag ? Math.max(0.65, 1 - drag / 900) : undefined,
         transition: drag
           ? "none"
-          : "transform 260ms cubic-bezier(0.22,0.9,0.25,1), opacity 260ms cubic-bezier(0.22,0.9,0.25,1)",
+          : "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 320ms cubic-bezier(0.16, 1, 0.3, 1)",
         willChange: "transform, opacity",
         touchAction: "pan-y",
       }}
@@ -1235,7 +1320,7 @@ export function ChatSurface({ userId }: { userId: string }) {
         touchRef.current = {
           x: touch.clientX,
           y: touch.clientY,
-          edge: touch.clientX < 160,
+          edge: touch.clientX < Math.max(window.innerWidth * 0.85, 300),
         };
         dragMeta.current = {
           last: touch.clientX,
@@ -1257,10 +1342,10 @@ export function ChatSurface({ userId }: { userId: string }) {
         meta.velocity = (touch.clientX - meta.last) / elapsed;
         meta.last = touch.clientX;
         meta.time = now;
-        if (!meta.active && dx > 8 && dx > dy * 0.8) meta.active = true;
+        if (!meta.active && dx > 8 && dx > dy * 0.7) meta.active = true;
         if (meta.active && dx > 0) {
           if (frame.current) cancelAnimationFrame(frame.current);
-          frame.current = requestAnimationFrame(() => setDrag(dx * 1.04));
+          frame.current = requestAnimationFrame(() => setDrag(dx * 1.02));
         }
       }}
       onTouchEnd={() => {
@@ -1268,9 +1353,9 @@ export function ChatSurface({ userId }: { userId: string }) {
         const meta = dragMeta.current;
         touchRef.current = null;
         if (frame.current) cancelAnimationFrame(frame.current);
-        if (start?.edge && (drag > 55 || (drag > 20 && meta.velocity > 0.3))) {
+        if (start?.edge && (drag > 50 || (drag > 18 && meta.velocity > 0.25))) {
           setDrag(window.innerWidth);
-          window.setTimeout(() => void navigate({ to: "/home" }), 150);
+          window.setTimeout(() => void navigate({ to: "/home" }), 140);
           return;
         }
         setDrag(0);
@@ -1674,21 +1759,81 @@ export function ChatSurface({ userId }: { userId: string }) {
 
           {sheet === "projects" ? (
             <div className="sheet-up mb-2 max-h-[55vh] overflow-y-auto rounded-[26px] border border-hairline bg-surface/95 backdrop-blur-2xl">
-              <p className="px-4 pt-4 pb-2 text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
-                {t("Projetos")}
-              </p>
-              {projects.length === 0 ? (
-                <p className="px-4 pb-4 text-[14px] text-muted-foreground">
-                  {t("Ainda não existem projetos.")}
+              <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                <p className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+                  {t("Projetos")}
                 </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const title = prompt(t("Nome do novo projeto:"))?.trim();
+                    if (!title) return;
+                    const newProj = {
+                      id: `proj_${Date.now()}`,
+                      name: title,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    };
+                    try {
+                      await supabase.from("projects").insert({ name: title });
+                    } catch {}
+                    if (typeof window !== "undefined") {
+                      const raw = localStorage.getItem("griot_local_projects");
+                      const list = raw ? JSON.parse(raw) : [];
+                      list.unshift(newProj);
+                      localStorage.setItem("griot_local_projects", JSON.stringify(list));
+                    }
+                    setProjects((prev) => [newProj, ...prev]);
+                    void assignProject(newProj.id);
+                  }}
+                  className="text-[12px] font-semibold text-primary active:opacity-70"
+                >
+                  + {t("Novo")}
+                </button>
+              </div>
+              {projects.length === 0 ? (
+                <div className="px-4 pb-4">
+                  <p className="text-[14px] text-muted-foreground mb-3">
+                    {t("Ainda não existem projetos.")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const title = prompt(t("Nome do projeto:"))?.trim() || "Meu Projeto";
+                      const newProj = {
+                        id: `proj_${Date.now()}`,
+                        name: title,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                      };
+                      try {
+                        await supabase.from("projects").insert({ name: title });
+                      } catch {}
+                      if (typeof window !== "undefined") {
+                        const raw = localStorage.getItem("griot_local_projects");
+                        const list = raw ? JSON.parse(raw) : [];
+                        list.unshift(newProj);
+                        localStorage.setItem("griot_local_projects", JSON.stringify(list));
+                      }
+                      setProjects([newProj]);
+                      void assignProject(newProj.id);
+                    }}
+                    className="inline-flex items-center rounded-xl bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground"
+                  >
+                    + {t("Criar primeiro projeto")}
+                  </button>
+                </div>
               ) : (
                 projects.map((project) => (
                   <button
                     key={project.id}
                     onClick={() => void assignProject(project.id)}
-                    className="flex w-full items-center gap-3 border-t border-hairline px-4 py-3.5 text-left active:bg-secondary"
+                    className="flex w-full items-center justify-between border-t border-hairline px-4 py-3.5 text-left active:bg-secondary"
                   >
                     <span className="text-[15px] font-medium">{project.name}</span>
+                    {conversation?.project_id === project.id && (
+                      <Check className="size-4 text-primary" />
+                    )}
                   </button>
                 ))
               )}

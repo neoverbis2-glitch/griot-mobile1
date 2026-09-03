@@ -18,6 +18,7 @@ import { GriotMark } from "../components/griot/logo";
 import { AiPermissionDialog } from "../components/griot/ai-permission-dialog";
 import { TermsDialog } from "../components/griot/terms-dialog";
 import { initNativeNotificationListeners } from "../lib/native-notifications";
+import { initNativeBackButtonListener } from "../lib/native-back-button";
 
 function NotFoundComponent() {
   return (
@@ -160,6 +161,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
   const [showSplash, setShowSplash] = useState(true);
   const [splashFading, setSplashFading] = useState(false);
 
@@ -204,8 +206,13 @@ function RootComponent() {
     // Inicializa receptor de ações das notificações nativas (Aprovar / Rejeitar)
     initNativeNotificationListeners();
 
+    // Inicializa gestão nativa do botão 'Back' físico/gestual do Android
+    initNativeBackButtonListener(() => {
+      void router.navigate({ to: "/home" });
+    });
+
     return () => clearInterval(interval);
-  }, []);
+  }, [router]);
 
   return (
     <QueryClientProvider client={queryClient}>

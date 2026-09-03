@@ -52,12 +52,17 @@ interface DeliberationBarProps {
 }
 
 const ENGINE_OPTIONS = [
-  { id: "gemini:gemini-3.6-flash", label: "Gemini 3.6 Flash (API)" },
-  { id: "openai:gpt-4o", label: "GPT-4o (API)" },
-  { id: "anthropic:claude-3-5-sonnet", label: "Claude 3.5 Sonnet (API)" },
   { id: "app:chatgpt", label: "ChatGPT (App Nativo)" },
   { id: "app:claude", label: "Claude (App Nativo)" },
   { id: "app:gemini", label: "Gemini (App Nativo)" },
+  { id: "app:deepseek", label: "DeepSeek (App Nativo)" },
+  { id: "app:kimi", label: "Kimi (App Nativo)" },
+  { id: "app:grok", label: "Grok (App Nativo)" },
+  { id: "app:perplexity", label: "Perplexity (App Nativo)" },
+  { id: "app:mistral", label: "Mistral (App Nativo)" },
+  { id: "gemini:gemini-3.6-flash", label: "Gemini 3.6 Flash (API)" },
+  { id: "openai:gpt-4o", label: "GPT-4o (API)" },
+  { id: "anthropic:claude-3-5-sonnet", label: "Claude 3.5 Sonnet (API)" },
 ];
 
 export function DeliberationBar({
@@ -143,7 +148,7 @@ export function DeliberationBar({
       )}
 
       {/* Bottom Row: Active 4 Roles Bar */}
-      <div className="mt-3 grid grid-cols-4 gap-2">
+      <div className="mt-2.5 grid grid-cols-4 gap-1.5 w-full">
         {(["strategist", "analyst", "innovator", "critic"] as DeliberationRoleId[]).map((roleId) => {
           const role = DELIBERATION_ROLES[roleId];
           const engine = roleEngines[roleId] || role.defaultEngine;
@@ -154,13 +159,13 @@ export function DeliberationBar({
               key={roleId}
               type="button"
               onClick={() => setRoleSelectOpen(roleId)}
-              className="flex flex-col items-center justify-center w-full rounded-2xl border border-hairline bg-surface/40 px-2 py-2 text-center transition-all hover:border-foreground/20 active:scale-[0.97]"
+              className="flex min-w-0 flex-col items-center justify-center rounded-2xl border border-hairline bg-surface/60 px-1 py-2 text-center transition-all hover:border-foreground/20 active:scale-[0.97]"
             >
-              <RoleIcon name={role.icon} className="size-5 text-foreground/80" />
-              <span className="mt-1.5 text-[11px] font-medium text-foreground truncate max-w-full">
+              <RoleIcon name={role.icon} className="size-4 text-foreground/80 shrink-0" />
+              <span className="mt-1 text-[10.5px] font-medium text-foreground truncate w-full px-0.5">
                 {role.label}
               </span>
-              <span className="mt-0.5 text-[9.5px] text-muted-foreground/70 truncate max-w-full">
+              <span className="mt-0.5 text-[9px] text-muted-foreground/75 truncate w-full px-0.5">
                 {engineObj ? engineObj.label.split(" ")[0] : "Gemini"}
               </span>
             </button>
