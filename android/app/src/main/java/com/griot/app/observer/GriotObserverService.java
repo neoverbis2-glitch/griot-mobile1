@@ -6,6 +6,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -422,7 +423,9 @@ public class GriotObserverService extends AccessibilityService {
             }
 
             if (!sent && inputNode != null) {
-                sent = inputNode.performAction(AccessibilityNodeInfo.ACTION_IME_ACTION);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    sent = inputNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ACTION.getId());
+                }
             }
 
             if (sent) {
