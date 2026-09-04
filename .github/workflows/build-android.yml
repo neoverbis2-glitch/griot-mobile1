@@ -30,7 +30,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          packages: platform-tools
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -55,45 +55,36 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Build APKs (Release & Debug)
+      - name: Build debug APK
         working-directory: android
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK Integrity and Badging
+      - name: Verify APK
         run: |
-          RELEASE_APK=$(find android -type f -path '*/outputs/apk/release/*-release.apk' | head -n 1)
-          DEBUG_APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
-          test -n "$RELEASE_APK"
-          test -n "$DEBUG_APK"
-          cp "$RELEASE_APK" GRIOT-v1.0.8-release.apk
-          cp "$DEBUG_APK" GRIOT-v1.0.8-debug.apk
-          sha256sum GRIOT-v1.0.8-release.apk GRIOT-v1.0.8-debug.apk
-          ls -lh GRIOT-v1.0.8-release.apk GRIOT-v1.0.8-debug.apk
-          $ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging GRIOT-v1.0.8-release.apk
-          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose GRIOT-v1.0.8-release.apk
-          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose GRIOT-v1.0.8-debug.apk
+          APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
+          test -n "$APK"
+          cp "$APK" GRIOT-v1.0.9-debug.apk
+          echo "APK=GRIOT-v1.0.9-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.9-debug.apk
+          ls -lh GRIOT-v1.0.9-debug.apk
 
-      - name: Upload APKs
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: griot-mobile-v1-apks
-          path: |
-            GRIOT-v1.0.8-release.apk
-            GRIOT-v1.0.8-debug.apk
+          name: griot-mobile-v1-debug-apk
+          path: GRIOT-v1.0.9-debug.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Create or Update GitHub Release with Raw APKs
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.8
-          name: "GRIOT Mobile v1.0.8"
-          body: "Instalação direta dos APKs Release e Debug (compatível com Android 14 / One UI 6, assinatura v1+v2+v3, extractNativeLibs=true e suporte nativo ao Observer)."
-          files: |
-            GRIOT-v1.0.8-release.apk
-            GRIOT-v1.0.8-debug.apk
+          tag_name: v1.0.9
+          name: "GRIOT Mobile v1.0.9"
+          body: "Instalação direta do APK debug restaurada para a configuração estável comprovada (v1.0.3/v1.0.4) com Observer nativo completo."
+          files: GRIOT-v1.0.9-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
