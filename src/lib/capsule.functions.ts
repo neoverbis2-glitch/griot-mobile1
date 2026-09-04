@@ -1119,10 +1119,9 @@ export const searchCapsule = createServerFn({ method: "GET" })
         .is("deleted_at", null)
         .or(`name.ilike.${term},title.ilike.${term},description.ilike.${term}`)
         .limit(20),
-      context.supabase
-        .from("messages")
-        .select("id, content, role, created_at, conversation_id, conversations!inner(capsule_id)")
-        .eq("conversations.capsule_id", data.capsuleId)
+      (context.supabase as any)
+        .from("griot_messages")
+        .select("id, content, actor_kind, created_at, conversation_id")
         .ilike("content", term)
         .limit(20),
     ]);
@@ -1130,7 +1129,13 @@ export const searchCapsule = createServerFn({ method: "GET" })
       decisions: decisions.data ?? [],
       entities: entities.data ?? [],
       assets: assets.data ?? [],
-      messages: messages.data ?? [],
+      messages: (messages.data ?? []).map((m: any) => ({
+        id: m.id,
+        content: m.content,
+        role: m.actor_kind === "human" ? "user" : "assistant",
+        created_at: m.created_at,
+        conversation_id: m.conversation_id,
+      })),
     };
   });
 
@@ -1141,22 +1146,20 @@ export const getCapsuleConversation = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ capsuleId: uuid }).parse(input))
   .handler(async ({ data, context }) => {
     const capsule = await assertCapsule(context, data.capsuleId);
-    const { data: existing } = await context.supabase
-      .from("conversations")
+    const { data: existing } = await (context.supabase as any)
+      .from("griot_conversations")
       .select("id")
-      .eq("capsule_id", data.capsuleId)
-      .eq("user_id", context.userId)
+      .eq("owner_id", context.userId)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (existing) return existing;
 
-    const { data: created, error } = await context.supabase
-      .from("conversations")
+    const { data: created, error } = await (context.supabase as any)
+      .from("griot_conversations")
       .insert({
-        user_id: context.userId,
-        capsule_id: data.capsuleId,
-        scope: "capsule",
+        owner_id: context.userId,
+        created_by: context.userId,
         title: capsule.name,
       })
       .select("id")
@@ -1173,24 +1176,22 @@ export const extractFromConversation = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertCapsule(context, data.capsuleId);
-    const { data: conversation } = await context.supabase
-      .from("conversations")
+    const { data: conversation } = await (context.supabase as any)
+      .from("griot_conversations")
       .select("id")
       .eq("id", data.conversationId)
-      .eq("user_id", context.userId)
       .maybeSingle();
     if (!conversation) throw new CapsuleDomainError("Conversa não encontrada", "not_found");
 
-    const { data: messages } = await context.supabase
-      .from("messages")
-      .select("role, content")
+    const { data: messages } = await (context.supabase as any)
+      .from("griot_messages")
+      .select("actor_kind, content")
       .eq("conversation_id", data.conversationId)
-      .eq("user_id", context.userId)
       .order("created_at", { ascending: true })
       .limit(200);
 
     const transcript = (messages ?? [])
-      .map((m: { role: string; content: string }) => `${m.role}: ${m.content.slice(0, 1200)}`)
+      .map((m: { actor_kind: string; content: string }) => `${m.actor_kind === "human" ? "user" : "assistant"}: ${m.content.slice(0, 1200)}`)
       .join("\n")
       .slice(0, 40000);
     if (!transcript) return { decisions: [], entities: [] };
@@ -1214,9 +1215,9 @@ export const extractFromConversation = createServerFn({ method: "POST" })
       parsed = {};
     }
 
-    await context.supabase
-      .from("conversations")
-      .update({ capsule_id: data.capsuleId })
+    await (context.supabase as any)
+      .from("griot_conversations")
+      .update({ project_id: data.capsuleId })
       .eq("id", data.conversationId)
       .eq("user_id", context.userId);
 

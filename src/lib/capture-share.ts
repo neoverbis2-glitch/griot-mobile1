@@ -63,22 +63,20 @@ export async function captureAsText(capture: CaptureRow) {
 
 /** Envia para uma conversa: usa a mais recente ou cria uma nova. */
 export async function sendCaptureToConversation(capture: CaptureRow, userId: string) {
-  const { data: existing } = await supabase
-    .from("conversations")
+  const { data: existing } = await (supabase as any)
+    .from("griot_conversations")
     .select("id")
-    .eq("archived", false)
     .order("updated_at", { ascending: false })
     .limit(1);
 
   let conversationId = existing?.[0]?.id ?? null;
   if (!conversationId) {
-    const { data: created } = await supabase
-      .from("conversations")
+    const { data: created } = await (supabase as any)
+      .from("griot_conversations")
       .insert({
-        user_id: userId,
-        scope: "quick",
-        title: "Capture",
-        model: "google/gemini-flash-latest",
+        owner_id: userId,
+        created_by: userId,
+        title: "Captura",
       })
       .select("id")
       .single();
@@ -87,11 +85,11 @@ export async function sendCaptureToConversation(capture: CaptureRow, userId: str
   if (!conversationId) throw new Error("no conversation");
 
   const content = await captureAsText(capture);
-  const { error } = await supabase.from("messages").insert({
-    user_id: userId,
+  const { error } = await (supabase as any).from("griot_messages").insert({
     conversation_id: conversationId,
-    role: "user",
+    actor_kind: "human",
     content,
+    status: "succeeded",
   });
   if (error) throw error;
   return conversationId;

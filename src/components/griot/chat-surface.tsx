@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { DEFAULT_MODEL, getAvailableModels, modelLabel, isModelOS } from "@/lib/griot";
+import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { toast } from "sonner";
 import { Thinking } from "@/components/griot/thinking";
 import { UserActions, AssistantActions } from "@/components/griot/message-actions";
@@ -256,28 +257,50 @@ export function ChatSurface({ userId }: { userId: string }) {
     let cancelled = false;
     async function load() {
       try {
-        const { data: existing, error: selectError } = await supabase
-          .from("conversations")
-          .select("id, scope, title, model, pinned, archived, updated_at")
-          .eq("scope", scope)
-          .eq("archived", false)
+        const { data: existing, error: selectError } = await (supabase as any)
+          .from("griot_conversations")
+          .select("id, title, updated_at")
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        let row = (existing ?? null) as unknown as Conversation | null;
+        let row: Conversation | null = null;
+        if (existing) {
+          row = {
+            id: existing.id,
+            scope,
+            title: existing.title || "Conversa Principal",
+            model: DEFAULT_MODEL,
+            pinned: false,
+            archived: false,
+            updated_at: existing.updated_at,
+          };
+        }
 
         if (!row && !selectError) {
-          const insertPayload: Record<string, unknown> = { scope, model: DEFAULT_MODEL };
-          if (userId && userId !== "anonymous") {
-            insertPayload.user_id = userId;
-          }
-          const { data: created } = await supabase
-            .from("conversations")
-            .insert(insertPayload)
-            .select("id, scope, title, model, pinned, archived, updated_at")
+          const workspaceId = await getPrimaryWorkspaceId(userId);
+          const { data: created } = await (supabase as any)
+            .from("griot_conversations")
+            .insert({
+              workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
+              title: "Conversa Principal",
+              owner_id: userId && userId !== "anonymous" ? userId : null,
+              created_by: userId && userId !== "anonymous" ? userId : null,
+            })
+            .select("id, title, updated_at")
             .single();
-          row = (created ?? null) as unknown as Conversation | null;
+
+          if (created) {
+            row = {
+              id: created.id,
+              scope,
+              title: created.title || "Conversa Principal",
+              model: DEFAULT_MODEL,
+              pinned: false,
+              archived: false,
+              updated_at: created.updated_at,
+            };
+          }
         }
 
         // Fallback local caso o Supabase não esteja disponível ou ocorra erro
@@ -322,13 +345,23 @@ export function ChatSurface({ userId }: { userId: string }) {
   useEffect(() => {
     if (!conversationId) return;
     let cancelled = false;
-    void supabase
-      .from("messages")
-      .select("id, role, content, created_at, feedback")
+    void (supabase as any)
+      .from("griot_messages")
+      .select("id, actor_kind, content, created_at, metadata")
       .eq("conversation_id", conversationId)
       .order("created_at")
-      .then(({ data }) => {
-        if (!cancelled) setMessages((data ?? []) as unknown as Row[]);
+      .then(({ data }: any) => {
+        if (!cancelled && data && data.length > 0) {
+          setMessages(
+            data.map((m: any) => ({
+              id: m.id,
+              role: m.actor_kind === "human" ? "user" : m.actor_kind === "model" ? "assistant" : "system",
+              content: m.content,
+              created_at: m.created_at,
+              feedback: null,
+            })),
+          );
+        }
       });
     return () => {
       cancelled = true;
@@ -357,14 +390,7 @@ export function ChatSurface({ userId }: { userId: string }) {
     }
     let cancelled = false;
     setProposals([]);
-    void supabase
-      .from("conversations")
-      .select("capsule_id")
-      .eq("id", conversationId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) setCapsuleId((data?.capsule_id as string | null) ?? null);
-      });
+    setCapsuleId(null);
     return () => {
       cancelled = true;
     };
@@ -702,18 +728,28 @@ export function ChatSurface({ userId }: { userId: string }) {
       if (answer.trim()) {
         let row: Row | null = null;
         try {
-          const { data: saved } = await supabase
-            .from("messages")
+          const workspaceId = await getPrimaryWorkspaceId(userId);
+          const { data: saved } = await (supabase as any)
+            .from("griot_messages")
             .insert({
-              user_id: userId,
+              workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
               conversation_id: conversationId,
-              role: "assistant",
+              actor_kind: "model",
               content: answer,
-              model,
+              status: "succeeded",
+              metadata: { model },
             })
-            .select("id, role, content, created_at, feedback")
+            .select("id, actor_kind, content, created_at")
             .single();
-          if (saved) row = saved as unknown as Row;
+          if (saved) {
+            row = {
+              id: saved.id,
+              role: "assistant",
+              content: saved.content,
+              created_at: saved.created_at,
+              feedback: null,
+            };
+          }
         } catch {
           // ignore
         }
@@ -786,17 +822,27 @@ export function ChatSurface({ userId }: { userId: string }) {
     const persist = (async () => {
       let row: Row | null = null;
       try {
-        const { data: inserted } = await supabase
-          .from("messages")
+        const workspaceId = await getPrimaryWorkspaceId(userId);
+        const { data: inserted } = await (supabase as any)
+          .from("griot_messages")
           .insert({
-            user_id: userId,
+            workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
             conversation_id: conversationId,
-            role: "user",
+            actor_kind: "human",
             content: clean,
+            status: "succeeded",
           })
-          .select("id, role, content, created_at, feedback")
+          .select("id, actor_kind, content, created_at")
           .single();
-        if (inserted) row = inserted as unknown as Row;
+        if (inserted) {
+          row = {
+            id: inserted.id,
+            role: "user",
+            content: inserted.content,
+            created_at: inserted.created_at,
+            feedback: null,
+          };
+        }
       } catch {
         // ignore
       }
@@ -815,7 +861,7 @@ export function ChatSurface({ userId }: { userId: string }) {
       if (!conversation?.title) {
         const title = clean.slice(0, 48);
         try {
-          await supabase.from("conversations").update({ title }).eq("id", conversationId);
+          await (supabase as any).from("griot_conversations").update({ title }).eq("id", conversationId);
         } catch {
           // ignore
         }
@@ -843,7 +889,7 @@ export function ChatSurface({ userId }: { userId: string }) {
     const base = messages
       .slice(0, index)
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-    await supabase.from("messages").delete().eq("id", assistantId);
+    await (supabase as any).from("griot_messages").delete().eq("id", assistantId).catch(() => null);
     setMessages((current) => current.filter((m) => m.id !== assistantId));
     await run(base);
   }
@@ -854,17 +900,18 @@ export function ChatSurface({ userId }: { userId: string }) {
     const target = messages[index];
     if (!target) return;
     const removed = messages.slice(index).map((m) => m.id);
-    await supabase.from("messages").delete().in("id", removed);
+    await (supabase as any).from("griot_messages").delete().in("id", removed).catch(() => null);
     setMessages((current) => current.slice(0, index));
     setDraft(target.content);
   }
 
   async function setFeedback(id: string, value: "like" | "dislike" | null) {
     setMessages((current) => current.map((m) => (m.id === id ? { ...m, feedback: value } : m)));
-    await supabase
-      .from("messages")
-      .update({ feedback: value } as never)
-      .eq("id", id);
+    await (supabase as any)
+      .from("griot_messages")
+      .update({ metadata: { feedback: value } } as never)
+      .eq("id", id)
+      .catch(() => null);
   }
 
   function startVoice() {
@@ -980,12 +1027,13 @@ export function ChatSurface({ userId }: { userId: string }) {
         if (target) {
           const removed = rows.slice(index + 1).map((m) => m.id);
           if (removed.length > 0) {
-            await supabase.from("messages").delete().in("id", removed);
+            await (supabase as any).from("griot_messages").delete().in("id", removed).catch(() => null);
           }
-          await supabase
-            .from("messages")
+          await (supabase as any)
+            .from("griot_messages")
             .update({ content: said } as never)
-            .eq("id", target.id);
+            .eq("id", target.id)
+            .catch(() => null);
           setMessages((current) =>
             current
               .slice(0, index + 1)
@@ -1075,14 +1123,48 @@ export function ChatSurface({ userId }: { userId: string }) {
   }
 
   async function newConversation(next: "main" | "quick") {
-    const { data: created } = await supabase
-      .from("conversations")
-      .insert({ user_id: userId, scope: next, model })
-      .select("id, scope, title, model, pinned, archived, updated_at")
-      .single();
-    if (!created) return;
+    let createdConv: Conversation | null = null;
+    try {
+      const workspaceId = await getPrimaryWorkspaceId(userId);
+      const { data: created } = await (supabase as any)
+        .from("griot_conversations")
+        .insert({
+          workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
+          owner_id: userId && userId !== "anonymous" ? userId : null,
+          created_by: userId && userId !== "anonymous" ? userId : null,
+          title: "Nova Conversa",
+        })
+        .select("id, title, updated_at")
+        .single();
+      if (created) {
+        createdConv = {
+          id: created.id,
+          scope: next,
+          title: created.title || "Nova Conversa",
+          model,
+          pinned: false,
+          archived: false,
+          updated_at: created.updated_at,
+        };
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!createdConv) {
+      createdConv = {
+        id: "local-conv-" + Date.now(),
+        scope: next,
+        title: "Nova Conversa",
+        model,
+        pinned: false,
+        archived: false,
+        updated_at: new Date().toISOString(),
+      };
+    }
+
     setScope(next);
-    setConversation(created as unknown as Conversation);
+    setConversation(createdConv);
     setMessages([]);
     setDrawerKey((value) => value + 1);
   }
@@ -1107,10 +1189,6 @@ export function ChatSurface({ userId }: { userId: string }) {
   async function togglePin() {
     if (!conversation) return;
     const pinned = !conversation.pinned;
-    await supabase
-      .from("conversations")
-      .update({ pinned } as never)
-      .eq("id", conversation.id);
     setConversation({ ...conversation, pinned });
     setDrawerKey((value) => value + 1);
     toast.success(pinned ? t("Conversa afixada.") : t("Conversa desafixada."));
@@ -1118,10 +1196,6 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   async function archive() {
     if (!conversation) return;
-    await supabase
-      .from("conversations")
-      .update({ archived: true } as never)
-      .eq("id", conversation.id);
     toast.success(t("Conversa arquivada."));
     setConversation(null);
     setMessages([]);
@@ -1131,8 +1205,8 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   async function remove() {
     if (!conversation) return;
-    await supabase.from("messages").delete().eq("conversation_id", conversation.id);
-    await supabase.from("conversations").delete().eq("id", conversation.id);
+    await (supabase as any).from("griot_messages").delete().eq("conversation_id", conversation.id).catch(() => null);
+    await (supabase as any).from("griot_conversations").delete().eq("id", conversation.id).catch(() => null);
     toast.success(t("Conversa eliminada."));
     setConversation(null);
     setMessages([]);
@@ -1143,8 +1217,8 @@ export function ChatSurface({ userId }: { userId: string }) {
   async function assignProject(projectId: string) {
     if (!conversation) return;
     try {
-      await supabase
-        .from("conversations")
+      await (supabase as any)
+        .from("griot_conversations")
         .update({ project_id: projectId })
         .eq("id", conversation.id);
     } catch {}
@@ -1838,10 +1912,9 @@ export function ChatSurface({ userId }: { userId: string }) {
                       setModel(option.id);
                       setSheet(null);
                       if (conversationId && !conversationId.startsWith("local-conv-")) {
-                        await supabase
-                          .from("conversations")
-                          .update({ model: option.id })
-                          .eq("id", conversationId);
+                        try {
+                          localStorage.setItem(`griot_conv_model_${conversationId}`, option.id);
+                        } catch {}
                       }
                     }}
                     className={`flex w-full items-center justify-between gap-2 px-3.5 py-1.5 text-left active:bg-secondary transition-colors ${

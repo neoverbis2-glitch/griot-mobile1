@@ -65,16 +65,16 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.12-debug.apk
-          echo "APK=GRIOT-v1.0.12-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.12-debug.apk
-          ls -lh GRIOT-v1.0.12-debug.apk
+          cp "$APK" GRIOT-v1.0.13-debug.apk
+          echo "APK=GRIOT-v1.0.13-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.13-debug.apk
+          ls -lh GRIOT-v1.0.13-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.12-debug.apk
+          path: GRIOT-v1.0.13-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -82,9 +82,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.12
-          name: "GRIOT Mobile v1.0.12"
-          body: "Orquestração de APIs Diretas (Gemini 2.0 Flash, GPT-4o, Claude 3.5, DeepSeek), Backend Real Supabase com OPB e Painel Elegante de APIs na Home."
-          files: GRIOT-v1.0.12-debug.apk
+          tag_name: v1.0.13
+          name: "GRIOT Mobile v1.0.13"
+          body: "Persistência Completa de Conversas e Mensagens no Supabase Real (tabelas griot_*), Integração de ModelGPU / OPB, Gestão de APIs Diretas e UI Polida."
+          files: GRIOT-v1.0.13-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

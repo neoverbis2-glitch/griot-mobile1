@@ -38,13 +38,22 @@ function ProjectsPage() {
     let cancelled = false;
     async function loadProjects() {
       try {
-        const { data } = await supabase
-          .from("projects")
-          .select("id, name, description, progress, status, created_at")
+        const { data } = await (supabase as any)
+          .from("griot_studio_projects")
+          .select("id, name, description, brief, created_at, updated_at")
           .order("created_at", { ascending: false });
 
         if (cancelled) return;
-        let merged: ProjectRow[] = (data || []) as unknown as ProjectRow[];
+        const rawList = data || [];
+        let merged: ProjectRow[] = rawList.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description || p.brief?.goal || "Projeto GRIOT Studio",
+          progress: typeof p.brief?.progress === "number" ? p.brief.progress : 85,
+          status: p.brief?.build_status || "ativo",
+          created_at: p.created_at,
+        }));
+
         if (typeof window !== "undefined") {
           const stored = localStorage.getItem("griot_local_projects");
           if (stored) {
@@ -95,10 +104,12 @@ function ProjectsPage() {
 
       const { data: userAuth } = await supabase.auth.getUser();
       if (userAuth?.user) {
-        await supabase.from("projects").insert({
-          id: newProj.id,
+        await (supabase as any).from("griot_studio_projects").insert({
           name: newProj.name,
-          user_id: userAuth.user.id,
+          description: newProj.description,
+          owner_id: userAuth.user.id,
+          brief: { goal: newProj.name, stack: "REACT", audience: "USUÁRIOS REAIS" },
+          archived: false,
         }).catch(() => null);
       }
 

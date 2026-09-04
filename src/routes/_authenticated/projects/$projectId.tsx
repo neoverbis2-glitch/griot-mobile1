@@ -67,15 +67,36 @@ function ProjectDetailPage() {
     let cancelled = false;
     async function loadDetail() {
       try {
-        const { data } = await supabase
-          .from("projects")
-          .select("id, name, description, progress, status, created_at")
-          .eq("id", projectId)
-          .maybeSingle();
+        const [projectRes, tasksRes, opbEventsRes] = await Promise.all([
+          (supabase as any)
+            .from("griot_studio_projects")
+            .select("id, name, description, brief, created_at, updated_at")
+            .eq("id", projectId)
+            .maybeSingle(),
+          (supabase as any)
+            .from("griot_studio_tasks")
+            .select("id, title, status, created_at")
+            .eq("project_id", projectId)
+            .order("created_at", { ascending: false }),
+          (supabase as any)
+            .from("griot_opb_events")
+            .select("id, event_type, payload, created_at")
+            .order("created_at", { ascending: false })
+            .limit(10),
+        ]);
 
         if (cancelled) return;
+
+        const data = projectRes?.data;
         if (data) {
-          setProject(data as unknown as ProjectDetail);
+          setProject({
+            id: data.id,
+            name: data.name,
+            description: data.description || data.brief?.goal || "Projeto GRIOT Studio",
+            progress: typeof data.brief?.progress === "number" ? data.brief.progress : 85,
+            status: data.brief?.build_status || "ativo",
+            created_at: data.created_at,
+          });
         } else {
           const stored = typeof window !== "undefined" ? localStorage.getItem("griot_local_projects") : null;
           if (stored) {
@@ -94,6 +115,29 @@ function ProjectDetailPage() {
               created_at: new Date().toISOString(),
             });
           }
+        }
+
+        const dbTasks = tasksRes?.data;
+        if (dbTasks && dbTasks.length > 0) {
+          setTasks(
+            dbTasks.map((t: any) => ({
+              id: t.id,
+              title: t.title,
+              status: t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
+            })),
+          );
+        }
+
+        const opbLogs = opbEventsRes?.data;
+        if (opbLogs && opbLogs.length > 0) {
+          setLogs(
+            opbLogs.map((e: any) => ({
+              id: e.id,
+              source: "OPB",
+              timeAgo: relativeTime(e.created_at),
+              message: `${e.event_type.replace(/_/g, " ")}: ${e.payload?.receiptId || e.payload?.messageId || "processado"}`,
+            })),
+          );
         }
       } catch (err) {
         console.warn("Carregamento do projeto:", err);

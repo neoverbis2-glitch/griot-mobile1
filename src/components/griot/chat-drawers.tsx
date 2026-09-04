@@ -15,14 +15,24 @@ export type Conversation = {
 };
 
 export async function listConversations(): Promise<Conversation[]> {
-  const { data } = await supabase
-    .from("conversations")
-    .select("id, scope, title, model, pinned, archived, updated_at")
-    .eq("archived", false)
-    .order("pinned", { ascending: false })
-    .order("updated_at", { ascending: false })
-    .limit(60);
-  return (data ?? []) as unknown as Conversation[];
+  try {
+    const { data } = await (supabase as any)
+      .from("griot_conversations")
+      .select("id, title, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(60);
+    return ((data ?? []) as any[]).map((c) => ({
+      id: c.id,
+      scope: "main",
+      title: c.title || "Conversa GRIOT",
+      model: "gemini-2.0-flash",
+      pinned: false,
+      archived: false,
+      updated_at: c.updated_at,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /** Barra lateral esquerda: conversas e quicks. */
