@@ -52,17 +52,14 @@ interface DeliberationBarProps {
 }
 
 const ENGINE_OPTIONS = [
-  { id: "app:chatgpt", label: "ChatGPT (App Nativo)" },
-  { id: "app:claude", label: "Claude (App Nativo)" },
-  { id: "app:gemini", label: "Gemini (App Nativo)" },
-  { id: "app:deepseek", label: "DeepSeek (App Nativo)" },
-  { id: "app:kimi", label: "Kimi (App Nativo)" },
-  { id: "app:grok", label: "Grok (App Nativo)" },
-  { id: "app:perplexity", label: "Perplexity (App Nativo)" },
-  { id: "app:mistral", label: "Mistral (App Nativo)" },
-  { id: "gemini:gemini-3.6-flash", label: "Gemini 3.6 Flash (API)" },
-  { id: "openai:gpt-4o", label: "GPT-4o (API)" },
+  { id: "gemini:gemini-2.0-flash", label: "Google Gemini 2.0 Flash (API)" },
+  { id: "gemini:gemini-1.5-pro", label: "Google Gemini 1.5 Pro (API)" },
+  { id: "openai:gpt-4o", label: "OpenAI GPT-4o (API)" },
+  { id: "openai:gpt-4o-mini", label: "OpenAI GPT-4o Mini (API)" },
   { id: "anthropic:claude-3-5-sonnet", label: "Claude 3.5 Sonnet (API)" },
+  { id: "deepseek:deepseek-r1", label: "DeepSeek R1 (API)" },
+  { id: "deepseek:deepseek-v3", label: "DeepSeek V3 (API)" },
+  { id: "groq:llama-3.3-70b", label: "Groq Llama 3.3 70B (API)" },
 ];
 
 export function DeliberationBar({

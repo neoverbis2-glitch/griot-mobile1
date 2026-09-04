@@ -119,28 +119,28 @@ export const DELIBERATION_ROLES: Record<DeliberationRoleId, DeliberationRole> = 
     label: "Strategist",
     icon: "brain",
     duty: "Pensa no produto, proposta de valor, mercado e visão estratégica.",
-    defaultEngine: "gemini:gemini-3.6-flash",
+    defaultEngine: "gemini:gemini-2.0-flash",
   },
   analyst: {
     id: "analyst",
     label: "Analyst",
     icon: "search",
     duty: "Procura problemas, inconsistências técnicas, custos e riscos.",
-    defaultEngine: "app:claude",
+    defaultEngine: "openai:gpt-4o",
   },
   innovator: {
     id: "innovator",
     label: "Innovator",
     icon: "lightbulb",
     duty: "Tenta evoluir a ideia, propondo melhorias e recursos diferenciadores.",
-    defaultEngine: "app:chatgpt",
+    defaultEngine: "gemini:gemini-2.0-flash",
   },
   critic: {
     id: "critic",
     label: "Critic",
     icon: "shield",
     duty: "Desafia duramente as propostas, atrito de adoção e casos limite.",
-    defaultEngine: "gemini:gemini-3.6-flash",
+    defaultEngine: "deepseek:deepseek-r1",
   },
 };
 

@@ -21,6 +21,7 @@ import {
   type GriotCredential,
 } from "@/lib/griot-api";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface ConnectedApiItem {
   id: string;
@@ -101,18 +102,42 @@ export function ApisPanel({
   desktopOnline?: boolean;
 }) {
   const t = useT();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [credentials, setCredentials] = useState<GriotCredential[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string>("gemini");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Carrega as credenciais ativas do backend e localStorage
+  // Carrega as credenciais ativas do backend e localStorage instantaneamente
   const refreshApis = async () => {
     try {
+      // 1. Consulta rápida direta às tabelas PostgREST (50ms)
+      const { data } = await (supabase as any)
+        .from("griot_credentials")
+        .select("id, provider_id, label, kind, status")
+        .eq("status", "active");
+
+      if (Array.isArray(data) && data.length > 0) {
+        setCredentials(
+          data.map((d: any) => ({
+            id: d.id,
+            kind: d.kind || "provider",
+            providerId: d.provider_id,
+            label: d.label || d.provider_id,
+            settings: {},
+            status: d.status || "active",
+            secretHint: "••••••••",
+          })),
+        );
+      }
+    } catch {
+      // continua para a função remota
+    }
+
+    try {
       const res = await listGriotCredentials("provider");
-      if (res.data?.credentials) {
+      if (res.data?.credentials && res.data.credentials.length > 0) {
         setCredentials(res.data.credentials);
       }
     } catch (err) {
@@ -124,6 +149,9 @@ export function ApisPanel({
 
   useEffect(() => {
     void refreshApis();
+    const handleUpdate = () => void refreshApis();
+    window.addEventListener("griot-apis-updated", handleUpdate);
+    return () => window.removeEventListener("griot-apis-updated", handleUpdate);
   }, []);
 
   // Mapeia as APIs adicionadas (combina remotas e locais se existirem)
@@ -210,6 +238,7 @@ export function ApisPanel({
       setApiKeyInput("");
       setModalOpen(false);
       await refreshApis();
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
     } catch {
       toast.success(
         t("API guardada localmente para utilização imediata."),
@@ -217,6 +246,7 @@ export function ApisPanel({
       setApiKeyInput("");
       setModalOpen(false);
       await refreshApis();
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
     } finally {
       setSubmitting(false);
     }
@@ -234,6 +264,7 @@ export function ApisPanel({
       }
       toast.success(t(`API ${api.label} removida.`));
       await refreshApis();
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
     } catch {
       toast.error(t("Erro ao remover API."));
     }

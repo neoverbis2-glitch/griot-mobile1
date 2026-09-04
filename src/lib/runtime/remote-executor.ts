@@ -20,6 +20,7 @@ export async function executeRemoteAction(
   const customRunnerUrl = typeof window !== 'undefined' ? window.localStorage.getItem('griot_gcp_runner_url') || '' : '';
   const customRunnerSecret = typeof window !== 'undefined' ? window.localStorage.getItem('griot_gcp_runner_secret') || '' : '';
 
+  const endpoint = options.endpoint || DEFAULT_ENDPOINT;
   try {
     const response = await fetch(endpoint, {
       method: 'POST',

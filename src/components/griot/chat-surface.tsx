@@ -33,6 +33,7 @@ import {
   stripActionBlocks,
   modelGpuRalEngine,
 } from "@/lib/runtime";
+import { executeReActLoop } from "@/lib/runtime/react-loop";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
 import {
   DELIBERATION_MISSIONS,
@@ -593,69 +594,45 @@ export function ChatSurface({ userId }: { userId: string }) {
 
       let streamedAny = false;
       try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData?.session?.access_token;
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        const loopResult = await executeReActLoop({
+          modelId: model,
+          messages: base,
+          context,
+          callbacks: {
+            onToken: (token) => {
+              answer += token;
+              setStreaming(answer);
+              streamedAny = true;
+              if (voiceMode) sessionRef.current?.feed(token);
+            },
+            onReasoning: (r) => {
+              setReasoning((current) => current + r);
+            },
+            onStepChange: (step) => {
+              setSteps(step);
+            },
           },
-          body: JSON.stringify({
-              model,
-              effort: activeEffort,
-              messages: base,
-              capsule: context,
-              voice: voiceMode,
-              conversationId,
-              conversationTitle: conversation?.title,
-            }),
-            signal: controller.signal,
-          });
+          signal: controller.signal,
+        });
 
-          if (response.ok && response.body) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() ?? "";
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                try {
-                  const event = JSON.parse(line) as { t: string; d: string };
-                  if (event.t === "text") {
-                    answer += event.d;
-                    setStreaming(answer);
-                    streamedAny = true;
-                    if (voiceMode) sessionRef.current?.feed(event.d);
-                  } else if (event.t === "reason") {
-                    setReasoning((current) => current + event.d);
-                  } else if (event.t === "step") {
-                    setSteps((current) => current + 1);
-                  }
-                } catch {
-                  // fragmento incompleto
-                }
-              }
-            }
-          }
-        } catch (networkErr) {
-          console.warn("fetch /api/chat falhou no ambiente:", networkErr);
+        if (loopResult.finalAnswer) {
+          answer = loopResult.finalAnswer;
+          setStreaming(answer);
+          streamedAny = true;
         }
-
-        if (!streamedAny || !answer.trim()) {
-          toast.error(
+      } catch (aiErr: any) {
+        console.warn("Execução de IA direta/orquestrada falhou:", aiErr);
+        toast.error(
+          aiErr?.message ||
             `Sem ligação ao modelo ${mLabel}. Adiciona a tua chave de API em Home ou Definições → Chave de IA para conversar.`,
-          );
-          setBusy(false);
-          setStreaming("");
-          return;
-        }
+        );
+      }
+
+      if (!streamedAny || !answer.trim()) {
+        setBusy(false);
+        setStreaming("");
+        return;
+      }
 
       const parsed = parseProposals(answer);
       const found = [...parsed.decisions, ...parsed.entities];

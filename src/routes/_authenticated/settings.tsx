@@ -201,6 +201,10 @@ function SettingsPage() {
     if (!secret) return;
     setSavingGeminiKey(true);
     try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("griot_api_key_gemini", secret);
+        localStorage.setItem("griot_gemini_api_key", secret);
+      }
       const saved = await saveGriotCredential({ providerId: "gemini", secret, label: "Gemini" });
       if (saved.error || !saved.data) {
         toast.error(saved.error || t("Não foi possível guardar a chave."));
@@ -214,6 +218,7 @@ function SettingsPage() {
         setGeminiKeyInput("");
       }
       await queryClient.invalidateQueries({ queryKey: ["settings-gemini-credential"] });
+      if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
     } finally {
       setSavingGeminiKey(false);
     }
