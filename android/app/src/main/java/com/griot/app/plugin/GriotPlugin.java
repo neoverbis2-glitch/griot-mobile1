@@ -97,6 +97,27 @@ public class GriotPlugin extends Plugin {
         String message = call.getString("message", "");
 
         GriotObserverService service = GriotObserverService.getInstance();
+
+        // Se a instância for null, mas estiver ativada nas definições, aguardar até 1s para o Android vincular
+        if (service == null) {
+            Context context = getContext();
+            boolean isSettingsEnabled = false;
+            try {
+                String setting = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+                isSettingsEnabled = !TextUtils.isEmpty(setting) && setting.contains(context.getPackageName());
+            } catch (Exception ignored) {}
+
+            if (isSettingsEnabled) {
+                for (int i = 0; i < 10; i++) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ignored) {}
+                    service = GriotObserverService.getInstance();
+                    if (service != null) break;
+                }
+            }
+        }
+
         if (service != null) {
             boolean queued = service.injectPromptToApp(packageName, threadTitle, message);
             JSObject ret = new JSObject();
@@ -104,14 +125,47 @@ public class GriotPlugin extends Plugin {
             ret.put("queued", queued);
             ret.put("injected", false);
             ret.put("threadTitle", threadTitle);
+            if (!queued) {
+                String err = service.getLastError();
+                ret.put("error", (err != null && !err.isEmpty()) ? err : "Não foi possível abrir ou comunicar com " + packageName);
+            }
             call.resolve(ret);
         } else {
+            Context context = getContext();
+            boolean isSettingsEnabled = false;
+            try {
+                String setting = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+                isSettingsEnabled = !TextUtils.isEmpty(setting) && setting.contains(context.getPackageName());
+            } catch (Exception ignored) {}
+
             JSObject ret = new JSObject();
             ret.put("success", false);
             ret.put("injected", false);
-            ret.put("error", "GriotObserverService não está ativo");
+            if (isSettingsEnabled) {
+                ret.put("error", "O GRIOT Observer está ativado nas definições mas o serviço Android ainda está a ligar. Tenta enviar novamente em instantes.");
+            } else {
+                ret.put("error", "Verifica se o GRIOT Observer está ativado em Acessibilidade.");
+            }
             call.resolve(ret);
         }
+    }
+
+    @PluginMethod
+    public void isAppInstalled(PluginCall call) {
+        String packageName = call.getString("package", "");
+        boolean installed = false;
+        if (!TextUtils.isEmpty(packageName)) {
+            try {
+                getContext().getPackageManager().getPackageInfo(packageName, 0);
+                installed = true;
+            } catch (Exception e) {
+                Intent intent = getContext().getPackageManager().getLaunchIntentForPackage(packageName);
+                installed = intent != null;
+            }
+        }
+        JSObject ret = new JSObject();
+        ret.put("installed", installed);
+        call.resolve(ret);
     }
 
     @PluginMethod

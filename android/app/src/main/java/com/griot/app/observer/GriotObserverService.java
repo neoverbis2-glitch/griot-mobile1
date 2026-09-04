@@ -83,8 +83,14 @@ public class GriotObserverService extends AccessibilityService {
         }
     };
 
+    private String lastError = "";
+
     public static GriotObserverService getInstance() {
         return instance;
+    }
+
+    public String getLastError() {
+        return lastError;
     }
 
     @Override
@@ -312,13 +318,24 @@ public class GriotObserverService extends AccessibilityService {
                     launchIntent.setPackage(packageName);
                 }
 
+                // Verificar se o app está instalado e tem Activity resolvível
+                if (getPackageManager().resolveActivity(launchIntent, 0) == null) {
+                    this.lastError = "A aplicação " + resolveAppName(packageName) + " não está instalada no teu dispositivo. Instala a app a partir da Google Play Store.";
+                    Log.w(TAG, this.lastError);
+                    dispatchAutomationResult(false, this.lastError);
+                    observingActiveTurn = false;
+                    return false;
+                }
+
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NO_ANIMATION);
                 startActivity(launchIntent);
+                this.lastError = "";
                 automationHandler.postDelayed(() -> attemptInjectionWithRetries(message, 1), 500);
                 return true;
             } catch (Exception e) {
+                this.lastError = "Erro ao iniciar a app " + resolveAppName(packageName) + ": " + e.getMessage();
                 Log.e(TAG, "Falha ao iniciar app alvo " + packageName, e);
-                dispatchAutomationResult(false, "Erro ao iniciar a app " + resolveAppName(packageName) + ": " + e.getMessage());
+                dispatchAutomationResult(false, this.lastError);
                 observingActiveTurn = false;
                 return false;
             }

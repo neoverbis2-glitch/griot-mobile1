@@ -206,6 +206,24 @@ export class GriotNativeObserverBridge {
     };
   }
 
+  /**
+   * Verifica se a app alvo de IA está instalada no telemóvel Android.
+   */
+  public async isAppInstalled(pkg: string): Promise<boolean> {
+    if (typeof window === "undefined") return false;
+    if ((window as any).Capacitor?.isNativePlatform?.()) {
+      try {
+        const res = await (window as any).Capacitor?.Plugins?.GriotObserverPlugin?.isAppInstalled({
+          package: pkg,
+        });
+        return res?.installed === true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
   /** Aguarda resposta em streaming ou fotografia estável da app alvo depois da injeção. */
   public waitForAppResponse(
     pkg: string,

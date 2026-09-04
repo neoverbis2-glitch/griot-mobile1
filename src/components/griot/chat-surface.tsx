@@ -596,16 +596,28 @@ export function ChatSurface({ userId }: { userId: string }) {
 
         const sendRes = await nativeObserverBridge.sendAppMessage(pkg, boundThreadTitle, lastMsg);
         if (!sendRes.success) {
-          toast.error(
-            sendRes.error || `Não foi possível comunicar com ${mLabel}. Verifica se o GRIOT Observer está ativado em Acessibilidade.`,
-            {
-              duration: 8000,
-              action: {
-                label: "Ativar Acessibilidade",
-                onClick: () => void nativeObserverBridge.requestAccessibilityPermission(),
-              },
-            },
-          );
+          const rawErr = sendRes.error || `Não foi possível comunicar com ${mLabel}.`;
+          const isA11y = rawErr.toLowerCase().includes("acessibilidade");
+          const isNotInstalled = rawErr.toLowerCase().includes("não está instalada");
+
+          toast.error(rawErr, {
+            duration: 8000,
+            action: isA11y
+              ? {
+                  label: "Ativar Acessibilidade",
+                  onClick: () => void nativeObserverBridge.requestAccessibilityPermission(),
+                }
+              : isNotInstalled
+              ? {
+                  label: `Instalar ${mLabel}`,
+                  onClick: () => {
+                    if (typeof window !== "undefined") {
+                      window.open(`https://play.google.com/store/apps/details?id=${pkg}`, "_system");
+                    }
+                  },
+                }
+              : undefined,
+          });
           setBusy(false);
           setStreaming("");
           return;
