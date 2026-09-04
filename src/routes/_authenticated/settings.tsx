@@ -10,7 +10,6 @@ import { useTheme } from "@/lib/theme";
 import { DEFAULT_MODEL, QUICK_CHAT_MODELS } from "@/lib/griot";
 import { uploadUserAvatar, getLocalCacheStats } from "@/lib/storage";
 import {
-  AI_CHAT_APPS,
   APP_LANGUAGES,
   CONNECTIONS,
   NOTIFICATION_TYPES,
@@ -18,7 +17,6 @@ import {
   savePrefs,
   type Prefs,
 } from "@/lib/settings";
-import { nativeObserverBridge } from "@/lib/runtime/native-bridge";
 import {
   getPrimaryWorkspaceId,
   listGriotCredentials,
@@ -364,10 +362,6 @@ function SettingsPage() {
     toast.success(t("Sessão terminada."));
     void navigate({ to: "/auth" });
   }
-
-  const connectedAiApps = AI_CHAT_APPS.filter(
-    (client) => prefs[`acp:${client.id}`] === true || prefs[`chat:${client.id}`] === true,
-  ).length;
 
   const modelName =
     QUICK_CHAT_MODELS.find((model) => model.id === defaultModel)?.label ?? defaultModel;
@@ -1096,121 +1090,6 @@ function SettingsPage() {
         />
         <InfoRow label={t("Dispositivos autorizados")} value="1" />
         <InfoRow label={t("Sessões ativas")} value="1" />
-      </Section>
-
-      <Section
-        title={t("GRIOT Observer Nativo (Acessibilidade Android)")}
-        note={`${connectedAiApps}/${AI_CHAT_APPS.length} ${t("apps autorizadas")}`}
-        Icon={Eye}
-      >
-        <div className="border-b border-hairline px-5 py-4 bg-secondary/20 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <span className="block text-[14.5px] font-semibold text-foreground">
-                {t("Serviço de Acessibilidade (GriotObserverService)")}
-              </span>
-              <span className="block text-[12px] text-muted-foreground mt-0.5">
-                {prefs["observer:accessibility_enabled"] === true
-                  ? t("Ativo · Lê UI em tempo real sem chamadas de API")
-                  : t("Inativo · Requer permissão de acessibilidade no Android")}
-              </span>
-            </div>
-            <button
-              onClick={async () => {
-                const active = await nativeObserverBridge.requestAccessibilityPermission();
-                set("observer:accessibility_enabled", active);
-                toast.success(
-                  active
-                    ? t("Permissão de Acessibilidade ativada.")
-                    : t("Permissão de Acessibilidade desativada."),
-                );
-              }}
-              className={`shrink-0 rounded-full px-4 py-1.5 text-[12.5px] font-medium transition-all ${
-                prefs["observer:accessibility_enabled"] === true
-                  ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm"
-                  : "bg-primary text-primary-foreground hover:opacity-90"
-              }`}
-            >
-              {prefs["observer:accessibility_enabled"] === true
-                ? t("Permissão Ativa")
-                : t("Ativar Permissão")}
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between gap-3 pt-2 border-t border-hairline/60">
-            <div className="min-w-0">
-              <span className="block text-[13.5px] font-medium text-foreground">
-                {t("Listener de Notificações")}
-              </span>
-              <span className="block text-[11.5px] text-muted-foreground">
-                {prefs["observer:notifications_enabled"] === true
-                  ? t("Monitoriza conclusões de raciocínio das 8 apps")
-                  : t("Opcional para alertas em background")}
-              </span>
-            </div>
-            <button
-              onClick={async () => {
-                const active = await nativeObserverBridge.requestNotificationPermission();
-                set("observer:notifications_enabled", active);
-                toast.success(
-                  active
-                    ? t("Listener de Notificações ativado.")
-                    : t("Listener de Notificações desativado."),
-                );
-              }}
-              className={`shrink-0 rounded-full px-3 py-1 text-[11.5px] font-medium transition-all ${
-                prefs["observer:notifications_enabled"] === true
-                  ? "border border-emerald-500/40 text-emerald-500 bg-emerald-500/10"
-                  : "border border-hairline text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {prefs["observer:notifications_enabled"] === true
-                ? t("Notificações Ativas")
-                : t("Permitir Notificações")}
-            </button>
-          </div>
-        </div>
-
-        <div className="px-5 py-2.5 bg-background/50 border-b border-hairline text-[11px] font-mono text-muted-foreground flex items-center justify-between">
-          <span>{t("Apps autorizadas a observar via AccessibilityNodeInfo")}:</span>
-          <span className="text-primary font-semibold">{connectedAiApps} / 8</span>
-        </div>
-
-        {AI_CHAT_APPS.map((client) => {
-          const on = prefs[`acp:${client.id}`] === true || prefs[`chat:${client.id}`] === true;
-          return (
-            <div key={client.id} className="border-b border-hairline px-5 py-3.5 last:border-b-0">
-              <div className="flex items-center gap-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-[12.5px] font-semibold">
-                  {client.short}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14.5px] font-medium">{client.label}</span>
-                  <span className="block text-[12px] text-muted-foreground truncate">
-                    {on ? `${t("UI Scraping ativo")} · ${client.vendor}` : t("Observação pausada")}
-                  </span>
-                </span>
-                <button
-                  onClick={() => {
-                    const next = !on;
-                    set(`acp:${client.id}`, next);
-                    set(`chat:${client.id}`, next);
-                    if (next) {
-                      toast.success(`${client.label}: ${t("Observer de UI ativo.")}`);
-                    }
-                  }}
-                  className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
-                    on
-                      ? "border border-hairline text-destructive hover:bg-destructive/10"
-                      : "bg-primary text-primary-foreground"
-                  }`}
-                >
-                  {on ? t("Desautorizar") : t("Autorizar")}
-                </button>
-              </div>
-            </div>
-          );
-        })}
       </Section>
 
       {/*

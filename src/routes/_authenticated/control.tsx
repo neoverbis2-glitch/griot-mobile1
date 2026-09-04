@@ -3,7 +3,6 @@ import { Settings } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Screen, Panel, Metric, Empty } from "@/components/griot/screen";
-import { RuntimeObserverCard } from "@/components/griot/runtime-panel";
 import { relativeTime } from "@/lib/griot";
 import { useTheme } from "@/lib/theme";
 import { useT } from "@/lib/i18n";
@@ -78,8 +77,6 @@ function ControlPage() {
         <Metric label={t("Custo")} value={`$${cost.toFixed(2)}`} note={t("acumulado")} />
         <Metric label={t("Agentes")} value={`${activeAgents}`} note={t("ativos")} />
       </div>
-
-      <RuntimeObserverCard />
 
       <Panel className="flex items-center justify-between">
         <div>

@@ -5,8 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Screen, Panel, Empty } from "@/components/griot/screen";
 import { UsageSection, DailyPulse, type RunRow, type ServiceRow } from "@/components/griot/usage";
 import { ApiBudgetPanel } from "@/components/griot/api-budget";
-import { AcpPanel } from "@/components/griot/acp-panel";
-import { loadPrefs, ACP_CLIENTS } from "@/lib/settings";
+import { ApisPanel } from "@/components/griot/acp-panel";
 import { useT } from "@/lib/i18n";
 import { greeting, relativeTime } from "@/lib/griot";
 import { useTheme } from "@/lib/theme";
@@ -40,15 +39,7 @@ const BUILD_LABEL_SOURCE: Record<string, string> = {
 function HomePage() {
   const { theme, toggle } = useTheme();
   const t = useT();
-  const [acp, setAcp] = useState<Record<string, boolean>>({});
   const { displayName, email, avatarUrl } = useCurrentUser();
-
-  useEffect(() => {
-    const prefs = loadPrefs();
-    const next: Record<string, boolean> = {};
-    for (const client of ACP_CLIENTS) next[client.id] = prefs[`acp:${client.id}`] === true;
-    setAcp(next);
-  }, []);
 
   const { data } = useQuery({
     queryKey: ["home", email, displayName],
@@ -207,7 +198,7 @@ function HomePage() {
 
       <ApiBudgetPanel services={data?.services ?? []} />
 
-      <AcpPanel connected={acp} desktopOnline={Boolean(data?.profile?.desktop_online)} />
+      <ApisPanel />
 
       <UsageSection runs={data?.runs ?? []} services={data?.services ?? []} />
 

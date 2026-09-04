@@ -93,7 +93,7 @@ export async function listGriotCredentials(kind?: "provider" | "plugin") {
 
 /** Saves a new provider API key (e.g. Gemini) — stored encrypted server-side. */
 export async function saveGriotCredential(input: {
-  providerId: "gemini" | "openai" | "anthropic" | "groq" | "openrouter";
+  providerId: "gemini" | "openai" | "anthropic" | "groq" | "openrouter" | "deepseek";
   secret: string;
   label?: string;
   model?: string;

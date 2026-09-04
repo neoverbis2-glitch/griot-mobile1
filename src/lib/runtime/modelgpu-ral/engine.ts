@@ -213,12 +213,29 @@ export class ModelGpuRalEngine {
     const prefs = loadPrefs();
     let activeCount = 0;
 
+    const APP_TO_PROVIDER: Record<string, string> = {
+      chatgpt: "openai",
+      claude: "anthropic",
+      gemini: "gemini",
+      deepseek: "deepseek",
+      groq: "groq",
+      perplexity: "perplexity",
+    };
+
     for (const core of Object.values(this.state.cores)) {
+      const p = APP_TO_PROVIDER[core.appId] || core.appId;
+      const hasLocalKey =
+        typeof window !== "undefined" &&
+        Boolean(
+          localStorage.getItem(`griot_api_key_${p}`) ||
+            localStorage.getItem(`griot_${p}_api_key`),
+        );
+
       const isConnected =
-        prefs[`acp:${core.appId}`] === true ||
-        prefs[`chat:${core.appId}`] === true ||
-        prefs[`app:${core.appId}`] === true ||
-        prefs[core.appId] === true;
+        hasLocalKey ||
+        prefs[`api:${p}`] === true ||
+        prefs[p] === true ||
+        p === "gemini";
 
       core.enabled = isConnected;
       if (isConnected) activeCount++;
@@ -246,7 +263,6 @@ export class ModelGpuRalEngine {
 
   /**
    * Encaminha uma carga de trabalho cognitiva para o Virtual Core mais adequado (ou core explícito).
-   * 100% Zero-API: Abre o Intent da app / copia o prompt formatado com o protocolo GRIOT.
    */
   public async dispatchComputeWorkload(params: {
     prompt: string;
@@ -281,16 +297,6 @@ export class ModelGpuRalEngine {
     core.status = "dispatched";
     core.metrics.totalWorkloads += 1;
     this.notify();
-
-    // 1. Preparar prompt com envelope de instrução GRIOT Observer
-    const envelope = [
-      `[GRIOT ModelGPU RAL // Core: ${core.name}]`,
-      `Instrução: Executa a seguinte tarefa gerando blocos <griot_action> quando necessário:`,
-      params.prompt,
-    ].join("\n\n");
-
-    // Carga de trabalho registrada no cluster ModelGPU RAL silenciosamente
-    return true;
 
     return workload;
   }

@@ -158,7 +158,7 @@ function createSupabaseClient() {
     envMap["NEXT_PUBLIC_SUPABASE_URL"] ||
     process.env["SUPABASE_URL"] ||
     process.env["NEXT_PUBLIC_SUPABASE_URL"] ||
-    "https://placeholder-griot.supabase.co";
+    "https://dslccwkaitihiszetdlh.supabase.co";
 
   let rawKey =
     localKey ||
@@ -166,16 +166,16 @@ function createSupabaseClient() {
     envMap["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["SUPABASE_PUBLISHABLE_KEY"] ||
     process.env["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key";
+    "sb_publishable__C-TElQqGI2za2yyyihRfg_fRpS1VtS";
 
   rawUrl = String(rawUrl).trim().replace(/^["']|["']$/g, "");
   rawKey = String(rawKey).trim().replace(/^["']|["']$/g, "");
 
   if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-    rawUrl = "https://placeholder-griot.supabase.co";
+    rawUrl = "https://dslccwkaitihiszetdlh.supabase.co";
   }
   if (!rawKey || rawKey.length < 10) {
-    rawKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key";
+    rawKey = "sb_publishable__C-TElQqGI2za2yyyihRfg_fRpS1VtS";
   }
 
   try {

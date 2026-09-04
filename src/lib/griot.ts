@@ -1,5 +1,3 @@
-import { AI_CHAT_APPS } from "@/lib/settings";
-
 export type ModelOption = {
   id: string;
   label: string;
@@ -11,16 +9,18 @@ export type ModelOption = {
 export const MODEL_OS_ID = "modelos";
 
 export const BASE_CHAT_MODELS: ModelOption[] = [
-  { id: "modelos", label: "ModelOS", hint: "ModelGPU RAL · Todas as IAs (Zero-API)", isApp: true },
-  { id: "openai/gpt-5.6-sol", label: "GPT-5.6 SOL", hint: "Raciocínio profundo" },
-  { id: "openai/gpt-5.6-terra", label: "GPT-5.6 TERRA", hint: "Equilíbrio" },
-  { id: "openai/gpt-5.6-luna", label: "GPT-5.6 LUNA", hint: "Velocidade" },
-  { id: "google/gemini-3.6-flash", label: "Gemini 3.6 Flash", hint: "Rápido e multimodal" },
+  { id: "modelos", label: "ModelOS", hint: "ModelGPU RAL · Orquestrador Multi-API" },
+  { id: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash", hint: "API Google · Rápido e multimodal" },
+  { id: "google/gemini-1.5-pro", label: "Gemini 1.5 Pro", hint: "API Google · Raciocínio profundo" },
+  { id: "openai/gpt-4o", label: "GPT-4o", hint: "API OpenAI · Alta precisão e lógica" },
+  { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", hint: "API OpenAI · Veloz e eficiente" },
+  { id: "anthropic/claude-3-5-sonnet", label: "Claude 3.5 Sonnet", hint: "API Anthropic · Código e escrita" },
+  { id: "deepseek/deepseek-chat", label: "DeepSeek Chat", hint: "API DeepSeek · Lógica e matemática" },
 ];
 
 export const QUICK_CHAT_MODELS: ModelOption[] = BASE_CHAT_MODELS;
 
-export const DEFAULT_MODEL = "modelos";
+export const DEFAULT_MODEL = "google/gemini-2.0-flash";
 
 export function isModelOS(id?: string): boolean {
   if (!id) return false;
@@ -32,39 +32,13 @@ export function isModelOS(id?: string): boolean {
   );
 }
 
-export function getAvailableModels(prefs?: Record<string, unknown>): ModelOption[] {
-  const list: ModelOption[] = [...BASE_CHAT_MODELS];
-
-  // Apps de IA com Observer Invisível e Vinculação Fixa de Conversa
-  for (const app of AI_CHAT_APPS) {
-    const isExplicitlyDisabled = prefs && prefs[`app:${app.id}`] === false;
-    if (!isExplicitlyDisabled) {
-      const exists = list.some((m) => m.id === `app:${app.id}` || m.id === app.id);
-      if (!exists) {
-        list.push({
-          id: `app:${app.id}`,
-          label: app.label,
-          hint: `Chat Fixo Invisível · ${app.vendor}`,
-          isApp: true,
-          vendor: app.vendor,
-        });
-      }
-    }
-  }
-
-  return list;
+export function getAvailableModels(_prefs?: Record<string, unknown>): ModelOption[] {
+  return [...BASE_CHAT_MODELS];
 }
 
 export function modelLabel(id: string) {
-  if (!id) return "ModelOS";
+  if (!id) return "Gemini 2.0 Flash";
   if (isModelOS(id)) return "ModelOS";
-  if (id.startsWith("app:")) {
-    const appId = id.replace("app:", "");
-    const app = AI_CHAT_APPS.find((a) => a.id === appId);
-    if (app) return app.label;
-  }
-  const appDirect = AI_CHAT_APPS.find((a) => a.id === id);
-  if (appDirect) return appDirect.label;
   return BASE_CHAT_MODELS.find((model) => model.id === id)?.label ?? id;
 }
 

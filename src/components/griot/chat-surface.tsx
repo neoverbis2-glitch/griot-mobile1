@@ -31,10 +31,6 @@ import {
   observerEngine,
   stripActionBlocks,
   modelGpuRalEngine,
-  threadBinder,
-  nativeObserverBridge,
-  getPackageForAppId,
-  AI_OBSERVER_APPS,
 } from "@/lib/runtime";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
 import {
@@ -565,99 +561,21 @@ export function ChatSurface({ userId }: { userId: string }) {
       }
     }
 
-    const isApp = model.startsWith("app:");
-    const targetAppId = isApp ? model.slice(4) : null;
-    let boundThreadTitle = "";
-    if (isApp && targetAppId && conversationId) {
-      const binding = threadBinder.getOrCreateBinding(
-        conversationId,
-        targetAppId,
-        conversation?.title,
-      );
-      boundThreadTitle = binding.fixedTitle;
-      threadBinder.registerMessageExchange(conversationId, targetAppId);
-    }
-
     try {
       const lastMsg = base[base.length - 1]?.content || "";
       const mLabel = modelLabel(model);
 
-      if (isApp && targetAppId) {
-        const pkg = getPackageForAppId(targetAppId);
-        setStreaming(`A contactar ${mLabel} via GRIOT Observer...`);
-
-        const isNative = typeof window !== "undefined" && (window as any).Capacitor?.isNativePlatform?.();
-        if (!isNative) {
-          toast.error(`A ligação direta à app ${mLabel} requer o GRIOT instalado no telemóvel Android.`);
-          setBusy(false);
-          setStreaming("");
-          return;
-        }
-
-        const sendRes = await nativeObserverBridge.sendAppMessage(pkg, boundThreadTitle, lastMsg);
-        if (!sendRes.success) {
-          const rawErr = sendRes.error || `Não foi possível comunicar com ${mLabel}.`;
-          const isA11y = rawErr.toLowerCase().includes("acessibilidade");
-          const isNotInstalled = rawErr.toLowerCase().includes("não está instalada");
-
-          toast.error(rawErr, {
-            duration: 8000,
-            action: isA11y
-              ? {
-                  label: "Ativar Acessibilidade",
-                  onClick: () => void nativeObserverBridge.requestAccessibilityPermission(),
-                }
-              : isNotInstalled
-              ? {
-                  label: `Instalar ${mLabel}`,
-                  onClick: () => {
-                    if (typeof window !== "undefined") {
-                      window.open(`https://play.google.com/store/apps/details?id=${pkg}`, "_system");
-                    }
-                  },
-                }
-              : undefined,
-          });
-          setBusy(false);
-          setStreaming("");
-          return;
-        }
-
-        setStreaming(`Mensagem enviada para ${mLabel}. A capturar resposta em direto...`);
-
-        try {
-          const captured = await nativeObserverBridge.waitForAppResponse(
-            pkg,
-            lastMsg,
-            boundThreadTitle,
-            75000,
-            (liveChunk) => {
-              if (liveChunk) {
-                setStreaming(liveChunk);
-                if (voiceMode) sessionRef.current?.feed(liveChunk);
-              }
-            },
-          );
-          answer = captured.text;
-          setStreaming(answer);
-        } catch (waitErr: any) {
-          toast.error(`Não foi possível capturar a resposta de ${mLabel}: ${waitErr?.message || "tempo limite excedido"}`);
-          setBusy(false);
-          setStreaming("");
-          return;
-        }
-      } else {
-        let streamedAny = false;
-        try {
-          const { data: sessionData } = await supabase.auth.getSession();
-          const accessToken = sessionData?.session?.access_token;
-          const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
-            body: JSON.stringify({
+      let streamedAny = false;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({
               model,
               effort: activeEffort,
               messages: base,
@@ -706,13 +624,12 @@ export function ChatSurface({ userId }: { userId: string }) {
 
         if (!streamedAny || !answer.trim()) {
           toast.error(
-            `Sem ligação ao modelo ${mLabel}. Configura uma chave de API ou seleciona uma das 8 Apps (ChatGPT, Claude, Kimi, etc.) para utilizar via Observer.`,
+            `Sem ligação ao modelo ${mLabel}. Adiciona a tua chave de API em Home ou Definições → Chave de IA para conversar.`,
           );
           setBusy(false);
           setStreaming("");
           return;
         }
-      }
 
       const parsed = parseProposals(answer);
       const found = [...parsed.decisions, ...parsed.entities];
@@ -744,9 +661,6 @@ export function ChatSurface({ userId }: { userId: string }) {
           title: conversation?.title || "ModelOS Workload",
           affinity: "code_generation",
         });
-      } else if (model.startsWith("app:")) {
-        // Usa estritamente a AppChat selecionada na barra pelo utilizador
-        appKey = model.replace("app:", "");
       } else {
         appKey = model.toLowerCase().includes("claude")
           ? "claude"
