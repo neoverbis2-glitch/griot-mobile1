@@ -65,16 +65,16 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.10-debug.apk
-          echo "APK=GRIOT-v1.0.10-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.10-debug.apk
-          ls -lh GRIOT-v1.0.10-debug.apk
+          cp "$APK" GRIOT-v1.0.11-debug.apk
+          echo "APK=GRIOT-v1.0.11-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.11-debug.apk
+          ls -lh GRIOT-v1.0.11-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.10-debug.apk
+          path: GRIOT-v1.0.11-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -82,9 +82,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.10
-          name: "GRIOT Mobile v1.0.10"
-          body: "Suporte completo de visibilidade de pacotes de IA no Android 11-15, deteção precisa de apps instaladas e mensagens detalhadas de diagnóstico no GRIOT Observer."
-          files: GRIOT-v1.0.10-debug.apk
+          tag_name: v1.0.11
+          name: "GRIOT Mobile v1.0.11"
+          body: "Observer Invisível com Overlay Nativo (TYPE_ACCESSIBILITY_OVERLAY), fecho automático de menus laterais, injeção garantida e escuta ativa de respostas reais da IA."
+          files: GRIOT-v1.0.11-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
