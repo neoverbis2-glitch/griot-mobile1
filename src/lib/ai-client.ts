@@ -106,41 +106,7 @@ export const OPENAI_TOOLS = GEMINI_TOOL_DECLARATIONS.map((t) => ({
   },
 }));
 
-/** Procura a chave de API guardada localmente para um determinado provedor */
-export function getSavedApiKey(provider: string): string | null {
-  if (typeof window === "undefined") return null;
 
-  const normalized = provider.toLowerCase().trim();
-  const keysToTry: string[] = [
-    `griot_api_key_${normalized}`,
-    `griot_${normalized}_api_key`,
-  ];
-
-  if (normalized === "gemini" || normalized === "google") {
-    keysToTry.push("griot_api_key_gemini", "griot_gemini_api_key", "griot_api_key_google");
-  } else if (normalized === "openai" || normalized === "chatgpt") {
-    keysToTry.push("griot_api_key_openai", "griot_openai_api_key");
-  } else if (normalized === "claude" || normalized === "anthropic") {
-    keysToTry.push("griot_api_key_anthropic", "griot_anthropic_api_key");
-  } else if (normalized === "deepseek") {
-    keysToTry.push("griot_api_key_deepseek", "griot_deepseek_api_key");
-  } else if (normalized === "groq") {
-    keysToTry.push("griot_api_key_groq", "griot_groq_api_key");
-  }
-
-  for (const k of keysToTry) {
-    const val = localStorage.getItem(k)?.trim();
-    if (val && val.length > 5) return val;
-  }
-
-  // Fallback: se o utilizador tem alguma chave guardada, tenta Gemini como default
-  const geminiAny =
-    localStorage.getItem("griot_api_key_gemini")?.trim() ||
-    localStorage.getItem("griot_gemini_api_key")?.trim();
-  if (geminiAny && geminiAny.length > 5) return geminiAny;
-
-  return null;
-}
 
 import { findApiByIdOrProvider, getUserSavedApis } from "@/lib/user-apis";
 
