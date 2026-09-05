@@ -142,17 +142,59 @@ export function getSavedApiKey(provider: string): string | null {
   return null;
 }
 
+import { findApiByIdOrProvider, getUserSavedApis } from "@/lib/user-apis";
+
+/** Procura chave guardada localmente */
+export function getSavedApiKey(provider: string): string | null {
+  if (typeof window === "undefined") return null;
+
+  // 1. Tenta encontrar nas APIs do utilizador
+  const saved = findApiByIdOrProvider(provider);
+  if (saved?.apiKey) return saved.apiKey;
+
+  // 2. Chaves legadas
+  const keysToTry = [
+    `griot_api_key_${provider}`,
+    `griot_${provider}_api_key`,
+  ];
+
+  for (const k of keysToTry) {
+    const val = localStorage.getItem(k)?.trim();
+    if (val && val.length > 5) return val;
+  }
+
+  // Fallback: se o utilizador tem alguma chave guardada, tenta Gemini como default
+  const geminiAny =
+    localStorage.getItem("griot_api_key_gemini")?.trim() ||
+    localStorage.getItem("griot_gemini_api_key")?.trim();
+  if (geminiAny && geminiAny.length > 5) return geminiAny;
+
+  return null;
+}
+
 /** Mapeia nomes amigáveis para endpoints de IA */
-export function resolveProviderAndModel(modelId: string): { provider: string; modelName: string } {
+export function resolveProviderAndModel(modelId: string): { provider: string; modelName: string; specificApiKey?: string } {
+  // Se for um ID de API adicionada pelo utilizador
+  const userApi = findApiByIdOrProvider(modelId);
+  if (userApi) {
+    const prov = userApi.providerId;
+    let mName = "gemini-2.5-flash";
+    if (prov === "openai") mName = "gpt-4o";
+    else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
+    else if (prov === "deepseek") mName = "deepseek-chat";
+    else if (prov === "groq") mName = "llama-3.3-70b-versatile";
+    return { provider: prov, modelName: userApi.model || mName, specificApiKey: userApi.apiKey };
+  }
+
   const m = modelId.toLowerCase();
   if (m.includes("gemini") || m === "modelos" || m === "model-os") {
-    const name = m.includes("2.5")
-      ? "gemini-2.5-flash"
-      : m.includes("1.5-pro")
+    const name = m.includes("1.5-pro")
       ? "gemini-1.5-pro"
-      : m.includes("flash")
-      ? "gemini-2.0-flash"
-      : "gemini-2.0-flash";
+      : m.includes("1.5-flash")
+      ? "gemini-1.5-flash"
+      : m.includes("2.5-pro")
+      ? "gemini-2.5-pro"
+      : "gemini-2.5-flash";
     return { provider: "gemini", modelName: name };
   }
   if (m.includes("gpt-4o") || m.includes("openai") || m.includes("o1") || m.includes("o3")) {
@@ -170,7 +212,7 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
   if (m.includes("groq") || m.includes("llama")) {
     return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
   }
-  return { provider: "gemini", modelName: "gemini-2.0-flash" };
+  return { provider: "gemini", modelName: "gemini-2.5-flash" };
 }
 
 /**
@@ -185,8 +227,8 @@ export async function streamDirectAI(params: {
   signal?: AbortSignal;
 }): Promise<AIResponse> {
   const { modelId, messages, systemInstruction, callbacks, signal } = params;
-  const { provider, modelName } = resolveProviderAndModel(modelId);
-  const directKey = getSavedApiKey(provider);
+  const { provider, modelName, specificApiKey } = resolveProviderAndModel(modelId);
+  const directKey = specificApiKey || getSavedApiKey(provider);
 
   // 1. Chamada direta ao Google Gemini
   if (provider === "gemini" && directKey) {
@@ -285,7 +327,7 @@ async function streamGeminiDirect(params: {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-  const response = await fetch(endpoint, {
+  let response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -294,9 +336,55 @@ async function streamGeminiDirect(params: {
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
-    throw new Error(
-      `Google Gemini retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
-    );
+
+    // 1. Auto-recuperação inteligente se a Google sugerir um novo modelo no erro 404
+    const suggestedMatch = errorText.match(/models\/([a-zA-Z0-9.-]+)/);
+    if (response.status === 404 && suggestedMatch && suggestedMatch[1] && suggestedMatch[1] !== modelName) {
+      console.warn(`[GRIOT] Google recomendou o modelo ${suggestedMatch[1]}. A auto-recuperar...`);
+      return streamGeminiDirect({
+        ...params,
+        modelName: suggestedMatch[1],
+      });
+    }
+
+    // 2. Fallbacks em cadeia se for 404
+    if (response.status === 404) {
+      const fallbacks = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro", "gemini-1.5-pro"];
+      for (const candidate of fallbacks) {
+        if (candidate !== modelName) {
+          try {
+            console.warn(`[GRIOT] Tentando modelo alternativo: ${candidate}...`);
+            return await streamGeminiDirect({
+              ...params,
+              modelName: candidate,
+            });
+          } catch {
+            // continua para o próximo fallback
+          }
+        }
+      }
+    }
+
+    // 3. Se deu erro 400 por incompatibilidade de ferramentas, tenta sem tools
+    if (response.status === 400 && (errorText.includes("tool") || errorText.includes("function"))) {
+      const bodyNoTools = { ...body };
+      delete bodyNoTools.tools;
+      const resNoTools = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyNoTools),
+        signal,
+      });
+      if (resNoTools.ok) {
+        response = resNoTools;
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Google Gemini retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
+      );
+    }
   }
 
   let fullText = "";

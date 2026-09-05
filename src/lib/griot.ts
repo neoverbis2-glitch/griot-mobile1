@@ -1,3 +1,5 @@
+import { getUserSavedApis } from "@/lib/user-apis";
+
 export type ModelOption = {
   id: string;
   label: string;
@@ -8,19 +10,11 @@ export type ModelOption = {
 
 export const MODEL_OS_ID = "modelos";
 
-export const BASE_CHAT_MODELS: ModelOption[] = [
-  { id: "modelos", label: "ModelOS", hint: "ModelGPU RAL · Orquestrador Multi-API" },
-  { id: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash", hint: "API Google · Rápido e multimodal" },
-  { id: "google/gemini-1.5-pro", label: "Gemini 1.5 Pro", hint: "API Google · Raciocínio profundo" },
-  { id: "openai/gpt-4o", label: "GPT-4o", hint: "API OpenAI · Alta precisão e lógica" },
-  { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", hint: "API OpenAI · Veloz e eficiente" },
-  { id: "anthropic/claude-3-5-sonnet", label: "Claude 3.5 Sonnet", hint: "API Anthropic · Código e escrita" },
-  { id: "deepseek/deepseek-chat", label: "DeepSeek Chat", hint: "API DeepSeek · Lógica e matemática" },
-];
+// Não há modelos de exemplo hardcoded — apenas as APIs reais adicionadas pelo utilizador
+export const BASE_CHAT_MODELS: ModelOption[] = [];
+export const QUICK_CHAT_MODELS: ModelOption[] = [];
 
-export const QUICK_CHAT_MODELS: ModelOption[] = BASE_CHAT_MODELS;
-
-export const DEFAULT_MODEL = "google/gemini-2.0-flash";
+export const DEFAULT_MODEL = "gemini-2.5-flash";
 
 export function isModelOS(id?: string): boolean {
   if (!id) return false;
@@ -33,13 +27,51 @@ export function isModelOS(id?: string): boolean {
 }
 
 export function getAvailableModels(_prefs?: Record<string, unknown>): ModelOption[] {
-  return [...BASE_CHAT_MODELS];
+  const userApis = getUserSavedApis();
+  if (userApis.length === 0) {
+    return [];
+  }
+
+  const options: ModelOption[] = [];
+
+  // Se houver 2 ou mais APIs adicionadas, disponibiliza o orquestrador ModelOS
+  if (userApis.length >= 2) {
+    options.push({
+      id: "modelos",
+      label: "ModelOS",
+      hint: "ModelGPU RAL · Orquestrador Multi-API",
+      vendor: "griot",
+    });
+  }
+
+  // Adiciona apenas as APIs reais adicionadas pelo utilizador
+  for (const api of userApis) {
+    options.push({
+      id: api.id,
+      label: api.label,
+      hint: `${api.providerId.toUpperCase()} · ${api.secretHint}`,
+      vendor: api.providerId,
+    });
+  }
+
+  return options;
 }
 
 export function modelLabel(id: string) {
-  if (!id) return "Gemini 2.0 Flash";
+  if (!id) return "Selecionar API";
   if (isModelOS(id)) return "ModelOS";
-  return BASE_CHAT_MODELS.find((model) => model.id === id)?.label ?? id;
+
+  const userApis = getUserSavedApis();
+  const match = userApis.find((a) => a.id === id);
+  if (match) return match.label;
+
+  if (id.includes("gemini")) return "Google Gemini";
+  if (id.includes("gpt")) return "OpenAI GPT";
+  if (id.includes("claude")) return "Anthropic Claude";
+  if (id.includes("deepseek")) return "DeepSeek";
+  if (id.includes("groq")) return "Groq Llama";
+
+  return id;
 }
 
 export const CAPTURE_KINDS = [

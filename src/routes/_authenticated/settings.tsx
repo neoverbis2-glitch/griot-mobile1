@@ -23,6 +23,7 @@ import {
   saveGriotCredential,
   verifyGriotCredential,
 } from "@/lib/griot-api";
+import { saveUserApi } from "@/lib/user-apis";
 import { useI18n, useT, labelFromLocale, localeFromLabel } from "@/lib/i18n";
 import { toast } from "sonner";
 import {
@@ -204,6 +205,7 @@ function SettingsPage() {
       if (typeof window !== "undefined") {
         localStorage.setItem("griot_api_key_gemini", secret);
         localStorage.setItem("griot_gemini_api_key", secret);
+        void saveUserApi({ providerId: "gemini", apiKey: secret, label: "Google Gemini" });
       }
       const saved = await saveGriotCredential({ providerId: "gemini", secret, label: "Gemini" });
       if (saved.error || !saved.data) {

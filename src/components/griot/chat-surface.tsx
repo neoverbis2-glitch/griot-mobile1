@@ -140,19 +140,32 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [voiceText, setVoiceText] = useState("");
   const [voiceDraft, setVoiceDraft] = useState("");
 
-  const availableModels = useMemo(() => getAvailableModels(prefs), [prefs]);
+  const [apisRevision, setApisRevision] = useState(0);
+  const availableModels = useMemo(() => getAvailableModels(prefs), [prefs, apisRevision]);
 
   useEffect(() => {
     const handlePrefsChange = () => setPrefs(loadPrefs());
+    const handleApisUpdate = () => setApisRevision((v) => v + 1);
     window.addEventListener("storage", handlePrefsChange);
     window.addEventListener("griot:prefs-changed", handlePrefsChange);
     window.addEventListener("focus", handlePrefsChange);
+    window.addEventListener("griot-apis-updated", handleApisUpdate);
     return () => {
       window.removeEventListener("storage", handlePrefsChange);
       window.removeEventListener("griot:prefs-changed", handlePrefsChange);
       window.removeEventListener("focus", handlePrefsChange);
+      window.removeEventListener("griot-apis-updated", handleApisUpdate);
     };
   }, []);
+
+  // Seleciona a primeira API adicionada se o modelo selecionado não for válido
+  useEffect(() => {
+    if (availableModels.length > 0) {
+      if (!model || !availableModels.some((m) => m.id === model)) {
+        setModel(availableModels[0].id);
+      }
+    }
+  }, [availableModels, model]);
 
   useEffect(() => {
     (window as any).griotHandleBackButton = () => {
@@ -1879,50 +1892,69 @@ export function ChatSurface({ userId }: { userId: string }) {
           {sheet === "model" ? (
             <div className="sheet-up mx-auto mb-2 w-full max-w-[300px] overflow-hidden rounded-[20px] border border-hairline bg-surface/95 backdrop-blur-2xl">
               <p className="px-3.5 pt-2.5 pb-1 text-[9.5px] font-medium tracking-[0.16em] text-muted-foreground uppercase">
-                {t("Modelo")}
+                {t("APIs de IA")}
               </p>
               <div className="max-h-[50vh] overflow-y-auto no-scrollbar">
-                {availableModels.map((option) => (
-                  <button
-                    key={option.id}
-                    onClick={async () => {
-                      setModel(option.id);
-                      setSheet(null);
-                      if (conversationId && !conversationId.startsWith("local-conv-")) {
-                        try {
-                          localStorage.setItem(`griot_conv_model_${conversationId}`, option.id);
-                        } catch {}
-                      }
-                    }}
-                    className={`flex w-full items-center justify-between gap-2 px-3.5 py-1.5 text-left active:bg-secondary transition-colors ${
-                      isModelOS(option.id) ? "text-[#c084fc] hover:bg-[#a855f7]/10" : ""
-                    }`}
-                  >
-                    <span className="min-w-0">
-                      <span
-                        className={`block truncate text-[13px] font-medium leading-tight ${
-                          isModelOS(option.id) ? "text-[#c084fc] font-semibold" : ""
-                        }`}
-                      >
-                        {option.label}
+                {availableModels.length === 0 ? (
+                  <div className="px-4 py-5 text-center">
+                    <p className="text-[13px] font-medium text-foreground">
+                      {t("Nenhuma API adicionada")}
+                    </p>
+                    <p className="mt-1 text-[11.5px] text-muted-foreground">
+                      {t("Adiciona a tua chave do Google Gemini, OpenAI ou Claude para começar.")}
+                    </p>
+                    <Link
+                      to="/"
+                      onClick={() => setSheet(null)}
+                      className="mt-3.5 inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[12px] font-medium text-primary-foreground shadow-sm active:scale-95 transition-transform"
+                    >
+                      <Plus className="size-3.5" />
+                      <span>{t("Adicionar API")}</span>
+                    </Link>
+                  </div>
+                ) : (
+                  availableModels.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={async () => {
+                        setModel(option.id);
+                        setSheet(null);
+                        if (conversationId && !conversationId.startsWith("local-conv-")) {
+                          try {
+                            localStorage.setItem(`griot_conv_model_${conversationId}`, option.id);
+                          } catch {}
+                        }
+                      }}
+                      className={`flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left active:bg-secondary transition-colors ${
+                        isModelOS(option.id) ? "text-[#c084fc] hover:bg-[#a855f7]/10" : ""
+                      }`}
+                    >
+                      <span className="min-w-0">
+                        <span
+                          className={`block truncate text-[13px] font-medium leading-tight ${
+                            isModelOS(option.id) ? "text-[#c084fc] font-semibold" : ""
+                          }`}
+                        >
+                          {option.label}
+                        </span>
+                        <span
+                          className={`block truncate text-[10.5px] leading-tight ${
+                            isModelOS(option.id) ? "text-[#c084fc]/70" : "text-muted-foreground"
+                          }`}
+                        >
+                          {option.hint}
+                        </span>
                       </span>
-                      <span
-                        className={`block truncate text-[10.5px] leading-tight ${
-                          isModelOS(option.id) ? "text-[#c084fc]/70" : "text-muted-foreground"
-                        }`}
-                      >
-                        {option.hint}
-                      </span>
-                    </span>
-                    {model === option.id ? (
-                      <Check
-                        className={`size-[14px] shrink-0 ${
-                          isModelOS(option.id) ? "text-[#c084fc]" : ""
-                        }`}
-                      />
-                    ) : null}
-                  </button>
-                ))}
+                      {model === option.id ? (
+                        <Check
+                          className={`size-[14px] shrink-0 ${
+                            isModelOS(option.id) ? "text-[#c084fc]" : ""
+                          }`}
+                        />
+                      ) : null}
+                    </button>
+                  ))
+                )}
               </div>
               <div className="mt-1.5 flex gap-1 border-t border-hairline p-2">
                 {EFFORTS.map((option) => (
@@ -2010,15 +2042,23 @@ export function ChatSurface({ userId }: { userId: string }) {
                   <button
                     onClick={() => setSheet(sheet === "model" ? null : "model")}
                     className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-all ${
-                      isModelOS(model)
+                      availableModels.length === 0
+                        ? "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
+                        : isModelOS(model)
                         ? "bg-[#a855f7]/15 hover:bg-[#a855f7]/25 text-[#c084fc] border border-[#a855f7]/30"
                         : "bg-secondary text-foreground hover:bg-secondary/80"
                     }`}
                   >
-                    <span className="max-w-[130px] truncate">{modelLabel(model)}</span>
+                    <span className="max-w-[130px] truncate">
+                      {availableModels.length === 0 ? t("+ Adicionar API") : modelLabel(model)}
+                    </span>
                     <ChevronDown
                       className={`size-4 ${
-                        isModelOS(model) ? "text-[#c084fc]/70" : "text-muted-foreground"
+                        availableModels.length === 0
+                          ? "text-primary/70"
+                          : isModelOS(model)
+                          ? "text-[#c084fc]/70"
+                          : "text-muted-foreground"
                       }`}
                     />
                   </button>

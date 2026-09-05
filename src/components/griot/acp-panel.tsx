@@ -20,6 +20,12 @@ import {
   deleteGriotCredential,
   type GriotCredential,
 } from "@/lib/griot-api";
+import {
+  getUserSavedApis,
+  saveUserApi,
+  deleteUserApi,
+  type UserSavedApi,
+} from "@/lib/user-apis";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -95,8 +101,8 @@ const PROVIDER_INFO: Record<
  * com um botão elegante para ligar a primeira API.
  */
 export function ApisPanel({
-  connected: _connected,
-  desktopOnline: _desktopOnline,
+  connected = {},
+  desktopOnline = false,
 }: {
   connected?: Record<string, boolean>;
   desktopOnline?: boolean;
@@ -107,10 +113,13 @@ export function ApisPanel({
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string>("gemini");
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiLabelInput, setApiLabelInput] = useState("");
+  const [localApis, setLocalApis] = useState<UserSavedApi[]>(() => getUserSavedApis());
   const [submitting, setSubmitting] = useState(false);
 
   // Carrega as credenciais ativas do backend e localStorage instantaneamente
   const refreshApis = async () => {
+    setLocalApis(getUserSavedApis());
     try {
       // 1. Consulta rápida direta às tabelas PostgREST (50ms)
       const { data } = await (supabase as any)
@@ -154,61 +163,64 @@ export function ApisPanel({
     return () => window.removeEventListener("griot-apis-updated", handleUpdate);
   }, []);
 
-  // Mapeia as APIs adicionadas (combina remotas e locais se existirem)
+  // Mapeia TODAS as APIs adicionadas sem deduplicação forçada por provider
   const connectedApis = useMemo(() => {
     const list: ConnectedApiItem[] = [];
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
 
-    // APIs do Supabase
-    for (const cred of credentials) {
-      const p = PROVIDER_INFO[cred.providerId] || {
-        label: cred.label || cred.providerId,
-        short: cred.providerId.slice(0, 2).toUpperCase(),
-        vendor: cred.providerId,
+    // 1. APIs locais (suportam múltiplas chaves do mesmo provedor)
+    for (const api of localApis) {
+      const p = PROVIDER_INFO[api.providerId] || {
+        label: api.label,
+        short: api.providerId.slice(0, 2).toUpperCase(),
+        vendor: api.providerId,
         hint: "API Configurada",
         docUrl: "",
         placeholder: "",
       };
-      seen.add(cred.providerId);
+      seenIds.add(api.id);
+      if (api.remoteId) seenIds.add(api.remoteId);
+
       list.push({
-        id: cred.id,
-        providerId: cred.providerId,
-        label: p.label,
+        id: api.id,
+        providerId: api.providerId,
+        label: api.label || p.label,
         short: p.short,
         vendor: p.vendor,
         hint: p.hint,
-        secretHint: cred.secretHint,
-        status: cred.status,
+        secretHint: api.secretHint,
+        status: api.status === "active" ? "active" : "revoked",
+        isLocalOnly: true,
       });
     }
 
-    // Verifica chaves salvas localmente
-    if (typeof window !== "undefined") {
-      for (const [key, p] of Object.entries(PROVIDER_INFO)) {
-        if (!seen.has(key)) {
-          const localVal =
-            localStorage.getItem(`griot_api_key_${key}`) ||
-            localStorage.getItem(`griot_${key}_api_key`);
-          if (localVal && localVal.trim().length > 5) {
-            seen.add(key);
-            list.push({
-              id: `local-${key}`,
-              providerId: key,
-              label: p.label,
-              short: p.short,
-              vendor: p.vendor,
-              hint: p.hint,
-              secretHint: `••••${localVal.slice(-4)}`,
-              status: "active",
-              isLocalOnly: true,
-            });
-          }
-        }
+    // 2. APIs remotas do Supabase (se ainda não constarem localmente)
+    for (const cred of credentials) {
+      if (!seenIds.has(cred.id)) {
+        const p = PROVIDER_INFO[cred.providerId] || {
+          label: cred.label || cred.providerId,
+          short: cred.providerId.slice(0, 2).toUpperCase(),
+          vendor: cred.providerId,
+          hint: "API Configurada",
+          docUrl: "",
+          placeholder: "",
+        };
+        seenIds.add(cred.id);
+        list.push({
+          id: cred.id,
+          providerId: cred.providerId,
+          label: cred.label || p.label,
+          short: p.short,
+          vendor: p.vendor,
+          hint: p.hint,
+          secretHint: cred.secretHint,
+          status: cred.status,
+        });
       }
     }
 
     return list;
-  }, [credentials]);
+  }, [localApis, credentials]);
 
   const handleSaveApi = async () => {
     const secret = apiKeyInput.trim();
@@ -216,37 +228,23 @@ export function ApisPanel({
     setSubmitting(true);
 
     try {
-      // 1. Guarda no localStorage para disponibilidade offline imediata
-      if (typeof window !== "undefined") {
-        localStorage.setItem(`griot_api_key_${selectedProvider}`, secret);
-      }
-
-      // 2. Guarda encriptado no Supabase (se autenticado)
-      const res = await saveGriotCredential({
+      const label = apiLabelInput.trim() || undefined;
+      await saveUserApi({
         providerId: selectedProvider as any,
-        secret,
-        label: PROVIDER_INFO[selectedProvider]?.label || selectedProvider,
+        apiKey: secret,
+        label,
       });
 
-      if (res.data?.credential) {
-        void verifyGriotCredential(res.data.credential.id);
-      }
-
       toast.success(
-        t(`API ${PROVIDER_INFO[selectedProvider]?.label || selectedProvider} adicionada com sucesso!`),
+        t(`API adicionada com sucesso!`),
       );
       setApiKeyInput("");
+      setApiLabelInput("");
       setModalOpen(false);
       await refreshApis();
       if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
-    } catch {
-      toast.success(
-        t("API guardada localmente para utilização imediata."),
-      );
-      setApiKeyInput("");
-      setModalOpen(false);
-      await refreshApis();
-      if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
+    } catch (err) {
+      toast.error(t("Erro ao adicionar API."));
     } finally {
       setSubmitting(false);
     }
@@ -254,14 +252,7 @@ export function ApisPanel({
 
   const handleDelete = async (api: ConnectedApiItem) => {
     try {
-      if (api.isLocalOnly) {
-        if (typeof window !== "undefined") {
-          localStorage.removeItem(`griot_api_key_${api.providerId}`);
-          localStorage.removeItem(`griot_${api.providerId}_api_key`);
-        }
-      } else {
-        await deleteGriotCredential(api.id);
-      }
+      await deleteUserApi(api.id);
       toast.success(t(`API ${api.label} removida.`));
       await refreshApis();
       if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
@@ -424,8 +415,23 @@ export function ApisPanel({
               </div>
             </div>
 
+            {/* Rótulo / Nome da API (Opcional) */}
+            <div className="mt-3.5">
+              <label className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                {t("Nome / Rótulo da API")}
+                <span className="text-muted-foreground/60 ml-1">({t("opcional")})</span>
+              </label>
+              <input
+                type="text"
+                value={apiLabelInput}
+                onChange={(e) => setApiLabelInput(e.target.value)}
+                placeholder={`Ex: ${PROVIDER_INFO[selectedProvider]?.label || selectedProvider} #1`}
+                className="mt-1.5 w-full rounded-2xl border border-hairline bg-background px-4 py-2 text-[13.5px] outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
+              />
+            </div>
+
             {/* Input da Chave */}
-            <div className="mt-4">
+            <div className="mt-3.5">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
                   {t("Chave de API")}
@@ -447,7 +453,7 @@ export function ApisPanel({
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 placeholder={PROVIDER_INFO[selectedProvider]?.placeholder || "Colar chave de API..."}
-                className="mt-2 w-full rounded-2xl border border-hairline bg-background px-4 py-2.5 text-[14px] outline-none placeholder:text-muted-foreground/60 focus:border-primary transition-colors"
+                className="mt-1.5 w-full rounded-2xl border border-hairline bg-background px-4 py-2.5 text-[14px] outline-none placeholder:text-muted-foreground/60 focus:border-primary transition-colors"
                 autoFocus
               />
             </div>
