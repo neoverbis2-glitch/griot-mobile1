@@ -76,29 +76,29 @@ export function DeliberationBar({
     DELIBERATION_MISSIONS.find((m) => m.id === activeMission) || DELIBERATION_MISSIONS[0];
 
   return (
-    <div className="w-full px-4 py-3">
+    <div className="w-full px-3 py-2.5">
       {/* Top Row: Mission Selector */}
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => setMissionOpen(!missionOpen)}
-          className="flex items-center gap-2 rounded-2xl border border-hairline bg-surface/60 px-3.5 py-2 text-[13px] font-medium text-foreground transition-transform active:scale-[0.98]"
+          className="flex items-center gap-2 rounded-2xl bg-secondary px-3.5 py-2 text-[13px] font-medium text-foreground transition-transform active:scale-[0.98]"
         >
           <RoleIcon name={currentMissionObj.icon} className="size-4 text-foreground/80" />
           <span className="truncate max-w-[200px]">{t(currentMissionObj.label)}</span>
           <ChevronDown className="size-3.5 text-muted-foreground" />
         </button>
 
-        <span className="text-[10.5px] font-medium tracking-wider text-muted-foreground/60 uppercase">
+        <span className="text-[10.5px] font-medium tracking-wider text-muted-foreground/70 uppercase">
           {t("Quick Deliberation Room")}
         </span>
       </div>
 
       {/* Mission Modal Selector */}
       {missionOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-hairline bg-surface/95 p-3.5 shadow-2xl backdrop-blur-2xl rise">
-            <div className="flex items-center justify-between px-1 pb-2.5 border-b border-hairline">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-card border border-white/[0.08] p-3.5 shadow-2xl rise">
+            <div className="flex items-center justify-between px-1 pb-2.5 border-b border-border/40">
               <p className="text-[13px] font-semibold text-foreground">
                 {t("Escolher Missão da Sala")}
               </p>
@@ -156,7 +156,7 @@ export function DeliberationBar({
               key={roleId}
               type="button"
               onClick={() => setRoleSelectOpen(roleId)}
-              className="flex min-w-0 flex-col items-center justify-center rounded-2xl border border-hairline bg-surface/60 px-1 py-2 text-center transition-all hover:border-foreground/20 active:scale-[0.97]"
+              className="flex min-w-0 flex-col items-center justify-center rounded-2xl bg-secondary px-1 py-2.5 text-center transition-all hover:bg-secondary/80 active:scale-[0.97]"
             >
               <RoleIcon name={role.icon} className="size-4 text-foreground/80 shrink-0" />
               <span className="mt-1 text-[10.5px] font-medium text-foreground truncate w-full px-0.5">
@@ -172,9 +172,9 @@ export function DeliberationBar({
 
       {/* Role Engine Selector Centered Modal */}
       {roleSelectOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-xs overflow-hidden rounded-3xl border border-hairline bg-surface/95 p-3.5 shadow-2xl backdrop-blur-2xl rise">
-            <div className="flex items-center justify-between px-1 pb-2 border-b border-hairline">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-xs overflow-hidden rounded-3xl bg-card border border-white/[0.08] p-3.5 shadow-2xl rise">
+            <div className="flex items-center justify-between px-1 pb-2 border-b border-border/40">
               <div className="flex items-center gap-2">
                 <RoleIcon name={DELIBERATION_ROLES[roleSelectOpen].icon} className="size-4 text-foreground/80" />
                 <p className="text-[13px] font-semibold text-foreground">

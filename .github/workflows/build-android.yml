@@ -65,16 +65,16 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.17-debug.apk
-          echo "APK=GRIOT-v1.0.17-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.17-debug.apk
-          ls -lh GRIOT-v1.0.17-debug.apk
+          cp "$APK" GRIOT-v1.0.18-debug.apk
+          echo "APK=GRIOT-v1.0.18-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.18-debug.apk
+          ls -lh GRIOT-v1.0.18-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.17-debug.apk
+          path: GRIOT-v1.0.18-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -82,9 +82,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.17
-          name: "GRIOT Mobile v1.0.17"
-          body: "GRIOT Harness avançado com gestão real de ficheiros locais no telemóvel, coordenação com Google Cloud Shell para comandos pesados de terminal/Node.js com barra de autorização Google, pré-visualização e execução instantânea de jogos/projetos criados no chat, resolução de erros 404 da Google Gemini com auto-recuperação inteligente e fallback chain, e correção do layout do Quick Mode."
-          files: GRIOT-v1.0.17-debug.apk
+          tag_name: v1.0.18
+          name: "GRIOT Mobile v1.0.18"
+          body: "Ajuste na altura do botão superior [Chat | Quick] com espaçamento confortável abaixo da barra de status (nível ChatGPT), Quick Deliberation Room perfeitamente centralizado na tela, Card de Autorização do Google Cloud Shell posicionado logo acima da barra de texto em cores escuras nativas do GRIOT sem opacidade baixa e sem bordas brancas."
+          files: GRIOT-v1.0.18-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

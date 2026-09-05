@@ -1435,7 +1435,7 @@ export function ChatSurface({ userId }: { userId: string }) {
       }}
     >
       {/* Barra superior fixa: zona ativa à esquerda (conversas) e à direita (ações). */}
-      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(env(safe-area-inset-top,0px)+14px)]">
+      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(env(safe-area-inset-top,28px)+18px)]">
         <button
           aria-label={t("Abrir conversas")}
           onClick={() => setDrawer(true)}
@@ -1463,7 +1463,7 @@ export function ChatSurface({ userId }: { userId: string }) {
 
       {/* Pré-visualização de Projeto / Jogo Criado */}
       {workspaceFiles.some((f) => f.path.endsWith(".html") || f.path === "index.html") && (
-        <div className="absolute right-3.5 top-[calc(env(safe-area-inset-top,0px)+16px)] z-45">
+        <div className="absolute right-3.5 top-[calc(env(safe-area-inset-top,28px)+20px)] z-45">
           <button
             type="button"
             onClick={() => setPreviewOpen(true)}
@@ -1475,10 +1475,10 @@ export function ChatSurface({ userId }: { userId: string }) {
         </div>
       )}
 
-      {/* Quick Mode Deliberation Bar fixada no topo de forma limpa */}
+      {/* Quick Mode Deliberation Bar posicionada no centro da tela ("no meio") */}
       {scope === "quick" && (
-        <div className="absolute inset-x-0 top-[calc(env(safe-area-inset-top,0px)+58px)] z-30 pointer-events-none px-3">
-          <div className="pointer-events-auto mx-auto max-w-lg rounded-2xl border border-hairline bg-surface/90 p-1.5 shadow-lg backdrop-blur-xl">
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-30 pointer-events-none px-4">
+          <div className="pointer-events-auto mx-auto max-w-lg rounded-3xl bg-card border border-white/[0.08] p-2.5 shadow-2xl">
             <DeliberationBar
               activeMission={deliberationMission}
               roleEngines={roleEngines}
@@ -1489,50 +1489,13 @@ export function ChatSurface({ userId }: { userId: string }) {
         </div>
       )}
 
-      {/* Barra de Ativação / Permissão do Google Cloud Shell */}
-      {cloudShellRequired && (
-        <div className="absolute inset-x-0 top-[calc(env(safe-area-inset-top,0px)+58px)] z-35 px-4 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="mx-auto flex max-w-lg items-center justify-between gap-3 rounded-2xl border border-primary/40 bg-surface/95 p-3.5 shadow-xl backdrop-blur-2xl">
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Terminal className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <h4 className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
-                  {t("Google Cloud Shell Necessário")}
-                  <span className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
-                    Sandbox
-                  </span>
-                </h4>
-                <p className="mt-0.5 text-[11.5px] leading-tight text-muted-foreground truncate max-w-[200px]">
-                  {cloudShellCmd ? `${t("Execução:")} ${cloudShellCmd}` : t("Execução de comandos de terminal pesados na nuvem")}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                disabled={connectingGoogle}
-                onClick={() => void handleConnectGoogleCloud()}
-                className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground shadow-sm hover:opacity-90 active:scale-95 transition-all"
-              >
-                <CloudLightning className="size-3.5" />
-                {connectingGoogle ? t("A ligar...") : t("Ligar Google")}
-              </button>
-              <button
-                type="button"
-                onClick={() => setCloudShellRequired(false)}
-                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground active:scale-90"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="no-scrollbar h-full overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(env(safe-area-inset-top,0px)+70px)] pb-44">
+      {/* Feed da conversa */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar overscroll-contain"
+      >
+        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(env(safe-area-inset-top,28px)+76px)] pb-52">
           {empty ? (
             <div className="pt-24 text-center">
               <p className="text-[26px] font-medium tracking-tight text-muted-foreground">
@@ -2126,6 +2089,68 @@ export function ChatSurface({ userId }: { userId: string }) {
               </div>
             </div>
           ) : null}
+
+          {/* Card de Permissão do Google Cloud Shell - Posicionado imediatamente acima da barra de texto */}
+          {cloudShellRequired && (
+            <div className="mb-2.5 overflow-hidden rounded-[24px] bg-card border border-white/[0.08] p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-3 duration-200">
+              {/* Cabeçalho com Ícone e Nome do Serviço */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex size-7 items-center justify-center rounded-xl bg-secondary text-primary">
+                    <Terminal className="size-3.5" />
+                  </div>
+                  <span className="text-[13px] font-semibold text-foreground">
+                    Google Cloud Shell
+                  </span>
+                  <span className="rounded-md bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Sandbox
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCloudShellRequired(false)}
+                  className="rounded-full p-1 text-muted-foreground hover:text-foreground active:scale-90"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              {/* Título e Explicação */}
+              <div className="mt-2.5">
+                <h4 className="text-[15px] font-semibold tracking-tight text-foreground">
+                  {t("Permitir execução no Cloud Shell?")}
+                </h4>
+                <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                  {t("O GRIOT precisa da sua aprovação para executar comandos pesados em ambiente sandbox na nuvem.")}
+                </p>
+                {cloudShellCmd ? (
+                  <div className="mt-2.5 rounded-xl bg-secondary px-3 py-2 text-[11.5px] font-mono text-foreground/90 break-all select-all">
+                    {cloudShellCmd}
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Botões de Ação Perfeitamente Alinhados (Empilhados como no modelo de referência) */}
+              <div className="mt-4 flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={connectingGoogle}
+                  onClick={() => void handleConnectGoogleCloud()}
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground shadow-sm transition-transform active:scale-[0.98]"
+                >
+                  <CloudLightning className="size-4" />
+                  <span>{connectingGoogle ? t("A ligar à Google...") : t("Ligar com a Google")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCloudShellRequired(false)}
+                  className="flex h-10 w-full items-center justify-center rounded-2xl bg-secondary px-4 text-[13px] font-medium text-muted-foreground hover:text-foreground transition-transform active:scale-[0.98]"
+                >
+                  <span>{t("Recusar")}</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-[28px] border border-hairline bg-surface/90 px-3 pt-3 pb-2.5 shadow-[0_22px_50px_-24px_rgba(0,0,0,0.95)] backdrop-blur-2xl">
             {recording ? (
