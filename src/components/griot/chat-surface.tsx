@@ -1485,20 +1485,14 @@ Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, A
         setDrag(0);
       }}
     >
-      {/* Barra superior fixa: badge do projeto à esquerda, switcher central e ações à direita */}
-      <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,28px)+18px)] pointer-events-none">
+      {/* Barra superior fixa: zona ativa à esquerda (conversas) e à direita (ações). */}
+      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(env(safe-area-inset-top,28px)+18px)]">
         <button
-          aria-label={t("Abrir conversas e projetos")}
+          aria-label={t("Abrir conversas")}
           onClick={() => setDrawer(true)}
-          className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-hairline bg-surface/90 px-3 py-1.5 text-[12.5px] font-medium text-foreground backdrop-blur-xl transition-transform active:scale-95"
-        >
-          <Menu className="size-3.5 text-muted-foreground" />
-          <span className="max-w-[100px] truncate">
-            {activeProject ? activeProject.name : t("Geral")}
-          </span>
-        </button>
-
-        <div className="pointer-events-auto flex shrink-0 rounded-full border border-hairline bg-surface/90 p-1 backdrop-blur-xl">
+          className="h-11 flex-1 self-stretch"
+        />
+        <div className="flex shrink-0 rounded-full border border-hairline bg-surface/90 p-1 backdrop-blur-xl">
           {(["main", "quick"] as const).map((value) => (
             <button
               key={value}
@@ -1511,14 +1505,11 @@ Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, A
             </button>
           ))}
         </div>
-
         <button
           aria-label={t("Ações da conversa")}
           onClick={() => setSheet("actions")}
-          className="pointer-events-auto grid size-8 place-items-center rounded-full border border-hairline bg-surface/90 text-foreground backdrop-blur-xl transition-transform active:scale-95"
-        >
-          <MoreVertical className="size-4 text-muted-foreground" />
-        </button>
+          className="h-11 flex-1 self-stretch"
+        />
       </div>
 
       {/* Pré-visualização de Projeto / Jogo Criado */}
