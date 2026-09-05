@@ -30,13 +30,13 @@ export function CaptureDetail({
 
   useEffect(() => {
     let alive = true;
-    void captureUrl(capture.storage_path).then((value) => {
+    void captureUrl(capture.storage_path, capture).then((value) => {
       if (alive) setUrl(value);
     });
     return () => {
       alive = false;
     };
-  }, [capture.storage_path]);
+  }, [capture]);
 
   const kindLabel = t(
     CAPTURE_KINDS.find((kind) => kind.id === capture.kind)?.label ?? capture.kind,
@@ -112,17 +112,17 @@ export function CaptureDetail({
           </span>
         </div>
 
-        {preview && url && capture.mime_type?.startsWith("image/") ? (
+        {preview && url && (capture.mime_type?.startsWith("image/") || capture.kind === "photo" || capture.kind === "gallery") ? (
           <img
             src={url}
             alt={captureTitle(capture)}
             className="mt-4 max-h-[42vh] w-full rounded-2xl object-cover"
           />
         ) : null}
-        {preview && url && capture.mime_type?.startsWith("video/") ? (
+        {preview && url && (capture.mime_type?.startsWith("video/") || capture.kind === "video") ? (
           <video src={url} controls className="mt-4 max-h-[42vh] w-full rounded-2xl" />
         ) : null}
-        {preview && url && capture.mime_type?.startsWith("audio/") ? (
+        {preview && url && (capture.mime_type?.startsWith("audio/") || capture.kind === "audio") ? (
           <audio src={url} controls className="mt-4 w-full" />
         ) : null}
 
@@ -135,7 +135,11 @@ export function CaptureDetail({
             const inline =
               capture.mime_type?.startsWith("image/") ||
               capture.mime_type?.startsWith("video/") ||
-              capture.mime_type?.startsWith("audio/");
+              capture.mime_type?.startsWith("audio/") ||
+              capture.kind === "photo" ||
+              capture.kind === "video" ||
+              capture.kind === "gallery" ||
+              capture.kind === "audio";
             if (inline && url) setPreview((current) => !current);
             else window.open(target, "_blank", "noopener");
           }}

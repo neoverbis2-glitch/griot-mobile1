@@ -87,6 +87,7 @@ import {
   listQuickCaptures,
   type CaptureRow,
 } from "@/lib/capture-share";
+import { getStoredCaptures, saveCapture } from "@/lib/capture-service";
 
 type Row = {
   id: string;
@@ -615,42 +616,25 @@ export function ChatSurface({ userId }: { userId: string }) {
   // Capture no “+”: primeiro as marcadas como rápidas, depois as mais recentes.
   useEffect(() => {
     if (sheet !== "captures") return;
-    void supabase
-      .from("captures")
-      .select(
-        "id, kind, note, storage_path, mime_type, latitude, longitude, project_id, created_at",
-      )
-      .order("created_at", { ascending: false })
-      .limit(24)
-      .then(({ data }) => {
-        const rows = (data ?? []) as CaptureRow[];
-        const quick = listQuickCaptures();
-        setCaptures(
-          [...rows].sort((a, b) => {
-            const rank = (id: string) => {
-              const index = quick.indexOf(id);
-              return index === -1 ? 999 : index;
-            };
-            return rank(a.id) - rank(b.id);
-          }),
-        );
-      });
+    void getStoredCaptures().then((stored) => {
+      const rows = (stored ?? []) as unknown as CaptureRow[];
+      const quick = listQuickCaptures();
+      setCaptures(
+        [...rows].sort((a, b) => {
+          const rank = (id: string) => {
+            const index = quick.indexOf(id);
+            return index === -1 ? 999 : index;
+          };
+          return rank(a.id) - rank(b.id);
+        }),
+      );
+    });
   }, [sheet]);
 
   async function sendCapture(capture: CaptureRow) {
     if (!conversationId) return;
     const content = await captureAsText(capture);
-    const { data: inserted } = await supabase
-      .from("messages")
-      .insert({ user_id: userId, conversation_id: conversationId, role: "user", content })
-      .select("id, role, content, created_at, feedback")
-      .single();
-    if (inserted) {
-      const row = inserted as unknown as Row;
-      setMessages((current) =>
-        current.some((m) => m.id === row.id) ? current : [...current, row],
-      );
-    }
+    void send(content);
     toast.success(t("Captura adicionada à conversa."));
   }
 
@@ -1220,25 +1204,27 @@ Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, A
 
   async function attach(file: File) {
     if (!conversationId) return;
-    const path = `${userId}/${crypto.randomUUID()}-${file.name}`;
-    const { error } = await supabase.storage.from("captures").upload(path, file);
-    if (error) {
-      toast.error(t("Não foi possível enviar o ficheiro."));
-      return;
-    }
-    await supabase.from("captures").insert({
-      user_id: userId,
-      kind: file.type.startsWith("image/")
+    try {
+      const kind = file.type.startsWith("image/")
         ? "photo"
         : file.type.startsWith("video/")
           ? "video"
-          : "document",
-      note: file.name,
-      mime_type: file.type || null,
-      storage_path: path,
-    });
-    toast.success(t("Adicionado à conversa."));
-    void send(t(`Anexei o ficheiro "${file.name}".`));
+          : file.type.startsWith("audio/")
+            ? "audio"
+            : "document";
+      await saveCapture({
+        kind,
+        note: file.name,
+        file,
+        fileName: file.name,
+        fileType: file.type,
+        userId,
+      });
+      toast.success(t("Adicionado à conversa."));
+      void send(t(`Anexei o ficheiro "${file.name}".`));
+    } catch {
+      toast.error(t("Não foi possível enviar o ficheiro."));
+    }
   }
 
   async function newConversation(next: "main" | "quick") {

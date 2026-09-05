@@ -1,15 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useRef, useState } from "react";
 import { Screen, Panel, Empty } from "@/components/griot/screen";
 import { CAPTURE_KINDS, relativeTime, type CaptureKind } from "@/lib/griot";
 import { toast } from "sonner";
 import { Camera } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { CaptureDetail } from "@/components/griot/capture-detail";
-import { uploadToStorageBucket, STORAGE_BUCKETS } from "@/lib/storage";
 import { useCurrentUser } from "@/hooks/use-user";
+import {
+  saveCapture,
+  getStoredCaptures,
+  type StoredCapture,
+} from "@/lib/capture-service";
+import { getActiveProjectSync, getUnifiedProjects } from "@/lib/project-service";
+import type { CaptureRow } from "@/lib/capture-share";
 
 export const Route = createFileRoute("/_authenticated/capture")({
   head: () => ({
@@ -18,7 +23,7 @@ export const Route = createFileRoute("/_authenticated/capture")({
       {
         name: "description",
         content:
-          "Foto, vídeo, documento, áudio, texto ou localização — tudo entra no projeto certo.",
+          "Foto, vídeo, galeria, documento, áudio, texto ou localização — tudo entra no projeto certo.",
       },
       { property: "og:title", content: "Capture — GRIOT Mobile" },
       {
@@ -41,78 +46,79 @@ function CapturePage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const kindRef = useRef<CaptureKind>("photo");
 
-  const { data } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: ["captures"],
     queryFn: async () => {
       const [captures, projects] = await Promise.all([
-        supabase.from("captures").select("*").order("created_at", { ascending: false }).limit(20),
-        supabase
-          .from("projects")
-          .select("id, name")
-          .eq("archived", false)
-          .order("updated_at", { ascending: false }),
+        getStoredCaptures(),
+        getUnifiedProjects(),
       ]);
-      return { captures: captures.data ?? [], projects: projects.data ?? [] };
+      return { captures, projects };
     },
   });
 
-  const targetProject = data?.projects[0]?.id ?? null;
+  useEffect(() => {
+    const handler = () => {
+      void refetch();
+    };
+    window.addEventListener("griot-captures-changed", handler);
+    return () => window.removeEventListener("griot-captures-changed", handler);
+  }, [refetch]);
 
-  async function record(
-    kind: CaptureKind,
-    payload: Partial<{
-      storage_path: string;
-      mime_type: string;
-      latitude: number;
-      longitude: number;
-    }>,
-  ) {
-    const { error } = await supabase.from("captures").insert({
-      user_id: user.id,
-      project_id: targetProject,
-      kind,
-      note: note.trim() || null,
-      ...payload,
-    });
-    if (error) {
-      toast.error(t("Não foi possível guardar a captura."));
-      return;
-    }
-    setNote("");
-    setSheet(false);
-    toast.success(t("Captura enviada para o projeto."));
-    await queryClient.invalidateQueries({ queryKey: ["captures"] });
-  }
+  const activeProject = getActiveProjectSync() || data?.projects?.[0] || null;
 
-  async function upload(file: File, kind: CaptureKind) {
+  async function handleFileUpload(file: File, kind: CaptureKind) {
     setPending(kind);
-    const path = `${user.id}/${crypto.randomUUID()}-${file.name}`;
-    const { url, error } = await uploadToStorageBucket(STORAGE_BUCKETS.CAPTURES, path, file, {
-      contentType: file.type,
-      upsert: true,
-    });
-    setPending(null);
-    if (error && !url) {
-      toast.error(t("Falha no envio do ficheiro para o bucket."));
-      return;
+    try {
+      await saveCapture({
+        kind,
+        note: note.trim() || null,
+        file,
+        fileName: file.name,
+        fileType: file.type,
+        userId: user?.id,
+      });
+      setNote("");
+      setSheet(false);
+      toast.success(t("Captura guardada com sucesso!"));
+      await refetch();
+      await queryClient.invalidateQueries({ queryKey: ["captures"] });
+    } catch (err) {
+      console.error("[Capture] Erro ao guardar ficheiro:", err);
+      toast.error(t("Não foi possível guardar a captura."));
+    } finally {
+      setPending(null);
     }
-    await record(kind, { storage_path: url || path, mime_type: file.type });
   }
 
   function pick(kind: CaptureKind) {
     kindRef.current = kind;
     const input = inputRef.current;
     if (!input) return;
-    input.accept =
-      kind === "photo"
-        ? "image/*"
-        : kind === "video"
-          ? "video/*"
-          : kind === "audio"
-            ? "audio/*"
-            : "*/*";
-    if (kind === "photo" || kind === "video") input.setAttribute("capture", "environment");
-    else input.removeAttribute("capture");
+
+    if (kind === "gallery") {
+      // Abre diretamente o seletor nativo da galeria para Fotos e Vídeos
+      input.accept = "image/*,video/*";
+      input.removeAttribute("capture");
+    } else if (kind === "photo") {
+      // Abre diretamente a câmara para tirar foto
+      input.accept = "image/*";
+      input.setAttribute("capture", "environment");
+    } else if (kind === "video") {
+      // Abre diretamente a câmara para gravar vídeo
+      input.accept = "video/*";
+      input.setAttribute("capture", "environment");
+    } else if (kind === "audio") {
+      input.accept = "audio/*";
+      input.removeAttribute("capture");
+    } else if (kind === "screen") {
+      input.accept = "image/*";
+      input.removeAttribute("capture");
+    } else {
+      input.accept = "*/*";
+      input.removeAttribute("capture");
+    }
+
     input.click();
   }
 
@@ -123,31 +129,91 @@ function CapturePage() {
     }
     setPending("location");
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setPending(null);
-        void record("location", {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
+      async (position) => {
+        try {
+          await saveCapture({
+            kind: "location",
+            note: note.trim() || null,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            userId: user?.id,
+          });
+          setNote("");
+          setSheet(false);
+          toast.success(t("Localização guardada!"));
+          await refetch();
+          await queryClient.invalidateQueries({ queryKey: ["captures"] });
+        } catch {
+          toast.error(t("Não foi possível guardar a captura."));
+        } finally {
+          setPending(null);
+        }
       },
-      () => {
+      (err) => {
         setPending(null);
+        console.warn("[Capture] Erro de geolocalização:", err);
         toast.error(t("Não foi possível obter a localização."));
       },
+      { enableHighAccuracy: true, timeout: 10000 },
     );
   }
 
-  function handleKind(kind: CaptureKind) {
+  async function handleKind(kind: CaptureKind) {
     if (kind === "location") return locate();
     if (kind === "text") {
       if (!note.trim()) {
         toast.error(t("Escreve alguma coisa primeiro."));
         return;
       }
-      return void record("text", {});
+      setPending("text");
+      try {
+        await saveCapture({
+          kind: "text",
+          note: note.trim(),
+          userId: user?.id,
+        });
+        setNote("");
+        setSheet(false);
+        toast.success(t("Nota guardada!"));
+        await refetch();
+        await queryClient.invalidateQueries({ queryKey: ["captures"] });
+      } catch {
+        toast.error(t("Não foi possível guardar a captura."));
+      } finally {
+        setPending(null);
+      }
+      return;
     }
     if (kind === "screen") {
-      toast(t("Captura de ecrã: usa Foto para enviar a imagem do ecrã."));
+      if (typeof navigator !== "undefined" && navigator.mediaDevices?.getDisplayMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          const track = stream.getVideoTracks()[0];
+          const imageCapture = (window as any).ImageCapture ? new (window as any).ImageCapture(track) : null;
+          if (imageCapture) {
+            const blob = await imageCapture.takePhoto();
+            track.stop();
+            await saveCapture({
+              kind: "screen",
+              note: note.trim() || "Captura de ecrã",
+              file: blob,
+              fileName: `screen-${Date.now()}.png`,
+              fileType: "image/png",
+              userId: user?.id,
+            });
+            setNote("");
+            setSheet(false);
+            toast.success(t("Captura de ecrã guardada!"));
+            await refetch();
+            await queryClient.invalidateQueries({ queryKey: ["captures"] });
+            return;
+          }
+          track.stop();
+        } catch {
+          // Utilizador cancelou ou fallback para selecionar screenshot da galeria
+        }
+      }
+      pick("screen");
       return;
     }
     pick(kind);
@@ -165,8 +231,8 @@ function CapturePage() {
           </div>
           <p className="mt-6 text-[22px] font-semibold tracking-tight">{t("Capturar")}</p>
           <p className="mt-1 text-[13.5px] text-muted-foreground">
-            {data?.projects[0]?.name
-              ? `${t("Vai para")} ${data.projects[0].name}`
+            {activeProject?.name
+              ? `${t("Vai para")} ${activeProject.name}`
               : t("Sem projeto ativo")}
           </p>
         </div>
@@ -178,7 +244,7 @@ function CapturePage() {
         className="hidden"
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) void upload(file, kindRef.current);
+          if (file) void handleFileUpload(file, kindRef.current);
           event.target.value = "";
         }}
       />
@@ -188,18 +254,19 @@ function CapturePage() {
       </p>
       {data?.captures.length ? (
         <Panel className="divide-y divide-hairline">
-          {data.captures.map((capture) => (
+          {data.captures.map((capture: StoredCapture) => (
             <button
               key={capture.id}
-              onClick={() => setDetail(capture as CaptureRow)}
+              onClick={() => setDetail(capture as unknown as CaptureRow)}
               className="flex w-full items-center justify-between gap-3 py-3 text-left transition-opacity duration-200 first:pt-0 last:pb-0 active:opacity-60"
             >
               <div className="min-w-0">
                 <p className="truncate text-[15px] font-medium">
-                  {capture.note ?? t(CAPTURE_KINDS.find((k) => k.id === capture.kind)?.label ?? "")}
+                  {capture.note ?? capture.file_name ?? t(CAPTURE_KINDS.find((k) => k.id === capture.kind)?.label ?? "")}
                 </p>
                 <p className="text-[12.5px] text-muted-foreground">
                   {relativeTime(capture.created_at)}
+                  {capture.project_name ? ` · ${capture.project_name}` : ""}
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-hairline px-2.5 py-1 text-[12px] text-muted-foreground">
@@ -213,7 +280,11 @@ function CapturePage() {
       )}
 
       {detail ? (
-        <CaptureDetail capture={detail} userId={user.id} onClose={() => setDetail(null)} />
+        <CaptureDetail
+          capture={detail}
+          userId={user?.id || "local_user"}
+          onClose={() => setDetail(null)}
+        />
       ) : null}
 
       {sheet ? (
@@ -235,7 +306,7 @@ function CapturePage() {
               {CAPTURE_KINDS.map((kind) => (
                 <button
                   key={kind.id}
-                  onClick={() => handleKind(kind.id)}
+                  onClick={() => void handleKind(kind.id)}
                   disabled={pending !== null}
                   className="rounded-2xl border border-hairline py-3.5 text-[15px] font-medium transition-transform duration-200 active:scale-95 disabled:opacity-40"
                 >

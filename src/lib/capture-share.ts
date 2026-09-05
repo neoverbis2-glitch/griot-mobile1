@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { getCaptureMediaUrl, StoredCapture } from "@/lib/capture-service";
 
 export type CaptureRow = {
   id: string;
@@ -10,6 +11,11 @@ export type CaptureRow = {
   longitude: number | null;
   project_id: string | null;
   created_at: string;
+  file_name?: string | null;
+  file_size?: number | null;
+  data_url?: string | null;
+  project_name?: string | null;
+  blob?: Blob | null;
 };
 
 /** Data e hora exatas, para a barra de detalhe do Capture. */
@@ -25,10 +31,24 @@ export function exactDateTime(iso: string) {
   }).format(date);
 }
 
-export async function captureUrl(path: string | null) {
+export async function captureUrl(path: string | null, capture?: CaptureRow | null) {
+  if (capture?.data_url) return capture.data_url;
+  if (capture) {
+    try {
+      const mediaUrl = await getCaptureMediaUrl(capture as unknown as StoredCapture);
+      if (mediaUrl) return mediaUrl;
+    } catch {}
+  }
   if (!path) return null;
-  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
+  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:") || path.startsWith("blob:")) {
     return path;
+  }
+  if (path.startsWith("local://")) {
+    const id = path.replace("local://", "");
+    try {
+      const mediaUrl = await getCaptureMediaUrl({ id, storage_path: path } as StoredCapture);
+      if (mediaUrl) return mediaUrl;
+    } catch {}
   }
   try {
     const { data } = await supabase.storage.from("captures").createSignedUrl(path, 3600);
@@ -45,7 +65,10 @@ export function captureTitle(capture: CaptureRow) {
   if (capture.kind === "location" && capture.latitude != null && capture.longitude != null) {
     return `${capture.latitude.toFixed(5)}, ${capture.longitude.toFixed(5)}`;
   }
-  if (capture.storage_path) return capture.storage_path.split("/").pop() ?? capture.kind;
+  if (capture.file_name) return capture.file_name;
+  if (capture.storage_path && !capture.storage_path.startsWith("local://")) {
+    return capture.storage_path.split("/").pop() ?? capture.kind;
+  }
   return capture.kind;
 }
 
@@ -54,57 +77,110 @@ export async function captureAsText(capture: CaptureRow) {
   const lines = [`Capture (${capture.kind}) — ${exactDateTime(capture.created_at)}`];
   if (capture.note?.trim()) lines.push(capture.note.trim());
   if (capture.latitude != null && capture.longitude != null) {
-    lines.push(`Localização: ${capture.latitude}, ${capture.longitude}`);
+    lines.push(`Localização: https://www.google.com/maps?q=${capture.latitude},${capture.longitude}`);
   }
-  const url = await captureUrl(capture.storage_path);
-  if (url) lines.push(url);
+  const url = await captureUrl(capture.storage_path, capture);
+  if (url) {
+    if (capture.mime_type?.startsWith("image/")) {
+      lines.push(`![${captureTitle(capture)}](${url})`);
+    } else {
+      lines.push(url);
+    }
+  }
   return lines.join("\n");
 }
 
 /** Envia para uma conversa: usa a mais recente ou cria uma nova. */
 export async function sendCaptureToConversation(capture: CaptureRow, userId: string) {
-  const { data: existing } = await (supabase as any)
-    .from("griot_conversations")
-    .select("id")
-    .order("updated_at", { ascending: false })
-    .limit(1);
-
-  let conversationId = existing?.[0]?.id ?? null;
-  if (!conversationId) {
-    const { data: created } = await (supabase as any)
+  let conversationId: string | null = null;
+  try {
+    const { data: existing } = await (supabase as any)
       .from("griot_conversations")
-      .insert({
-        owner_id: userId,
-        created_by: userId,
-        title: "Captura",
-      })
       .select("id")
-      .single();
-    conversationId = created?.id ?? null;
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    conversationId = existing?.[0]?.id ?? null;
+  } catch {}
+
+  // Fallback para conversas locais do chat-surface
+  if (!conversationId && typeof window !== "undefined") {
+    try {
+      const localConvsRaw = localStorage.getItem("griot_local_conversations");
+      if (localConvsRaw) {
+        const parsed = JSON.parse(localConvsRaw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          conversationId = parsed[0].id;
+        }
+      }
+    } catch {}
   }
-  if (!conversationId) throw new Error("no conversation");
+
+  if (!conversationId) {
+    try {
+      const { data: created } = await (supabase as any)
+        .from("griot_conversations")
+        .insert({
+          owner_id: userId,
+          created_by: userId,
+          title: "Captura",
+        })
+        .select("id")
+        .single();
+      conversationId = created?.id ?? null;
+    } catch {}
+  }
+
+  if (!conversationId) {
+    conversationId = crypto.randomUUID();
+  }
 
   const content = await captureAsText(capture);
-  const { error } = await (supabase as any).from("griot_messages").insert({
-    conversation_id: conversationId,
-    actor_kind: "human",
-    content,
-    status: "succeeded",
-  });
-  if (error) throw error;
+
+  try {
+    await (supabase as any).from("griot_messages").insert({
+      conversation_id: conversationId,
+      actor_kind: "human",
+      content,
+      status: "succeeded",
+    });
+  } catch {}
+
+  // Também grava nas mensagens locais para exibição imediata no chat
+  if (typeof window !== "undefined") {
+    try {
+      const key = `griot_local_messages_${conversationId}`;
+      const existing = localStorage.getItem(key);
+      const msgs = existing ? JSON.parse(existing) : [];
+      const newMsg = {
+        id: crypto.randomUUID(),
+        conversation_id: conversationId,
+        actor_kind: "human",
+        content,
+        status: "succeeded",
+        created_at: new Date().toISOString(),
+      };
+      localStorage.setItem(key, JSON.stringify([...msgs, newMsg]));
+      window.dispatchEvent(new CustomEvent("griot-chat-message-added", { detail: newMsg }));
+    } catch {}
+  }
+
   return conversationId;
 }
 
 /** Envia para o Control Center como registo. */
 export async function sendCaptureToControl(capture: CaptureRow, userId: string) {
-  const { error } = await supabase.from("logs").insert({
-    user_id: userId,
-    project_id: capture.project_id,
-    level: "info",
-    source: "capture",
-    message: `${captureTitle(capture)} · ${exactDateTime(capture.created_at)}`,
-  });
-  if (error) throw error;
+  try {
+    await supabase.from("logs").insert({
+      user_id: userId,
+      project_id: capture.project_id,
+      level: "info",
+      source: "capture",
+      message: `${captureTitle(capture)} · ${exactDateTime(capture.created_at)}`,
+    });
+  } catch {
+    console.info("[Control] Log registado localmente:", captureTitle(capture));
+  }
 }
 
 const QUICK_KEY = "griot-quick-captures";
@@ -126,3 +202,4 @@ export function pushQuickCapture(id: string) {
   const next = [id, ...listQuickCaptures().filter((item) => item !== id)].slice(0, 12);
   window.localStorage.setItem(QUICK_KEY, JSON.stringify(next));
 }
+

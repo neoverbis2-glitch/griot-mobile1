@@ -67,6 +67,7 @@ export function modelLabel(id: string) {
 export const CAPTURE_KINDS = [
   { id: "photo", label: "Foto" },
   { id: "video", label: "Vídeo" },
+  { id: "gallery", label: "Galeria" },
   { id: "document", label: "Documento" },
   { id: "audio", label: "Áudio" },
   { id: "screen", label: "Ecrã" },
