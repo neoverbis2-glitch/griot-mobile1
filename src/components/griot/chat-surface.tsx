@@ -1490,11 +1490,7 @@ export function ChatSurface({ userId }: { userId: string }) {
       )}
 
       {/* Feed da conversa */}
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar overscroll-contain"
-      >
+      <div className="no-scrollbar h-full overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(env(safe-area-inset-top,28px)+76px)] pb-52">
           {empty ? (
             <div className="pt-24 text-center">
