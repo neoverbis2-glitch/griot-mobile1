@@ -65,16 +65,16 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.15-debug.apk
-          echo "APK=GRIOT-v1.0.15-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.15-debug.apk
-          ls -lh GRIOT-v1.0.15-debug.apk
+          cp "$APK" GRIOT-v1.0.16-debug.apk
+          echo "APK=GRIOT-v1.0.16-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.16-debug.apk
+          ls -lh GRIOT-v1.0.16-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.15-debug.apk
+          path: GRIOT-v1.0.16-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -82,9 +82,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.15
-          name: "GRIOT Mobile v1.0.15"
-          body: "Suporte completo a múltiplas chaves/APIs do mesmo provedor sem bloqueios ou sobrescrita, seletor de modelos no chat limpo mostrando apenas APIs reais do utilizador, atualização para Gemini 2.5 Flash e auto-recuperação inteligente em erros 404 de modelo."
-          files: GRIOT-v1.0.15-debug.apk
+          tag_name: v1.0.16
+          name: "GRIOT Mobile v1.0.16"
+          body: "Correção de boundThreadTitle is not defined no processamento de respostas, correção de Link is not defined no seletor de modelos sem APIs, e inclusão do modal de adição direta de APIs de IA dentro do Chat."
+          files: GRIOT-v1.0.16-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

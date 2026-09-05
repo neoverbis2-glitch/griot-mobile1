@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { DEFAULT_MODEL, getAvailableModels, modelLabel, isModelOS } from "@/lib/griot";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
+import { AddApiModal } from "@/components/griot/add-api-modal";
 import { toast } from "sonner";
 import { Thinking } from "@/components/griot/thinking";
 import { UserActions, AssistantActions } from "@/components/griot/message-actions";
@@ -142,6 +143,7 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   const [apisRevision, setApisRevision] = useState(0);
   const availableModels = useMemo(() => getAvailableModels(prefs), [prefs, apisRevision]);
+  const [addApiModalOpen, setAddApiModalOpen] = useState(false);
 
   useEffect(() => {
     const handlePrefsChange = () => setPrefs(loadPrefs());
@@ -699,19 +701,22 @@ export function ChatSurface({ userId }: { userId: string }) {
                         : "custom";
       }
 
-      void observerEngine.processIncomingAIMessage(
-        {
-          provider: appKey as any,
-          model,
-          sessionTitle:
-            boundThreadTitle ||
-            conversation?.title ||
-            (isModelOS(model) ? "ModelOS Cluster" : "Sessão Ativa"),
-          appId: appKey,
-        },
-        answer,
-        conversationId || "main",
-      );
+      try {
+        void observerEngine.processIncomingAIMessage(
+          {
+            provider: appKey as any,
+            model,
+            sessionTitle:
+              conversation?.title ||
+              (isModelOS(model) ? "ModelOS Cluster" : "Sessão Ativa"),
+            appId: appKey,
+          },
+          answer,
+          conversationId || "main",
+        );
+      } catch (obsErr) {
+        console.warn("[GRIOT] Observer non-critical warning:", obsErr);
+      }
 
       lastAnswerRef.current = answer;
 
@@ -1903,14 +1908,29 @@ export function ChatSurface({ userId }: { userId: string }) {
                     <p className="mt-1 text-[11.5px] text-muted-foreground">
                       {t("Adiciona a tua chave do Google Gemini, OpenAI ou Claude para começar.")}
                     </p>
-                    <Link
-                      to="/"
-                      onClick={() => setSheet(null)}
-                      className="mt-3.5 inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[12px] font-medium text-primary-foreground shadow-sm active:scale-95 transition-transform"
-                    >
-                      <Plus className="size-3.5" />
-                      <span>{t("Adicionar API")}</span>
-                    </Link>
+                    <div className="mt-3.5 flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSheet(null);
+                          setAddApiModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-[12px] font-medium text-primary-foreground shadow-sm active:scale-95 transition-transform"
+                      >
+                        <Plus className="size-3.5" />
+                        <span>{t("Adicionar API")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSheet(null);
+                          void navigate({ to: "/home" });
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-secondary/50 px-3 py-1.5 text-[12px] font-medium text-foreground active:scale-95 transition-transform"
+                      >
+                        <span>{t("Ver na Home")}</span>
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   availableModels.map((option) => (
@@ -2040,7 +2060,13 @@ export function ChatSurface({ userId }: { userId: string }) {
                     <Plus className="size-[18px]" />
                   </button>
                   <button
-                    onClick={() => setSheet(sheet === "model" ? null : "model")}
+                    onClick={() => {
+                      if (availableModels.length === 0) {
+                        setAddApiModalOpen(true);
+                      } else {
+                        setSheet(sheet === "model" ? null : "model");
+                      }
+                    }}
                     className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-all ${
                       availableModels.length === 0
                         ? "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
@@ -2103,6 +2129,16 @@ export function ChatSurface({ userId }: { userId: string }) {
           </div>
         </div>
       </div>
+      {/* Modal para Adicionar API de IA diretamente dentro do Chat */}
+      <AddApiModal
+        open={addApiModalOpen}
+        onClose={() => setAddApiModalOpen(false)}
+        onSuccess={(savedApi) => {
+          setApisRevision((r) => r + 1);
+          setModel(savedApi.id || savedApi.providerId);
+          setSheet(null);
+        }}
+      />
     </div>
   );
 }
