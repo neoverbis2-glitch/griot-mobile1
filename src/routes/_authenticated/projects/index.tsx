@@ -76,34 +76,6 @@ function ProjectsPage() {
       toast.error(t("Não foi possível criar o projeto."));
     }
   }
-        status: "ativo",
-        created_at: new Date().toISOString(),
-      };
-
-      const { data: userAuth } = await supabase.auth.getUser();
-      if (userAuth?.user) {
-        await (supabase as any).from("griot_studio_projects").insert({
-          name: newProj.name,
-          description: newProj.description,
-          owner_id: userAuth.user.id,
-          brief: { goal: newProj.name, stack: "REACT", audience: "USUÁRIOS REAIS" },
-          archived: false,
-        }).catch(() => null);
-      }
-
-      const updated = [newProj, ...projects];
-      setProjects(updated);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("griot_local_projects", JSON.stringify(updated));
-      }
-
-      toast.success(t("Projeto criado com sucesso!"));
-      setNewProjectName("");
-      setCreating(false);
-    } catch {
-      toast.error(t("Não foi possível criar o projeto."));
-    }
-  }
 
   return (
     <div className="min-h-screen bg-black text-white px-5 pt-[calc(env(safe-area-inset-top,0px)+24px)] pb-32">
