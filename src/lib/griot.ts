@@ -14,7 +14,7 @@ export const MODEL_OS_ID = "modelos";
 export const BASE_CHAT_MODELS: ModelOption[] = [];
 export const QUICK_CHAT_MODELS: ModelOption[] = [];
 
-export const DEFAULT_MODEL = "gemini-2.5-flash";
+export const DEFAULT_MODEL = "gemini-2.0-flash";
 
 export function isModelOS(id?: string): boolean {
   if (!id) return false;

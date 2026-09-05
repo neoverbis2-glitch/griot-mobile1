@@ -144,7 +144,7 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
   const userApi = findApiByIdOrProvider(modelId);
   if (userApi) {
     const prov = userApi.providerId;
-    let mName = "gemini-2.5-flash";
+    let mName = "gemini-2.0-flash";
     if (prov === "openai") mName = "gpt-4o";
     else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
     else if (prov === "deepseek") mName = "deepseek-chat";
@@ -160,7 +160,11 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
       ? "gemini-1.5-flash"
       : m.includes("2.5-pro")
       ? "gemini-2.5-pro"
-      : "gemini-2.5-flash";
+      : m.includes("2.5-flash")
+      ? "gemini-2.5-flash"
+      : m.includes("3.6-flash")
+      ? "gemini-3.6-flash"
+      : "gemini-2.0-flash";
     return { provider: "gemini", modelName: name };
   }
   if (m.includes("gpt-4o") || m.includes("openai") || m.includes("o1") || m.includes("o3")) {
@@ -178,7 +182,7 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
   if (m.includes("groq") || m.includes("llama")) {
     return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
   }
-  return { provider: "gemini", modelName: "gemini-2.5-flash" };
+  return { provider: "gemini", modelName: "gemini-2.0-flash" };
 }
 
 /**
@@ -304,20 +308,36 @@ async function streamGeminiDirect(params: {
     const errorText = await response.text().catch(() => "");
 
     // 1. Auto-recuperação inteligente se a Google sugerir um novo modelo no erro 404
-    const suggestedMatch = errorText.match(/models\/([a-zA-Z0-9.-]+)/);
-    if (response.status === 404 && suggestedMatch && suggestedMatch[1] && suggestedMatch[1] !== modelName) {
-      console.warn(`[GRIOT] Google recomendou o modelo ${suggestedMatch[1]}. A auto-recuperar...`);
+    // Ex: "Please update your code to use models/gemini-3.6-flash"
+    const updateMatch = errorText.match(/use models\/([a-zA-Z0-9.-]+)/i) || errorText.match(/models\/([a-zA-Z0-9.-]+)/g);
+    let suggestedModel: string | null = null;
+    if (updateMatch) {
+      if (typeof updateMatch[1] === "string" && updateMatch[1] !== modelName) {
+        suggestedModel = updateMatch[1];
+      } else if (Array.isArray(updateMatch)) {
+        for (const m of updateMatch) {
+          const clean = m.replace(/^models\//, "");
+          if (clean !== modelName) {
+            suggestedModel = clean;
+            break;
+          }
+        }
+      }
+    }
+
+    if (response.status === 404 && suggestedModel && suggestedModel !== modelName) {
+      console.warn(`[GRIOT] Google recomendou o modelo ${suggestedModel}. A auto-recuperar...`);
       return streamGeminiDirect({
         ...params,
-        modelName: suggestedMatch[1],
+        modelName: suggestedModel,
       });
     }
 
     // 2. Fallbacks em cadeia se for 404
     if (response.status === 404) {
-      const fallbacks = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro", "gemini-1.5-pro"];
+      const fallbacks = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.6-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
       for (const candidate of fallbacks) {
-        if (candidate !== modelName) {
+        if (candidate !== modelName && candidate !== suggestedModel) {
           try {
             console.warn(`[GRIOT] Tentando modelo alternativo: ${candidate}...`);
             return await streamGeminiDirect({

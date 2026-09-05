@@ -44,6 +44,7 @@ import {
   type DeliberationRoleId,
   type GriotVerdict,
 } from "@/lib/runtime/deliberation-room";
+import { getWorkspaceFiles, type WorkspaceFile } from "@/lib/runtime/local-harness";
 
 import {
   ArrowUp,
@@ -64,6 +65,9 @@ import {
   Archive,
   Trash2,
   ChevronLeft,
+  Play,
+  Terminal,
+  CloudLightning,
 } from "lucide-react";
 
 import {
@@ -106,6 +110,31 @@ const SPEECH_SPEEDS: Record<string, number> = {
   "1.5×": 1.45,
 };
 
+function generatePreviewSrcDoc(files: WorkspaceFile[]): string {
+  const htmlFile = files.find((f) => f.path.endsWith(".html") || f.path === "index.html") || files[0];
+  if (!htmlFile) {
+    return "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:20px;color:#888;'><h3>Nenhum ficheiro HTML no workspace.</h3></body></html>";
+  }
+  let doc = htmlFile.content;
+  for (const f of files) {
+    if (f.path.endsWith(".css")) {
+      if (doc.includes("</head>")) {
+        doc = doc.replace("</head>", `<style>${f.content}</style></head>`);
+      } else {
+        doc = `<style>${f.content}</style>` + doc;
+      }
+    }
+    if (f.path.endsWith(".js") && !f.path.endsWith(".test.js")) {
+      if (doc.includes("</body>")) {
+        doc = doc.replace("</body>", `<script>${f.content}</script></body>`);
+      } else {
+        doc = doc + `<script>${f.content}</script>`;
+      }
+    }
+  }
+  return doc;
+}
+
 export function ChatSurface({ userId }: { userId: string }) {
   const navigate = useNavigate();
   const t = useT();
@@ -144,6 +173,55 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [apisRevision, setApisRevision] = useState(0);
   const availableModels = useMemo(() => getAvailableModels(prefs), [prefs, apisRevision]);
   const [addApiModalOpen, setAddApiModalOpen] = useState(false);
+
+  // Integração com Local Workspace e Google Cloud Shell
+  const [cloudShellRequired, setCloudShellRequired] = useState(false);
+  const [cloudShellCmd, setCloudShellCmd] = useState("");
+  const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
+
+  useEffect(() => {
+    const wsId = conversation?.id || "default";
+    setWorkspaceFiles(getWorkspaceFiles(wsId));
+
+    const onCloudShellRequired = (e: any) => {
+      setCloudShellRequired(true);
+      setCloudShellCmd(e.detail?.action?.params?.command || "");
+    };
+    const onFilesUpdated = () => {
+      setWorkspaceFiles(getWorkspaceFiles(wsId));
+    };
+
+    window.addEventListener("griot:cloudshell-required", onCloudShellRequired);
+    window.addEventListener("griot:workspace-files-updated", onFilesUpdated);
+    return () => {
+      window.removeEventListener("griot:cloudshell-required", onCloudShellRequired);
+      window.removeEventListener("griot:workspace-files-updated", onFilesUpdated);
+    };
+  }, [conversation?.id]);
+
+  const handleConnectGoogleCloud = async () => {
+    setConnectingGoogle(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: typeof window !== "undefined" ? window.location.href : undefined,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+          scopes: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email",
+        },
+      });
+      if (error) throw error;
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t("Erro ao ligar ao Google Cloud."));
+    } finally {
+      setConnectingGoogle(false);
+    }
+  };
 
   useEffect(() => {
     const handlePrefsChange = () => setPrefs(loadPrefs());
@@ -1383,15 +1461,72 @@ export function ChatSurface({ userId }: { userId: string }) {
         />
       </div>
 
+      {/* Pré-visualização de Projeto / Jogo Criado */}
+      {workspaceFiles.some((f) => f.path.endsWith(".html") || f.path === "index.html") && (
+        <div className="absolute right-3.5 top-[calc(env(safe-area-inset-top,0px)+16px)] z-45">
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            className="flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/20 px-3 py-1 text-[12px] font-medium text-primary shadow-sm backdrop-blur-xl hover:bg-primary/30 active:scale-95 transition-all"
+          >
+            <Play className="size-3 fill-primary" />
+            <span>{t("Jogar")}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Quick Mode Deliberation Bar fixada no topo de forma limpa */}
       {scope === "quick" && (
-        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-30 pointer-events-none">
-          <div className="pointer-events-auto">
+        <div className="absolute inset-x-0 top-[calc(env(safe-area-inset-top,0px)+58px)] z-30 pointer-events-none px-3">
+          <div className="pointer-events-auto mx-auto max-w-lg rounded-2xl border border-hairline bg-surface/90 p-1.5 shadow-lg backdrop-blur-xl">
             <DeliberationBar
               activeMission={deliberationMission}
               roleEngines={roleEngines}
               onSelectMission={(m) => setDeliberationMission(m)}
               onChangeRoleEngine={(r, e) => setRoleEngines((prev) => ({ ...prev, [r]: e }))}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Barra de Ativação / Permissão do Google Cloud Shell */}
+      {cloudShellRequired && (
+        <div className="absolute inset-x-0 top-[calc(env(safe-area-inset-top,0px)+58px)] z-35 px-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="mx-auto flex max-w-lg items-center justify-between gap-3 rounded-2xl border border-primary/40 bg-surface/95 p-3.5 shadow-xl backdrop-blur-2xl">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Terminal className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+                  {t("Google Cloud Shell Necessário")}
+                  <span className="rounded-md bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                    Sandbox
+                  </span>
+                </h4>
+                <p className="mt-0.5 text-[11.5px] leading-tight text-muted-foreground truncate max-w-[200px]">
+                  {cloudShellCmd ? `${t("Execução:")} ${cloudShellCmd}` : t("Execução de comandos de terminal pesados na nuvem")}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                disabled={connectingGoogle}
+                onClick={() => void handleConnectGoogleCloud()}
+                className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground shadow-sm hover:opacity-90 active:scale-95 transition-all"
+              >
+                <CloudLightning className="size-3.5" />
+                {connectingGoogle ? t("A ligar...") : t("Ligar Google")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCloudShellRequired(false)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground active:scale-90"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2139,6 +2274,33 @@ export function ChatSurface({ userId }: { userId: string }) {
           setSheet(null);
         }}
       />
+
+      {/* Modal de Pré-visualização do Jogo / Aplicação Web do Workspace */}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-in fade-in duration-150">
+          <div className="flex items-center justify-between border-b border-hairline px-4 py-3 pt-[calc(env(safe-area-inset-top,0px)+12px)] bg-surface/90 backdrop-blur-xl">
+            <span className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+              <Play className="size-4 fill-primary text-primary" />
+              {t("Pré-visualização do Projeto / Jogo")}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(false)}
+              className="rounded-xl border border-hairline bg-secondary/60 p-1.5 text-muted-foreground hover:text-foreground active:scale-90"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          <div className="flex-1 w-full bg-white">
+            <iframe
+              title="Project Preview"
+              sandbox="allow-scripts allow-modals allow-forms allow-same-origin"
+              srcDoc={generatePreviewSrcDoc(workspaceFiles)}
+              className="h-full w-full border-none"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
