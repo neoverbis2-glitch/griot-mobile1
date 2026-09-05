@@ -34,22 +34,12 @@ export function getAvailableModels(_prefs?: Record<string, unknown>): ModelOptio
 
   const options: ModelOption[] = [];
 
-  // Se houver 2 ou mais APIs adicionadas, disponibiliza o orquestrador ModelOS
-  if (userApis.length >= 2) {
-    options.push({
-      id: "modelos",
-      label: "ModelOS",
-      hint: "ModelGPU RAL · Orquestrador Multi-API",
-      vendor: "griot",
-    });
-  }
-
-  // Adiciona apenas as APIs reais adicionadas pelo utilizador
+  // Adiciona estritamente e exclusivamente as APIs reais configuradas pelo utilizador
   for (const api of userApis) {
     options.push({
       id: api.id,
       label: api.label,
-      hint: `${api.providerId.toUpperCase()} · ${api.secretHint}`,
+      hint: `${api.providerId.toUpperCase()} · API Conectada`,
       vendor: api.providerId,
     });
   }

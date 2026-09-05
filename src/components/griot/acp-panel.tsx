@@ -280,11 +280,6 @@ export function ApisPanel({
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-[14.5px] font-medium">{api.label}</span>
-                    {api.secretHint && (
-                      <span className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-                        {api.secretHint}
-                      </span>
-                    )}
                   </span>
                   <span className="block truncate text-[12px] text-muted-foreground">
                     {t("Ligada ·")} {api.hint}

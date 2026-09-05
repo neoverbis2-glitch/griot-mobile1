@@ -12,6 +12,7 @@ import { useTheme } from "@/lib/theme";
 import { UserAvatar } from "@/components/griot/user-avatar";
 import { useCurrentUser } from "@/hooks/use-user";
 import { Moon, Sun, ChevronRight } from "lucide-react";
+import { getUnifiedProjects, getActiveProjectSync } from "@/lib/project-service";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -110,33 +111,9 @@ function HomePage() {
           avatarUrl ||
           (typeof window !== "undefined" ? localStorage.getItem("griot_user_avatar") : null);
 
-        // Mapear projetos reais de griot_studio_projects
-        const rawProjects = projectsRes?.data || [];
-        const mappedProjects = rawProjects.length > 0
-          ? rawProjects.map((p: any) => ({
-              id: p.id,
-              user_id: p.owner_id || "griot",
-              name: p.name,
-              description: p.description || p.brief?.goal || "Projeto GRIOT Studio",
-              progress: typeof p.brief?.progress === "number" ? p.brief.progress : 85,
-              build_status: p.brief?.build_status || "success",
-              archived: p.archived || false,
-              created_at: p.created_at,
-              updated_at: p.updated_at,
-            }))
-          : [
-              {
-                id: "neo",
-                user_id: "griot",
-                name: "NEO",
-                description: "Webapp avançado do GRIOT Studio",
-                progress: 88,
-                build_status: "success",
-                archived: false,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              },
-            ];
+        // Projetos reais unificados (do Supabase e de griot_local_projects)
+        const mappedProjects = await getUnifiedProjects();
+        const activeProj = getActiveProjectSync();
 
         // Nós ativos do pipeline multi-agente
         const pipelineNodes = Array.isArray(pipelineRes?.data?.nodes) ? pipelineRes.data.nodes : [];
@@ -175,7 +152,7 @@ function HomePage() {
         return {
           profile: {
             display_name: resolvedName,
-            active_project_id: mappedProjects[0]?.id || null,
+            active_project_id: activeProj?.id || mappedProjects[0]?.id || null,
             desktop_online: true,
             avatar_url: resolvedAvatar,
           },
@@ -186,38 +163,17 @@ function HomePage() {
           services: mappedServices,
         };
       } catch (err) {
-        console.warn("Falha na consulta da Home, usando estado inicial de fallback:", err);
+        console.warn("Falha na consulta da Home, usando projetos locais:", err);
+        const localProjects = await getUnifiedProjects();
+        const activeProj = getActiveProjectSync();
         return {
           profile: {
             display_name: displayName || "GRIOT",
-            active_project_id: "p1",
+            active_project_id: activeProj?.id || localProjects[0]?.id || null,
             desktop_online: false,
             avatar_url: avatarUrl || null,
           },
-          projects: [
-            {
-              id: "p1",
-              user_id: "anonymous",
-              name: "Neoverbis",
-              description: "Plataforma editorial e de tradução assistida.",
-              progress: 92,
-              build_status: "success",
-              archived: false,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            {
-              id: "p2",
-              user_id: "anonymous",
-              name: "ModelOS",
-              description: "Camada de orquestração de modelos do GRIOT.",
-              progress: 47,
-              build_status: "running",
-              archived: false,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ],
+          projects: localProjects,
           activeAgents: 2,
           alert: null,
           runs: [] as RunRow[],

@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useT } from "@/lib/i18n";
 import { toast } from "sonner";
-import { ChevronLeft, Plus } from "lucide-react";
+import { ChevronLeft, Plus, MessageSquare } from "lucide-react";
+import { setActiveProject } from "@/lib/project-service";
 
 type ProjectDetail = {
   id: string;
@@ -142,6 +143,9 @@ function ProjectDetailPage() {
       } catch (err) {
         console.warn("Carregamento do projeto:", err);
       }
+      if (projectId) {
+        setActiveProject(projectId);
+      }
     }
     void loadDetail();
     return () => {
@@ -185,6 +189,17 @@ function ProjectDetailPage() {
           </button>
           <h1 className="text-[34px] font-bold tracking-tight text-white">{project?.name || t("Projeto")}</h1>
         </div>
+
+        <button
+          onClick={() => {
+            setActiveProject(projectId);
+            void navigate({ to: "/chat" });
+          }}
+          className="flex items-center gap-1.5 rounded-full bg-white/10 border border-white/20 px-3.5 py-1.5 text-[13px] font-semibold text-white transition-transform active:scale-95"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>{t("Chat")}</span>
+        </button>
       </div>
 
       {/* Pill Tab Switcher Container */}

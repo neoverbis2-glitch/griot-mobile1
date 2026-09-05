@@ -1,18 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useT } from "@/lib/i18n";
 import { toast } from "sonner";
-import { ChevronRight, Plus } from "lucide-react";
-
-type ProjectRow = {
-  id: string;
-  name: string;
-  description?: string | null;
-  progress?: number | null;
-  status?: string | null;
-  created_at: string;
-};
+import { ChevronRight, Plus, Check } from "lucide-react";
+import {
+  getUnifiedProjects,
+  getActiveProjectSync,
+  setActiveProject,
+  saveProject,
+  type GriotProject,
+} from "@/lib/project-service";
 
 export const Route = createFileRoute("/_authenticated/projects/")({
   head: () => ({
@@ -29,7 +26,8 @@ export const Route = createFileRoute("/_authenticated/projects/")({
 
 function ProjectsPage() {
   const t = useT();
-  const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [projects, setProjects] = useState<GriotProject[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -38,53 +36,27 @@ function ProjectsPage() {
     let cancelled = false;
     async function loadProjects() {
       try {
-        const { data } = await (supabase as any)
-          .from("griot_studio_projects")
-          .select("id, name, description, brief, created_at, updated_at")
-          .order("created_at", { ascending: false });
-
+        const unified = await getUnifiedProjects();
         if (cancelled) return;
-        const rawList = data || [];
-        let merged: ProjectRow[] = rawList.map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          description: p.description || p.brief?.goal || "Projeto GRIOT Studio",
-          progress: typeof p.brief?.progress === "number" ? p.brief.progress : 85,
-          status: p.brief?.build_status || "ativo",
-          created_at: p.created_at,
-        }));
-
-        if (typeof window !== "undefined") {
-          const stored = localStorage.getItem("griot_local_projects");
-          if (stored) {
-            try {
-              const localList: ProjectRow[] = JSON.parse(stored);
-              for (const lp of localList) {
-                if (!merged.some((p) => p.id === lp.id)) {
-                  merged.push(lp);
-                }
-              }
-            } catch {}
-          }
-        }
-        setProjects(merged);
+        setProjects(unified);
+        const active = getActiveProjectSync();
+        setActiveProjectId(active?.id || unified[0]?.id || null);
       } catch (err) {
         console.warn("Carregamento de projetos:", err);
-        if (!cancelled) {
-          if (typeof window !== "undefined") {
-            const stored = localStorage.getItem("griot_local_projects");
-            setProjects(stored ? JSON.parse(stored) : []);
-          } else {
-            setProjects([]);
-          }
-        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     void loadProjects();
+
+    const handleActiveChanged = (e: any) => {
+      setActiveProjectId(e.detail);
+    };
+    window.addEventListener("griot-active-project-changed", handleActiveChanged);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("griot-active-project-changed", handleActiveChanged);
     };
   }, []);
 
@@ -93,11 +65,17 @@ function ProjectsPage() {
     if (!name) return;
 
     try {
-      const newProj: ProjectRow = {
-        id: `proj_${Date.now()}`,
-        name,
-        description: "Projeto de automação GRIOT",
-        progress: 0,
+      const created = await saveProject({ name });
+      const updated = [created, ...projects.filter((p) => p.id !== created.id)];
+      setProjects(updated);
+      setActiveProjectId(created.id);
+      toast.success(t("Projeto criado com sucesso!"));
+      setNewProjectName("");
+      setCreating(false);
+    } catch {
+      toast.error(t("Não foi possível criar o projeto."));
+    }
+  }
         status: "ativo",
         created_at: new Date().toISOString(),
       };
@@ -191,7 +169,14 @@ function ProjectsPage() {
               >
                 <div className="rounded-[24px] border border-neutral-800/90 bg-[#121212] p-5 shadow-sm transition-transform active:scale-[0.99]">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-[20px] font-bold text-white tracking-snug">{proj.name}</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-[20px] font-bold text-white tracking-snug">{proj.name}</h2>
+                      {proj.id === activeProjectId && (
+                        <span className="rounded-full bg-white/15 border border-white/20 px-2 py-0.5 text-[10.5px] font-semibold text-white tracking-wide uppercase">
+                          {t("Ativo")}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1 text-[17px] font-bold text-white">
                       <span>{prog}%</span>
                       <ChevronRight className="size-4 text-neutral-400" />

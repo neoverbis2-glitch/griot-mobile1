@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { DEFAULT_MODEL, getAvailableModels, modelLabel, isModelOS } from "@/lib/griot";
+import { getUserSavedApis } from "@/lib/user-apis";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { AddApiModal } from "@/components/griot/add-api-modal";
 import { toast } from "sonner";
@@ -45,6 +46,12 @@ import {
   type GriotVerdict,
 } from "@/lib/runtime/deliberation-room";
 import { getWorkspaceFiles, type WorkspaceFile } from "@/lib/runtime/local-harness";
+import {
+  getUnifiedProjects,
+  getActiveProjectSync,
+  setActiveProject,
+  type GriotProject,
+} from "@/lib/project-service";
 
 import {
   ArrowUp,
@@ -68,6 +75,9 @@ import {
   Play,
   Terminal,
   CloudLightning,
+  Menu,
+  MoreVertical,
+  Folder,
 } from "lucide-react";
 
 import {
@@ -148,19 +158,34 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [reasoning, setReasoning] = useState("");
   const [steps, setSteps] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [model, setModel] = useState(() => {
+    const saved = getUserSavedApis();
+    return saved[0]?.id || DEFAULT_MODEL;
+  });
   const [effort, setEffort] = useState<Effort>("medium");
   const [sheet, setSheet] = useState<Sheet>(null);
   const [drawer, setDrawer] = useState(false);
   const [drawerKey, setDrawerKey] = useState(0);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [projects, setProjects] = useState<GriotProject[]>([]);
+  const [activeProject, setActiveProjectState] = useState<GriotProject | null>(() => getActiveProjectSync());
   const [captures, setCaptures] = useState<CaptureRow[]>([]);
   const [deliberationMission, setDeliberationMission] = useState<DeliberationMissionId>("ideate");
-  const [roleEngines, setRoleEngines] = useState<Record<DeliberationRoleId, string>>({
-    strategist: "gemini:gemini-3.6-flash",
-    analyst: "app:claude",
-    innovator: "app:chatgpt",
-    critic: "gemini:gemini-3.6-flash",
+  const [roleEngines, setRoleEngines] = useState<Record<DeliberationRoleId, string>>(() => {
+    const saved = getUserSavedApis();
+    if (saved.length > 0) {
+      return {
+        strategist: saved[0]?.id || "gemini",
+        analyst: saved[1]?.id || saved[0]?.id || "gemini",
+        innovator: saved[2]?.id || saved[0]?.id || "gemini",
+        critic: saved[0]?.id || "gemini",
+      };
+    }
+    return {
+      strategist: "gemini",
+      analyst: "gemini",
+      innovator: "gemini",
+      critic: "gemini",
+    };
   });
   const [recording, setRecording] = useState(false);
   const [levels, setLevels] = useState<number[]>(() => Array.from({ length: 22 }, () => 0.12));
@@ -561,42 +586,30 @@ export function ChatSurface({ userId }: { userId: string }) {
   }, [recording]);
 
   useEffect(() => {
-    if (sheet !== "projects") return;
+    let cancelled = false;
     async function fetchProjects() {
       try {
-        const { data } = await supabase
-          .from("projects")
-          .select("id, name")
-          .eq("archived", false)
-          .order("updated_at", { ascending: false });
-
-        let list: { id: string; name: string }[] = data ? [...data] : [];
-        if (typeof window !== "undefined") {
-          const raw = localStorage.getItem("griot_local_projects");
-          if (raw) {
-            try {
-              const localList = JSON.parse(raw);
-              for (const lp of localList) {
-                if (!list.some((p) => p.id === lp.id)) {
-                  list.push({ id: lp.id, name: lp.name });
-                }
-              }
-            } catch {}
-          }
-        }
-        setProjects(list);
-      } catch {
-        if (typeof window !== "undefined") {
-          const raw = localStorage.getItem("griot_local_projects");
-          if (raw) {
-            try {
-              setProjects(JSON.parse(raw));
-            } catch {}
-          }
-        }
+        const unified = await getUnifiedProjects();
+        if (cancelled) return;
+        setProjects(unified);
+        const active = getActiveProjectSync();
+        setActiveProjectState(active);
+      } catch (err) {
+        console.warn("Falha ao carregar projetos no Chat:", err);
       }
     }
     void fetchProjects();
+
+    const onProjectChanged = () => {
+      const active = getActiveProjectSync();
+      setActiveProjectState(active);
+    };
+    window.addEventListener("griot-active-project-changed", onProjectChanged);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("griot-active-project-changed", onProjectChanged);
+    };
   }, [sheet]);
 
   // Capture no “+”: primeiro as marcadas como rápidas, depois as mais recentes.
@@ -681,6 +694,38 @@ export function ChatSurface({ userId }: { userId: string }) {
       }
     }
 
+    // Identificar o projeto associado à conversa ou o projeto ativo global
+    const currentProject =
+      projects.find((p) => p.id === conversation?.project_id) || activeProject;
+
+    let sysInstruction =
+      "És o GRIOT, o assistente de engenharia de software e inteligência artificial de elite. Quando precisares de inspecionar ou modificar ficheiros ou executar comandos, utiliza as ferramentas disponíveis.";
+
+    if (currentProject) {
+      sysInstruction += `\n\n[PROJETO ATIVO GRIOT]
+Nome do Projeto: ${currentProject.name}
+ID: ${currentProject.id}
+Descrição: ${currentProject.description || "Projeto GRIOT Mobile"}
+Progresso: ${currentProject.progress}%
+Status: ${currentProject.status || "ativo"}
+NOTA CRÍTICA: Tu estás explicitamente a operar no contexto do projeto "${currentProject.name}". Quando o utilizador te perguntar se o chat está num projeto, qual é o projeto ou sobre o status do projeto, confirma com clareza e autoridade que estás a operar no projeto "${currentProject.name}" e cita estes detalhes.`;
+    } else {
+      sysInstruction += `\n\n[PROJETO ATIVO GRIOT]
+Nenhum projeto específico está associado a esta sessão (conversa geral).`;
+    }
+
+    if (scope === "quick") {
+      const missionObj =
+        DELIBERATION_MISSIONS.find((m) => m.id === deliberationMission) || DELIBERATION_MISSIONS[0];
+      sysInstruction += `\n\n[MODO QUICK DELIBERATION ROOM]
+Missão Ativa: ${missionObj.label} (${missionObj.description})
+Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, Analyst: técnica e riscos, Innovator: melhoria e criatividade, Critic: desafios e casos limite). Responde de forma concisa, direta e acionável.`;
+    }
+
+    if (!context && currentProject) {
+      context = `Projeto: ${currentProject.name}\nDescrição: ${currentProject.description || "GRIOT Mobile"}\nProgresso: ${currentProject.progress}%\nEstado: ${currentProject.status || "ativo"}`;
+    }
+
     try {
       const lastMsg = base[base.length - 1]?.content || "";
       const mLabel = modelLabel(model);
@@ -690,6 +735,7 @@ export function ChatSurface({ userId }: { userId: string }) {
         const loopResult = await executeReActLoop({
           modelId: model,
           messages: base,
+          systemInstruction: sysInstruction,
           context,
           callbacks: {
             onToken: (token) => {
@@ -1288,28 +1334,33 @@ export function ChatSurface({ userId }: { userId: string }) {
   }
 
   async function assignProject(projectId: string) {
-    if (!conversation) return;
-    try {
-      await (supabase as any)
-        .from("griot_conversations")
-        .update({ project_id: projectId })
-        .eq("id", conversation.id);
-    } catch {}
+    setActiveProject(projectId);
+    const proj = projects.find((p) => p.id === projectId);
+    if (proj) setActiveProjectState(proj);
 
-    if (typeof window !== "undefined") {
+    if (conversation) {
       try {
-        const raw = localStorage.getItem("griot_conversations_v1");
-        if (raw) {
-          const list = JSON.parse(raw);
-          const updated = list.map((c: any) =>
-            c.id === conversation.id ? { ...c, project_id: projectId } : c,
-          );
-          localStorage.setItem("griot_conversations_v1", JSON.stringify(updated));
-        }
+        await (supabase as any)
+          .from("griot_conversations")
+          .update({ project_id: projectId })
+          .eq("id", conversation.id);
       } catch {}
-    }
 
-    setConversation((prev) => (prev ? { ...prev, project_id: projectId } : null));
+      if (typeof window !== "undefined") {
+        try {
+          const raw = localStorage.getItem("griot_conversations_v1");
+          if (raw) {
+            const list = JSON.parse(raw);
+            const updated = list.map((c: any) =>
+              c.id === conversation.id ? { ...c, project_id: projectId } : c,
+            );
+            localStorage.setItem("griot_conversations_v1", JSON.stringify(updated));
+          }
+        } catch {}
+      }
+
+      setConversation((prev) => (prev ? { ...prev, project_id: projectId } : null));
+    }
     toast.success(t("Conversa ligada ao projeto."));
     setSheet(null);
   }
@@ -1434,14 +1485,20 @@ export function ChatSurface({ userId }: { userId: string }) {
         setDrag(0);
       }}
     >
-      {/* Barra superior fixa: zona ativa à esquerda (conversas) e à direita (ações). */}
-      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(env(safe-area-inset-top,28px)+18px)]">
+      {/* Barra superior fixa: badge do projeto à esquerda, switcher central e ações à direita */}
+      <div className="absolute inset-x-0 top-0 z-40 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,28px)+18px)] pointer-events-none">
         <button
-          aria-label={t("Abrir conversas")}
+          aria-label={t("Abrir conversas e projetos")}
           onClick={() => setDrawer(true)}
-          className="h-11 flex-1 self-stretch"
-        />
-        <div className="flex shrink-0 rounded-full border border-hairline bg-surface/90 p-1 backdrop-blur-xl">
+          className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-hairline bg-surface/90 px-3 py-1.5 text-[12.5px] font-medium text-foreground backdrop-blur-xl transition-transform active:scale-95"
+        >
+          <Menu className="size-3.5 text-muted-foreground" />
+          <span className="max-w-[100px] truncate">
+            {activeProject ? activeProject.name : t("Geral")}
+          </span>
+        </button>
+
+        <div className="pointer-events-auto flex shrink-0 rounded-full border border-hairline bg-surface/90 p-1 backdrop-blur-xl">
           {(["main", "quick"] as const).map((value) => (
             <button
               key={value}
@@ -1454,11 +1511,14 @@ export function ChatSurface({ userId }: { userId: string }) {
             </button>
           ))}
         </div>
+
         <button
           aria-label={t("Ações da conversa")}
           onClick={() => setSheet("actions")}
-          className="h-11 flex-1 self-stretch"
-        />
+          className="pointer-events-auto grid size-8 place-items-center rounded-full border border-hairline bg-surface/90 text-foreground backdrop-blur-xl transition-transform active:scale-95"
+        >
+          <MoreVertical className="size-4 text-muted-foreground" />
+        </button>
       </div>
 
       {/* Pré-visualização de Projeto / Jogo Criado */}
@@ -1475,8 +1535,8 @@ export function ChatSurface({ userId }: { userId: string }) {
         </div>
       )}
 
-      {/* Quick Mode Deliberation Bar posicionada no centro da tela ("no meio") */}
-      {scope === "quick" && (
+      {/* Quick Mode Deliberation Bar posicionada no centro da tela ("no meio") apenas quando vazio */}
+      {scope === "quick" && empty && (
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 z-30 pointer-events-none px-4">
           <div className="pointer-events-auto mx-auto max-w-lg rounded-3xl bg-card border border-white/[0.08] p-2.5 shadow-2xl">
             <DeliberationBar
@@ -1492,11 +1552,25 @@ export function ChatSurface({ userId }: { userId: string }) {
       {/* Feed da conversa */}
       <div className="no-scrollbar h-full overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(env(safe-area-inset-top,28px)+76px)] pb-52">
+          {/* Deliberation Bar no topo da lista quando há mensagens no modo Quick */}
+          {scope === "quick" && !empty && (
+            <div className="rounded-3xl bg-card border border-white/[0.08] p-2 shadow-md mb-2">
+              <DeliberationBar
+                activeMission={deliberationMission}
+                roleEngines={roleEngines}
+                onSelectMission={(m) => setDeliberationMission(m)}
+                onChangeRoleEngine={(r, e) => setRoleEngines((prev) => ({ ...prev, [r]: e }))}
+              />
+            </div>
+          )}
+
           {empty ? (
             <div className="pt-24 text-center">
-              <p className="text-[26px] font-medium tracking-tight text-muted-foreground">
-                {t("Como posso ajudar?")}
-              </p>
+              {scope !== "quick" && (
+                <p className="text-[26px] font-medium tracking-tight text-muted-foreground">
+                  {t("Como posso ajudar?")}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => void navigate({ to: "/home" })}

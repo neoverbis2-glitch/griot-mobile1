@@ -11,6 +11,7 @@ import {
   type DeliberationRoleId,
 } from "@/lib/runtime/deliberation-room";
 import { useT } from "@/lib/i18n";
+import { getUserSavedApis } from "@/lib/user-apis";
 import {
   Brain,
   Check,
@@ -51,17 +52,6 @@ interface DeliberationBarProps {
   onChangeRoleEngine: (roleId: DeliberationRoleId, engine: string) => void;
 }
 
-const ENGINE_OPTIONS = [
-  { id: "gemini:gemini-2.0-flash", label: "Google Gemini 2.0 Flash (API)" },
-  { id: "gemini:gemini-1.5-pro", label: "Google Gemini 1.5 Pro (API)" },
-  { id: "openai:gpt-4o", label: "OpenAI GPT-4o (API)" },
-  { id: "openai:gpt-4o-mini", label: "OpenAI GPT-4o Mini (API)" },
-  { id: "anthropic:claude-3-5-sonnet", label: "Claude 3.5 Sonnet (API)" },
-  { id: "deepseek:deepseek-r1", label: "DeepSeek R1 (API)" },
-  { id: "deepseek:deepseek-v3", label: "DeepSeek V3 (API)" },
-  { id: "groq:llama-3.3-70b", label: "Groq Llama 3.3 70B (API)" },
-];
-
 export function DeliberationBar({
   activeMission,
   roleEngines,
@@ -72,26 +62,34 @@ export function DeliberationBar({
   const [missionOpen, setMissionOpen] = useState(false);
   const [roleSelectOpen, setRoleSelectOpen] = useState<DeliberationRoleId | null>(null);
 
+  const userApis = getUserSavedApis();
+  const availableEngines =
+    userApis.length > 0
+      ? userApis.map((a) => ({
+          id: a.id,
+          label: a.label,
+          short: a.label.replace(/^Google\s+|^OpenAI\s+|^Anthropic\s+/i, ""),
+        }))
+      : [{ id: "gemini:gemini-2.0-flash", label: "Google Gemini (Base)", short: "Gemini" }];
+
   const currentMissionObj =
     DELIBERATION_MISSIONS.find((m) => m.id === activeMission) || DELIBERATION_MISSIONS[0];
 
   return (
     <div className="w-full px-3 py-2.5">
-      {/* Top Row: Mission Selector */}
-      <div className="flex items-center justify-between gap-2">
+      {/* Top Row: Mission Selector (sem a frase quebrada) */}
+      <div className="flex items-center justify-between w-full">
         <button
           type="button"
           onClick={() => setMissionOpen(!missionOpen)}
-          className="flex items-center gap-2 rounded-2xl bg-secondary px-3.5 py-2 text-[13px] font-medium text-foreground transition-transform active:scale-[0.98]"
+          className="flex w-full items-center justify-between rounded-2xl bg-secondary px-3.5 py-2.5 text-[13px] font-medium text-foreground transition-transform active:scale-[0.98]"
         >
-          <RoleIcon name={currentMissionObj.icon} className="size-4 text-foreground/80" />
-          <span className="truncate max-w-[200px]">{t(currentMissionObj.label)}</span>
-          <ChevronDown className="size-3.5 text-muted-foreground" />
+          <div className="flex items-center gap-2 truncate">
+            <RoleIcon name={currentMissionObj.icon} className="size-4 text-foreground/80 shrink-0" />
+            <span className="truncate">{t(currentMissionObj.label)}</span>
+          </div>
+          <ChevronDown className="size-3.5 text-muted-foreground shrink-0 ml-2" />
         </button>
-
-        <span className="text-[10.5px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-          {t("Quick Deliberation Room")}
-        </span>
       </div>
 
       {/* Mission Modal Selector */}
@@ -146,10 +144,10 @@ export function DeliberationBar({
 
       {/* Bottom Row: Active 4 Roles Bar */}
       <div className="mt-2.5 grid grid-cols-4 gap-1.5 w-full">
-        {(["strategist", "analyst", "innovator", "critic"] as DeliberationRoleId[]).map((roleId) => {
+        {(["strategist", "analyst", "innovator", "critic"] as DeliberationRoleId[]).map((roleId, idx) => {
           const role = DELIBERATION_ROLES[roleId];
-          const engine = roleEngines[roleId] || role.defaultEngine;
-          const engineObj = ENGINE_OPTIONS.find((e) => e.id === engine);
+          const assignedEngine = roleEngines[roleId] || availableEngines[idx % availableEngines.length]?.id;
+          const engineObj = availableEngines.find((e) => e.id === assignedEngine) || availableEngines[0];
 
           return (
             <button
@@ -163,7 +161,7 @@ export function DeliberationBar({
                 {role.label}
               </span>
               <span className="mt-0.5 text-[9px] text-muted-foreground/75 truncate w-full px-0.5">
-                {engineObj ? engineObj.label.split(" ")[0] : "Gemini"}
+                {engineObj?.short || "Gemini"}
               </span>
             </button>
           );
@@ -187,9 +185,9 @@ export function DeliberationBar({
             </div>
 
             <div className="mt-2 space-y-1 max-h-[45vh] overflow-y-auto no-scrollbar">
-              {ENGINE_OPTIONS.map((opt) => {
+              {availableEngines.map((opt) => {
                 const currentEngine =
-                  roleEngines[roleSelectOpen] || DELIBERATION_ROLES[roleSelectOpen].defaultEngine;
+                  roleEngines[roleSelectOpen] || availableEngines[0]?.id;
                 const isSelected = currentEngine === opt.id;
                 return (
                   <button

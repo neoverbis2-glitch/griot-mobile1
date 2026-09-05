@@ -65,16 +65,16 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.19-debug.apk
-          echo "APK=GRIOT-v1.0.19-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.19-debug.apk
-          ls -lh GRIOT-v1.0.19-debug.apk
+          cp "$APK" GRIOT-v1.0.20-debug.apk
+          echo "APK=GRIOT-v1.0.20-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-v1.0.20-debug.apk
+          ls -lh GRIOT-v1.0.20-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.19-debug.apk
+          path: GRIOT-v1.0.20-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -82,9 +82,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.19
-          name: "GRIOT Mobile v1.0.19"
-          body: "Correção crítica do ReferenceError scrollRef is not defined ao aceder ao chat. Mantém todos os ajustes visuais da v1.0.18: altura ideal do cabeçalho, centralização da Quick Deliberation Room e Card sólido do Cloud Shell acima do input."
-          files: GRIOT-v1.0.19-debug.apk
+          tag_name: v1.0.20
+          name: "GRIOT Mobile v1.0.20"
+          body: "Quick Deliberation Room corrigido (sem sobrepor mensagens e sem texto quebrado), APIs reais mapeadas dinamicamente sem modelos falsos ou sufixos de chaves visíveis, e sincronização total de projetos com a IA."
+          files: GRIOT-v1.0.20-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
