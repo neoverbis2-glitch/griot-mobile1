@@ -40,6 +40,7 @@ import {
   modelGpuRalEngine,
 } from "@/lib/runtime";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
+import { getSavedApiKey, resolveProviderAndModel } from "@/lib/ai-client";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
 import {
   DELIBERATION_MISSIONS,
@@ -826,6 +827,40 @@ export function ChatSurface({ userId }: { userId: string }) {
     if (!conversationId) return;
     const activeEffort = options?.effort ?? effort;
     const voiceMode = options?.voice === true;
+
+    // 1. Verificação prévia de chave no ambiente móvel para evitar congelamentos
+    const activeModel = model;
+    const { provider, specificApiKey } = resolveProviderAndModel(activeModel);
+    const effectiveKey = specificApiKey || getSavedApiKey(provider) || getSavedApiKey("gemini");
+    const isLocalApp =
+      typeof window !== "undefined" &&
+      (window.location.protocol === "capacitor:" ||
+        window.location.hostname === "localhost" ||
+        Boolean((window as any).Capacitor?.isNativePlatform?.()));
+
+    if (!effectiveKey && isLocalApp) {
+      setBusy(false);
+      setStreaming("");
+      const needKeyMsg: Row = {
+        id: `asst-key-${Date.now()}`,
+        role: "assistant",
+        content: `👋 **Olá! Para conversares com o GRIOT, precisas de ligar uma chave de API.**\n\nA forma mais rápida e gratuita é utilizar a chave do **Google Gemini**:\n\n1. Obtém a tua chave gratuita no [Google AI Studio](https://aistudio.google.com/apikey).\n2. Insere a chave na janela que se abriu (ou acede a **Definições → Chave Google Gemini**).\n\nAssim que inserires a tua chave, todas as tuas conversas, deliberação no modo Quick e os agentes funcionarão em tempo real!`,
+        created_at: new Date().toISOString(),
+        feedback: null,
+      };
+      setMessages((current) => {
+        const updated = [...current, needKeyMsg];
+        if (typeof window !== "undefined" && conversationId) {
+          try {
+            localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(updated));
+          } catch {}
+        }
+        return updated;
+      });
+      setAddApiModalOpen(true);
+      return;
+    }
+
     setBusy(true);
     setStreaming("");
     setReasoning("");
@@ -937,8 +972,12 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         console.warn("Execução de IA direta/orquestrada falhou:", aiErr);
         toast.error(
           aiErr?.message ||
-            `Sem ligação ao modelo ${mLabel}. Adiciona a tua chave de API em Home ou Definições → Chave de IA para conversar.`,
+            `Sem ligação ao modelo ${mLabel}. Adiciona a tua chave de API em Definições → Chave Google Gemini para conversar.`,
         );
+        if (!streamedAny || !answer.trim()) {
+          answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${aiErr?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Verifica a tua ligação à rede e a tua chave em **Definições → Chave Google Gemini**.`;
+          streamedAny = true;
+        }
       }
 
       if (!streamedAny || !answer.trim()) {

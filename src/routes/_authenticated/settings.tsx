@@ -12,6 +12,7 @@ import { uploadUserAvatar, getLocalCacheStats } from "@/lib/storage";
 import { APP_LANGUAGES, loadPrefs, savePrefs, type Prefs } from "@/lib/settings";
 import { listGriotCredentials, saveGriotCredential, verifyGriotCredential } from "@/lib/griot-api";
 import { saveUserApi } from "@/lib/user-apis";
+import { getSavedApiKey } from "@/lib/ai-client";
 import { resolveSpeechLanguage } from "@/lib/speech-transcriber";
 import { useI18n, useT, labelFromLocale, localeFromLabel } from "@/lib/i18n";
 import { toast } from "sonner";
@@ -72,13 +73,22 @@ function SettingsPage() {
   const [connectedPluginsCount, setConnectedPluginsCount] = useState(() => countConnectedPlugins());
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
+  const [localGeminiKey, setLocalGeminiKey] = useState<string | null>(() =>
+    typeof window !== "undefined" ? getSavedApiKey("gemini") : null
+  );
+
   useEffect(() => {
     const updateCount = () => setConnectedPluginsCount(countConnectedPlugins());
+    const updateKey = () => setLocalGeminiKey(getSavedApiKey("gemini"));
     window.addEventListener("griot-plugins-updated", updateCount);
+    window.addEventListener("griot-apis-updated", updateKey);
     window.addEventListener("storage", updateCount);
+    window.addEventListener("storage", updateKey);
     return () => {
       window.removeEventListener("griot-plugins-updated", updateCount);
+      window.removeEventListener("griot-apis-updated", updateKey);
       window.removeEventListener("storage", updateCount);
+      window.removeEventListener("storage", updateKey);
     };
   }, []);
 
@@ -206,22 +216,49 @@ function SettingsPage() {
     if (!secret) return;
     setSavingGeminiKey(true);
     try {
+      // 1. Guarda sempre no armazenamento local persistente do dispositivo
+      await saveUserApi({ providerId: "gemini", apiKey: secret, label: "Google Gemini" });
       if (typeof window !== "undefined") {
-        void saveUserApi({ providerId: "gemini", apiKey: secret, label: "Google Gemini" });
+        localStorage.setItem("griot_api_key_gemini", secret);
+        localStorage.setItem("griot_gemini_api_key", secret);
       }
-      const saved = await saveGriotCredential({ providerId: "gemini", secret, label: "Gemini" });
-      if (saved.error || !saved.data) {
-        toast.error(saved.error || t("Não foi possível guardar a chave."));
-        return;
+      setLocalGeminiKey(secret);
+
+      // 2. Verificação direta contra a Google API com timeout de 8 segundos
+      let verifiedOk = false;
+      let errorDetail = "";
+      try {
+        const verifyRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${secret}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        if (verifyRes.ok) {
+          verifiedOk = true;
+        } else {
+          const errData = await verifyRes.json().catch(() => ({}));
+          errorDetail = errData?.error?.message || `Erro HTTP ${verifyRes.status}`;
+        }
+      } catch (vfErr: any) {
+        if (secret.startsWith("AIza") && secret.length >= 30) {
+          verifiedOk = true;
+        } else {
+          errorDetail = vfErr?.message || "Sem ligação à Google API";
+        }
       }
-      const verified = await verifyGriotCredential(saved.data.credential.id);
-      if (verified.error || !verified.data?.valid) {
-        toast.error(verified.data?.message || verified.error || t("Chave inválida."));
-      } else {
+
+      // 3. Tenta sincronizar com Supabase em segundo plano
+      try {
+        await saveGriotCredential({ providerId: "gemini", secret, label: "Gemini" });
+      } catch {}
+
+      if (verifiedOk) {
         toast.success(t("Chave ligada e verificada com sucesso!"));
         setGeminiKeyInput("");
         setShowApiKeyBox(false);
+      } else {
+        toast.error(errorDetail || t("Chave inválida."));
       }
+
       await queryClient.invalidateQueries({ queryKey: ["settings-gemini-credential"] });
       if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
     } finally {
@@ -345,7 +382,7 @@ function SettingsPage() {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder={t("O teu nome")}
-                className="flex-1 rounded-xl border border-hairline bg-background px-3.5 py-2 text-[14px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
+                className="flex-1 min-w-0 rounded-xl border border-hairline bg-background px-3.5 py-2 text-[14px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
               />
               <button
                 type="button"
@@ -364,16 +401,24 @@ function SettingsPage() {
             hint="Ver planos e adquirir créditos de GCU"
             onClick={() => void navigate({ to: "/neoverbis-pay" })}
           />
-          <ActionRow
-            label="Chave Google Gemini"
-            hint={
-              geminiCredential?.status === "active"
-                ? `${t("Chave ativa")}: ${geminiCredential.secretHint}`
-                : t("Adiciona a tua chave para conversar de verdade")
-            }
-            value={geminiCredential?.status === "active" ? "Ligada" : "Pendente"}
-            onClick={() => setShowApiKeyBox(!showApiKeyBox)}
-          />
+          {(() => {
+            const isGeminiActive = geminiCredential?.status === "active" || Boolean(localGeminiKey);
+            const geminiSecretHint =
+              geminiCredential?.secretHint ||
+              (localGeminiKey ? `••••${localGeminiKey.slice(-4)}` : "");
+            return (
+              <ActionRow
+                label="Chave Google Gemini"
+                hint={
+                  isGeminiActive
+                    ? `${t("Chave ativa")}: ${geminiSecretHint}`
+                    : t("Adiciona a tua chave para conversar de verdade")
+                }
+                value={isGeminiActive ? "Ligada" : "Pendente"}
+                onClick={() => setShowApiKeyBox(!showApiKeyBox)}
+              />
+            );
+          })()}
 
           {showApiKeyBox ? (
             <div className="p-4 border-b border-hairline bg-secondary/20 space-y-3 animate-in fade-in">

@@ -297,11 +297,14 @@ async function streamGeminiDirect(params: {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
+  const geminiTimeout = AbortSignal.timeout(35000);
+  const effectiveSignal = signal ? AbortSignal.any([signal, geminiTimeout]) : geminiTimeout;
+
   let response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal,
+    signal: effectiveSignal,
   });
 
   if (!response.ok) {
@@ -558,18 +561,21 @@ async function streamSupabaseOrchestratorFallback(params: {
 }): Promise<AIResponse> {
   const { provider, modelName, messages, callbacks, signal } = params;
 
+  // Em ambiente móvel Capacitor / WebView local, NUNCA chamar /api/chat porque não há backend Node local.
+  const isCapacitorOrNative =
+    typeof window !== "undefined" &&
+    (window.location.protocol === "capacitor:" ||
+      window.location.hostname === "localhost" ||
+      Boolean((window as any).Capacitor?.isNativePlatform?.()));
+
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData?.session?.access_token;
 
-  if (!token) {
-    throw new Error(
-      `Sem chave de API configurada para ${provider.toUpperCase()}. Vai a Home → APIs ou Definições → Chave de IA para adicionar a tua chave gratuitamente (ex: Google Gemini).`,
-    );
-  }
-
-  // 1. Tentar endpoint /api/chat com streaming em tempo real e histórico preservado
-  if (typeof window !== "undefined") {
+  // 1. Tentar endpoint /api/chat SOMENTE se NÃO for Capacitor/móvel e com timeout estrito de 2.5s
+  if (typeof window !== "undefined" && !isCapacitorOrNative) {
     try {
+      const chatTimeout = AbortSignal.timeout(2500);
+      const combinedSignal = signal ? AbortSignal.any([signal, chatTimeout]) : chatTimeout;
       const localChatRes = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -580,7 +586,7 @@ async function streamSupabaseOrchestratorFallback(params: {
           messages: messages.slice(-20),
           model: modelName,
         }),
-        signal,
+        signal: combinedSignal,
       });
 
       if (localChatRes.ok && localChatRes.body) {
@@ -616,20 +622,24 @@ async function streamSupabaseOrchestratorFallback(params: {
           return { text: fullText, reasoning: "", toolCalls: [] };
         }
       }
-    } catch (e) {
-      console.warn("[GRIOT Client] Tentativa via /api/chat em streaming falhou, recorrendo a Edge Function:", e);
+    } catch {
+      // continua para Supabase Edge Function
     }
   }
 
-  // 2. Se /api/chat não respondeu, recorrer ao Supabase Edge Function
+  // 2. Se não há token de sessão, orienta o utilizador a adicionar a sua chave
   if (!token) {
     throw new Error(
-      `Sem chave de API configurada para ${provider.toUpperCase()}. Vai a Home → APIs ou Definições → Chave de IA para adicionar a tua chave gratuitamente (ex: Google Gemini).`,
+      `Sem chave de API configurada para ${provider.toUpperCase()}. Adiciona a tua chave gratuita da Google Gemini em Definições → Chave Google Gemini para conversar em tempo real.`,
     );
   }
 
   const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
   const prompt = lastUserMsg?.content || "";
+
+  // Timeout de 15 segundos para chamada remota
+  const edgeTimeout = AbortSignal.timeout(15000);
+  const edgeSignal = signal ? AbortSignal.any([signal, edgeTimeout]) : edgeTimeout;
 
   const response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`, {
     method: "POST",
@@ -644,14 +654,14 @@ async function streamSupabaseOrchestratorFallback(params: {
       provider,
       model: modelName,
     }),
-    signal,
+    signal: edgeSignal,
   });
 
   if (!response.ok) {
     const errObj = await response.json().catch(() => ({}));
     const msg =
       errObj.error ||
-      `Sem resposta do modelo. Adiciona a tua chave de API em Home → APIs para conversar diretamente sem limites.`;
+      `Sem resposta do modelo. Adiciona a tua chave de API em Definições → Chave Google Gemini para conversar diretamente sem restrições.`;
     throw new Error(msg);
   }
 

@@ -14,25 +14,27 @@ export function Screen({
   children: ReactNode;
 }) {
   return (
-    <div className="mx-auto min-h-screen w-full max-w-lg px-5 pb-28">
-      <header className="safe-top grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 pb-6">
-        <div className="min-w-0">
-          {subtitle ? (
-            <p suppressHydrationWarning className="text-[13px] font-medium text-muted-foreground">
-              {subtitle}
-            </p>
-          ) : null}
-          <div className="flex items-center gap-3">
-            {icon ? <div className="shrink-0">{icon}</div> : null}
-            <h1
-              suppressHydrationWarning
-              className="truncate text-[32px] leading-tight font-semibold tracking-tight"
-            >
-              {title}
-            </h1>
+    <div className="mx-auto min-h-screen w-full max-w-lg px-5 pb-36">
+      <header className="safe-top flex flex-col gap-1 pb-5 pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            {subtitle ? (
+              <p suppressHydrationWarning className="text-[12.5px] font-medium text-muted-foreground tracking-wide">
+                {subtitle}
+              </p>
+            ) : null}
+            <div className="flex items-center gap-2.5 mt-0.5">
+              {icon ? <div className="shrink-0">{icon}</div> : null}
+              <h1
+                suppressHydrationWarning
+                className="truncate text-[28px] leading-tight font-semibold tracking-tight text-foreground"
+              >
+                {title}
+              </h1>
+            </div>
           </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
         </div>
-        {action ? <div className="shrink-0 pb-1">{action}</div> : null}
       </header>
       <div className="rise space-y-4">{children}</div>
     </div>
