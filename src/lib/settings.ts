@@ -60,88 +60,35 @@ export type Prefs = Record<string, string | boolean>;
 const KEY = "griot-settings";
 
 export const DEFAULT_PREFS: Prefs = {
-  // Quick Chat
+  // Quick Chat & Modelos
   saveHistory: true,
-  temporaryByDefault: false,
-  showModelHints: true,
   qualityMode: "Equilíbrio",
-  attachmentBehavior: "Perguntar sempre",
-  // Projetos
-  autoSync: true,
-  offlineDownloads: false,
-  cacheRecent: true,
-  confirmSendToProject: true,
-  // Modelos
-  hideUnusedModels: false,
-  warnHeavyModels: true,
-  fastModel: "ModelOS",
-  advancedModel: "ModelOS",
-  // Uso
-  monthlyLimit: "500 GCU",
-  alerts75: true,
-  alerts90: true,
-  alerts100: true,
-  computeSaver: false,
-  // Voz
+  // Voz & Áudio
   voice: "GRIOT Nativa (Português)",
   voiceSpeed: "1.0×",
   voiceLanguage: "Português (Portugal)",
   autoSpeak: false,
   allowInterrupt: true,
-  lockedScreenVoice: true,
-  bluetooth: true,
-  // Câmara & Capture
-  mediaQuality: "Alta",
-  stripLocation: true,
-  autoCompress: true,
-  autoDocScan: true,
-  keepOriginal: false,
-  // Privacidade
+  // Notificações reais
+  "notify:taskDone": true,
+  "notify:approval": true,
+  "notify:buildFailed": true,
+  "notify:deployDone": true,
+  "notify:projectError": true,
+  // Permissões reais
   permCamera: true,
   permMic: true,
-  permPhotos: true,
   permLocation: false,
-  permBluetooth: true,
-  permContacts: false,
-  permCalendar: false,
-  shareWithProjects: true,
-  localHistory: true,
-  // Segurança
   biometrics: true,
-  appPin: false,
-  autoLock: "Após 5 min",
-  requireAuthCritical: true,
-  confirmCriticalActions: true,
-  // Aparência
+  // Aparência & Estilo reais
   appearance: "Sistema",
-  accent: "GRIOT",
   textSize: "Padrão",
   reduceMotion: false,
   haptics: true,
-  density: "Confortável",
-  // Dados
-  uploadQuality: "Automática",
-  wifiOnlyUpload: false,
-  mobileData: true,
-  // Idioma & região
+  // Idioma
   appLanguage: "Português (Portugal)",
   answerLanguage: "Automático",
-  dateFormat: "DD/MM/AAAA",
-  region: "Portugal",
-  currency: "EUR (€)",
-  // Acessibilidade
-  largeText: false,
-  highContrast: false,
-  reduceTransparency: false,
-  reduceAnimations: false,
-  captions: false,
-  screenReader: true,
-  extraHaptics: false,
-  // Desktop
-  allowRemoteTasks: true,
-  allowWake: false,
-  notifyDesktopOffline: true,
-  // Advanced
+  // Sistema
   developerMode: false,
 };
 

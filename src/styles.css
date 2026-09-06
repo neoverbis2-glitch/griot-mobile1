@@ -348,3 +348,21 @@ div:has(> a[href*="lovable.dev"]) {
   height: 0 !important;
   overflow: hidden !important;
 }
+
+/* Definições de Acessibilidade & Aparência Reais */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+html[data-text-size="compact"] {
+  font-size: 14.5px;
+}
+
+html[data-text-size="large"] {
+  font-size: 17.5px;
+}
+
