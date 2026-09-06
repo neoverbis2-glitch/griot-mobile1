@@ -16,6 +16,7 @@ import {
   type UserSavedApi,
 } from "@/lib/user-apis";
 import { toast } from "sonner";
+import { getAiLogo } from "@/components/griot/brand-icons";
 
 export const PROVIDER_INFO: Record<
   string,
@@ -68,6 +69,70 @@ export const PROVIDER_INFO: Record<
     hint: "Roteador Universal",
     docUrl: "https://openrouter.ai/keys",
     placeholder: "sk-or-...",
+  },
+  grok: {
+    label: "xAI Grok",
+    short: "GK",
+    vendor: "xAI",
+    hint: "Grok 2 / Grok 3",
+    docUrl: "https://console.x.ai",
+    placeholder: "xai-...",
+  },
+  perplexity: {
+    label: "Perplexity",
+    short: "PX",
+    vendor: "Perplexity AI",
+    hint: "Sonar & Busca Online",
+    docUrl: "https://www.perplexity.ai/settings/api",
+    placeholder: "pplx-...",
+  },
+  kimi: {
+    label: "Moonshot Kimi",
+    short: "KM",
+    vendor: "Moonshot AI",
+    hint: "Contexto Longo Kimi",
+    docUrl: "https://platform.moonshot.cn",
+    placeholder: "sk-...",
+  },
+  qwen: {
+    label: "Alibaba Qwen",
+    short: "QW",
+    vendor: "Alibaba Cloud",
+    hint: "Qwen 2.5 Max / Plus",
+    docUrl: "https://dashscope.console.aliyun.com",
+    placeholder: "sk-...",
+  },
+  ollama: {
+    label: "Ollama Local",
+    short: "OL",
+    vendor: "Ollama",
+    hint: "Modelos Locais & Offline",
+    docUrl: "https://ollama.com",
+    placeholder: "http://localhost:11434",
+  },
+  mistral: {
+    label: "Mistral AI",
+    short: "MS",
+    vendor: "Mistral",
+    hint: "Mistral Large & Codestral",
+    docUrl: "https://console.mistral.ai",
+    placeholder: "mis_...",
+  },
+  meta: {
+    label: "Meta Llama",
+    short: "MT",
+    vendor: "Meta AI",
+    hint: "Llama 3.3 Open-Source",
+    docUrl: "https://llama.meta.com",
+    placeholder: "Chave ou endpoint Llama...",
+  },
+  manus: {
+    label: "Manus AI",
+    short: "MN",
+    vendor: "Manus",
+    hint: "Agente Autónomo Geral",
+    docUrl: "https://manus.im",
+    placeholder: "mns_...",
   },
 };
 
@@ -174,28 +239,34 @@ export function AddApiModal({ open, onClose, onSuccess }: AddApiModalProps) {
             {t("Provedor")}
           </p>
           <div className="mt-2 grid grid-cols-3 gap-2">
-            {Object.entries(PROVIDER_INFO).map(([pid, p]) => (
-              <button
-                key={pid}
-                type="button"
-                onClick={() => {
-                  setSelectedProvider(pid);
-                  setApiKeyInput("");
-                }}
-                className={`flex flex-col items-start rounded-2xl border p-2.5 text-left transition-all ${
-                  selectedProvider === pid
-                    ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/40"
-                    : "border-hairline bg-secondary/30 text-muted-foreground hover:bg-secondary/60"
-                }`}
-              >
-                <span className="text-[10px] font-bold uppercase tracking-wider">
-                  {p.short}
-                </span>
-                <span className="mt-1 text-[12.5px] font-medium text-foreground truncate w-full">
-                  {p.label.split(" ")[0]}
-                </span>
-              </button>
-            ))}
+            {Object.entries(PROVIDER_INFO).map(([pid, p]) => {
+              const Logo = getAiLogo(pid);
+              return (
+                <button
+                  key={pid}
+                  type="button"
+                  onClick={() => {
+                    setSelectedProvider(pid);
+                    setApiKeyInput("");
+                  }}
+                  className={`flex flex-col items-start rounded-2xl border p-2.5 text-left transition-all ${
+                    selectedProvider === pid
+                      ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/40"
+                      : "border-hairline bg-secondary/30 text-muted-foreground hover:bg-secondary/60"
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <Logo className="size-4.5" />
+                    <span className="text-[9px] font-bold uppercase tracking-wider opacity-60">
+                      {p.short}
+                    </span>
+                  </div>
+                  <span className="mt-1.5 text-[12px] font-medium text-foreground truncate w-full">
+                    {p.label.split(" ")[0]}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

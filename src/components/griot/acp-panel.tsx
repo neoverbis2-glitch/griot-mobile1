@@ -29,6 +29,7 @@ import {
 } from "@/lib/user-apis";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { getAiLogo } from "@/components/griot/brand-icons";
 
 export interface ConnectedApiItem {
   id: string;
@@ -93,6 +94,70 @@ const PROVIDER_INFO: Record<
     hint: "Roteador Universal",
     docUrl: "https://openrouter.ai/keys",
     placeholder: "sk-or-...",
+  },
+  grok: {
+    label: "xAI Grok",
+    short: "GK",
+    vendor: "xAI",
+    hint: "Grok 2 / Grok 3",
+    docUrl: "https://console.x.ai",
+    placeholder: "xai-...",
+  },
+  perplexity: {
+    label: "Perplexity",
+    short: "PX",
+    vendor: "Perplexity AI",
+    hint: "Sonar & Busca Online",
+    docUrl: "https://www.perplexity.ai/settings/api",
+    placeholder: "pplx-...",
+  },
+  kimi: {
+    label: "Moonshot Kimi",
+    short: "KM",
+    vendor: "Moonshot AI",
+    hint: "Contexto Longo Kimi",
+    docUrl: "https://platform.moonshot.cn",
+    placeholder: "sk-...",
+  },
+  qwen: {
+    label: "Alibaba Qwen",
+    short: "QW",
+    vendor: "Alibaba Cloud",
+    hint: "Qwen 2.5 Max / Plus",
+    docUrl: "https://dashscope.console.aliyun.com",
+    placeholder: "sk-...",
+  },
+  ollama: {
+    label: "Ollama Local",
+    short: "OL",
+    vendor: "Ollama",
+    hint: "Modelos Locais & Offline",
+    docUrl: "https://ollama.com",
+    placeholder: "http://localhost:11434",
+  },
+  mistral: {
+    label: "Mistral AI",
+    short: "MS",
+    vendor: "Mistral",
+    hint: "Mistral Large & Codestral",
+    docUrl: "https://console.mistral.ai",
+    placeholder: "mis_...",
+  },
+  meta: {
+    label: "Meta Llama",
+    short: "MT",
+    vendor: "Meta AI",
+    hint: "Llama 3.3 Open-Source",
+    docUrl: "https://llama.meta.com",
+    placeholder: "Chave ou endpoint Llama...",
+  },
+  manus: {
+    label: "Manus AI",
+    short: "MN",
+    vendor: "Manus",
+    hint: "Agente Autónomo Geral",
+    docUrl: "https://manus.im",
+    placeholder: "mns_...",
   },
 };
 
@@ -273,10 +338,15 @@ export function ApisPanel({
           <ul className="mt-3 divide-y divide-hairline">
             {connectedApis.map((api) => (
               <li key={api.id} className="flex items-center gap-3 py-3">
-                <span className="relative grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-[12px] font-semibold text-foreground">
-                  <span className="pulse-ring absolute inset-0 rounded-full bg-emerald-500/20" />
-                  {api.short}
-                </span>
+                {(() => {
+                  const Logo = getAiLogo(api.providerId);
+                  return (
+                    <span className="relative grid size-9 shrink-0 place-items-center rounded-full border border-hairline bg-surface text-foreground shadow-xs">
+                      <span className="pulse-ring absolute inset-0 rounded-full bg-emerald-500/20" />
+                      <Logo className="size-5" />
+                    </span>
+                  );
+                })()}
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-[14.5px] font-medium">{api.label}</span>

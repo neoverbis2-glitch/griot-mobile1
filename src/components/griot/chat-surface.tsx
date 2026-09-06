@@ -78,7 +78,14 @@ import {
   Menu,
   MoreVertical,
   Folder,
+  Brain,
+  ShieldAlert,
+  BarChart2,
+  CheckCircle2,
+  Lightbulb,
+  Sparkles,
 } from "lucide-react";
+import { getAiLogo } from "@/components/griot/brand-icons";
 
 import {
   captureAsText,
@@ -144,6 +151,90 @@ function generatePreviewSrcDoc(files: WorkspaceFile[]): string {
     }
   }
   return doc;
+}
+
+interface QuickPersonaSegment {
+  roleRaw: string;
+  content: string;
+}
+
+function parseQuickSegments(raw: string): QuickPersonaSegment[] {
+  const personaRegex =
+    /(?:^|\n)\s*(?:\*{1,2}|\[)?\s*(Estrategista|Crítico|Critico|Analista|Inovador|Sintetizador|Veredito|Strategist|Critic|Analyst|Innovator)\s*(?:\*{1,2}|\])?\s*:\s*(?:\*{1,2})?\s*/gi;
+  const matches = [...raw.matchAll(personaRegex)];
+  if (matches.length === 0) {
+    return [{ roleRaw: "griot", content: raw.trim() }];
+  }
+  const segments: QuickPersonaSegment[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i];
+    const next = matches[i + 1];
+    const startIndex = cur.index + cur[0].length;
+    const endIndex = next ? next.index : raw.length;
+    const content = raw.substring(startIndex, endIndex).trim();
+    const roleRaw = cur[1];
+    if (content.length > 0) {
+      segments.push({ roleRaw, content });
+    }
+  }
+  return segments.length > 0 ? segments : [{ roleRaw: "griot", content: raw.trim() }];
+}
+
+interface QuickPersonaConfig {
+  name: string;
+  badge: string;
+  avatarBg: string;
+  icon: React.ReactNode;
+}
+
+function getPersonaConfig(roleRaw: string): QuickPersonaConfig {
+  const r = roleRaw.toLowerCase();
+  if (r.includes("estrateg") || r.includes("strateg")) {
+    return {
+      name: "O Estrategista",
+      badge: "Visão & Produto",
+      avatarBg: "bg-blue-500/15 border-blue-500/30 text-blue-500",
+      icon: <Brain className="size-4.5" />,
+    };
+  }
+  if (r.includes("crític") || r.includes("critic")) {
+    return {
+      name: "O Crítico",
+      badge: "Desafios & Riscos",
+      avatarBg: "bg-rose-500/15 border-rose-500/30 text-rose-500",
+      icon: <ShieldAlert className="size-4.5" />,
+    };
+  }
+  if (r.includes("analist") || r.includes("analyst")) {
+    return {
+      name: "O Analista",
+      badge: "Técnica & Métricas",
+      avatarBg: "bg-emerald-500/15 border-emerald-500/30 text-emerald-500",
+      icon: <BarChart2 className="size-4.5" />,
+    };
+  }
+  if (r.includes("inovad") || r.includes("innovat")) {
+    return {
+      name: "O Inovador",
+      badge: "Diferenciação & Ideias",
+      avatarBg: "bg-purple-500/15 border-purple-500/30 text-purple-500",
+      icon: <Lightbulb className="size-4.5" />,
+    };
+  }
+  if (r.includes("vered") || r.includes("sintet")) {
+    return {
+      name: "Veredito da Sala",
+      badge: "Conclusão Final",
+      avatarBg: "bg-amber-500/15 border-amber-500/30 text-amber-500",
+      icon: <CheckCircle2 className="size-4.5" />,
+    };
+  }
+  return {
+    name: "GRIOT Deliberation",
+    badge: "Orquestrador",
+    avatarBg: "bg-secondary border-hairline text-foreground",
+    icon: <Sparkles className="size-4.5" />,
+  };
 }
 
 export function ChatSurface({ userId }: { userId: string }) {
@@ -703,7 +794,13 @@ Nenhum projeto específico está associado a esta sessão (conversa geral).`;
         DELIBERATION_MISSIONS.find((m) => m.id === deliberationMission) || DELIBERATION_MISSIONS[0];
       sysInstruction += `\n\n[MODO QUICK DELIBERATION ROOM]
 Missão Ativa: ${missionObj.label} (${missionObj.description})
-Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, Analyst: técnica e riscos, Innovator: melhoria e criatividade, Critic: desafios e casos limite). Responde de forma concisa, direta e acionável.`;
+Atua como um grupo dinâmico de deliberação e debate. Divide a tua intervenção entre os intervenientes relevantes identificando cada um pelo nome, por exemplo:
+**Estrategista:** (visão de produto e valor de mercado)
+**Crítico:** (atrito, riscos e pontos cegos)
+**Analista:** (técnica, dados e custos)
+**Inovador:** (novas ideias e diferenciação criativa)
+**Veredito:** (síntese conclusiva e recomendação acionável)
+Cada membro deve ser conciso, direto e falar na sua voz própria, como membros de uma equipa num grupo de rede social.`;
     }
 
     if (!context && currentProject) {
@@ -1569,6 +1666,44 @@ Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, A
                   onEdit={() => void editMessage(message.id)}
                 />
               </div>
+            ) : scope === "quick" ? (
+              <div key={message.id} className="space-y-3">
+                {parseQuickSegments(message.content).map((segment, sIdx) => {
+                  const cfg = getPersonaConfig(segment.roleRaw);
+                  return (
+                    <div key={sIdx} className="flex items-start gap-2.5 my-2 animate-fade-in">
+                      {/* Avatar circular à esquerda estilo membro de grupo Instagram */}
+                      <div
+                        className={`relative grid size-9 shrink-0 place-items-center rounded-full border shadow-xs ${cfg.avatarBg}`}
+                        title={cfg.name}
+                      >
+                        {cfg.icon}
+                      </div>
+
+                      {/* Balão de fala do participante */}
+                      <div className="flex-1 min-w-0 max-w-[88%]">
+                        <div className="flex items-center gap-2 mb-1 px-1">
+                          <span className="text-[12px] font-semibold text-foreground tracking-tight">
+                            {cfg.name}
+                          </span>
+                          <span className="rounded-md bg-secondary/80 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+                            {cfg.badge}
+                          </span>
+                        </div>
+                        <div className="rounded-3xl rounded-tl-sm border border-hairline/80 bg-surface/90 px-4 py-3 text-[15px] leading-relaxed text-foreground shadow-xs whitespace-pre-wrap">
+                          {segment.content}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <AssistantActions
+                  content={message.content}
+                  feedback={message.feedback ?? null}
+                  onFeedback={(value) => void setFeedback(message.id, value)}
+                  onRegenerate={() => void regenerate(message.id)}
+                />
+              </div>
             ) : (
               <div key={message.id}>
                 {(message as any).model?.startsWith("app:") ? (
@@ -1596,9 +1731,42 @@ Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, A
           {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
 
           {streaming ? (
-            <div className="text-[15.5px] leading-relaxed whitespace-pre-wrap">
-              {stripPartialPlugin(stripPartialBlock(streaming))}
-            </div>
+            scope === "quick" ? (
+              <div className="space-y-3">
+                {parseQuickSegments(stripPartialPlugin(stripPartialBlock(streaming))).map(
+                  (segment, sIdx) => {
+                    const cfg = getPersonaConfig(segment.roleRaw);
+                    return (
+                      <div key={sIdx} className="flex items-start gap-2.5 my-2 animate-fade-in">
+                        <div
+                          className={`relative grid size-9 shrink-0 place-items-center rounded-full border shadow-xs ${cfg.avatarBg}`}
+                          title={cfg.name}
+                        >
+                          {cfg.icon}
+                        </div>
+                        <div className="flex-1 min-w-0 max-w-[88%]">
+                          <div className="flex items-center gap-2 mb-1 px-1">
+                            <span className="text-[12px] font-semibold text-foreground tracking-tight">
+                              {cfg.name}
+                            </span>
+                            <span className="rounded-md bg-secondary/80 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+                              {cfg.badge}
+                            </span>
+                          </div>
+                          <div className="rounded-3xl rounded-tl-sm border border-hairline/80 bg-surface/90 px-4 py-3 text-[15px] leading-relaxed text-foreground shadow-xs whitespace-pre-wrap">
+                            {segment.content}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  },
+                )}
+              </div>
+            ) : (
+              <div className="text-[15.5px] leading-relaxed whitespace-pre-wrap">
+                {stripPartialPlugin(stripPartialBlock(streaming))}
+              </div>
+            )
           ) : null}
 
           {plugin ? (
@@ -2094,22 +2262,32 @@ Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, A
                         isModelOS(option.id) ? "text-[#c084fc] hover:bg-[#a855f7]/10" : ""
                       }`}
                     >
-                      <span className="min-w-0">
-                        <span
-                          className={`block truncate text-[13px] font-medium leading-tight ${
-                            isModelOS(option.id) ? "text-[#c084fc] font-semibold" : ""
-                          }`}
-                        >
-                          {option.label}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {(() => {
+                          const Logo = getAiLogo(option.id.split(":")[0]);
+                          return (
+                            <div className="grid size-6 shrink-0 place-items-center rounded-full border border-hairline/60 bg-surface">
+                              <Logo className="size-3.5" />
+                            </div>
+                          );
+                        })()}
+                        <span className="min-w-0">
+                          <span
+                            className={`block truncate text-[13px] font-medium leading-tight ${
+                              isModelOS(option.id) ? "text-[#c084fc] font-semibold" : ""
+                            }`}
+                          >
+                            {option.label}
+                          </span>
+                          <span
+                            className={`block truncate text-[10.5px] leading-tight ${
+                              isModelOS(option.id) ? "text-[#c084fc]/70" : "text-muted-foreground"
+                            }`}
+                          >
+                            {option.hint}
+                          </span>
                         </span>
-                        <span
-                          className={`block truncate text-[10.5px] leading-tight ${
-                            isModelOS(option.id) ? "text-[#c084fc]/70" : "text-muted-foreground"
-                          }`}
-                        >
-                          {option.hint}
-                        </span>
-                      </span>
+                      </div>
                       {model === option.id ? (
                         <Check
                           className={`size-[14px] shrink-0 ${
@@ -2282,6 +2460,10 @@ Atua sintetizando estrategicamente as perspetivas (Strategist: visão e valor, A
                         : "bg-secondary text-foreground hover:bg-secondary/80"
                     }`}
                   >
+                    {availableModels.length > 0 && (() => {
+                      const Logo = getAiLogo(model.split(":")[0]);
+                      return <Logo className="size-3.5 shrink-0" />;
+                    })()}
                     <span className="max-w-[130px] truncate">
                       {availableModels.length === 0 ? t("+ Adicionar API") : modelLabel(model)}
                     </span>

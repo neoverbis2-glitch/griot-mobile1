@@ -66,6 +66,8 @@ import {
   FileText,
 } from "lucide-react";
 import { TermsDialog } from "@/components/griot/terms-dialog";
+import { PluginsView } from "@/components/griot/plugins-view";
+import { countConnectedPlugins } from "@/lib/plugins-service";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -126,7 +128,19 @@ function SettingsPage() {
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [testModalMode, setTestModalMode] = useState<"voice" | "mic" | "camera">("voice");
   const [showTerms, setShowTerms] = useState(false);
+  const [pluginsViewOpen, setPluginsViewOpen] = useState(false);
+  const [connectedPluginsCount, setConnectedPluginsCount] = useState(() => countConnectedPlugins());
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const updateCount = () => setConnectedPluginsCount(countConnectedPlugins());
+    window.addEventListener("griot-plugins-updated", updateCount);
+    window.addEventListener("storage", updateCount);
+    return () => {
+      window.removeEventListener("griot-plugins-updated", updateCount);
+      window.removeEventListener("storage", updateCount);
+    };
+  }, []);
 
   useEffect(() => {
     if (displayName) setName(displayName);
@@ -380,6 +394,10 @@ function SettingsPage() {
     status?.wallet?.balance_gcu != null
       ? `${Number(status.wallet.balance_gcu).toFixed(0)} GCU`
       : "0 GCU";
+
+  if (pluginsViewOpen) {
+    return <PluginsView onBack={() => setPluginsViewOpen(false)} />;
+  }
 
   return (
     <Screen
@@ -1099,45 +1117,36 @@ function SettingsPage() {
         <InfoRow label={t("Sessões ativas")} value="1" />
       </Section>
 
-      {/*
-        "Connections" is hidden: these toggles never called any provider —
-        no OAuth/API flow backed them. The real backend already supports
-        connecting github/supabase/vercel/cloudflare with verified API keys
-        (griot_credentials, wired up in griot-api), just not from this
-        screen yet. Re-enable once this section calls that real endpoint
-        instead of a local on/off flag.
-      */}
-      {SHOW_FAKE_CONNECTIONS && (
-      <Section title={t("Connections")} note={t("Serviços e contas ligadas")} Icon={Plug}>
-        {CONNECTIONS.map((connection) => {
-          const connected = prefs[`conn:${connection}`] === true;
-          return (
-            <div key={connection} className="border-b border-hairline px-5 py-3.5 last:border-b-0">
-              <div className="flex items-center gap-3">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[14.5px] font-medium">{connection}</span>
-                  <span className="block text-[12px] text-muted-foreground">
-                    {connected
-                      ? t("Ligado · última sincronização agora · leitura e escrita")
-                      : t("Não ligado")}
-                  </span>
-                </span>
-                <button
-                  onClick={() => set(`conn:${connection}`, !connected)}
-                  className={`shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium ${
-                    connected
-                      ? "border border-hairline text-destructive"
-                      : "bg-primary text-primary-foreground"
-                  }`}
-                >
-                  {connected ? t("Desligar") : t("Ligar")}
-                </button>
-              </div>
+      <Section
+        title={t("Plugins e Integrações")}
+        note={
+          connectedPluginsCount > 0
+            ? `${connectedPluginsCount} ${t("ligados")}`
+            : t("30 serviços disponíveis")
+        }
+        Icon={Plug}
+      >
+        <div className="border-b border-hairline px-5 py-3.5 last:border-b-0">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <span className="block text-[14.5px] font-medium text-foreground">
+                {t("Gerir 30 Plugins e Conexões")}
+              </span>
+              <span className="block text-[12px] text-muted-foreground mt-0.5">
+                {connectedPluginsCount > 0
+                  ? `${connectedPluginsCount} ${t("serviços ativos e sincronizados para os agentes.")}`
+                  : t("GitHub, Supabase, Redis, Slack, Vercel, Stripe, Qdrant e mais.")}
+              </span>
             </div>
-          );
-        })}
+            <button
+              onClick={() => setPluginsViewOpen(true)}
+              className="shrink-0 rounded-full bg-primary px-4 py-2 text-[12.5px] font-medium text-primary-foreground shadow-xs transition-transform active:scale-95"
+            >
+              {t("Explorar e Ligar")}
+            </button>
+          </div>
+        </div>
       </Section>
-      )}
 
       <Section
         title={t("Appearance")}
