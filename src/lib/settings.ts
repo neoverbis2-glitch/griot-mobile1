@@ -74,8 +74,8 @@ export const DEFAULT_PREFS: Prefs = {
   // Modelos
   hideUnusedModels: false,
   warnHeavyModels: true,
-  fastModel: "GPT-5.6 LUNA",
-  advancedModel: "GPT-5.6 SOL",
+  fastModel: "ModelOS",
+  advancedModel: "ModelOS",
   // Uso
   monthlyLimit: "500 GCU",
   alerts75: true,
@@ -83,7 +83,7 @@ export const DEFAULT_PREFS: Prefs = {
   alerts100: true,
   computeSaver: false,
   // Voz
-  voice: "GRIOT Nativa",
+  voice: "GRIOT Nativa (Português)",
   voiceSpeed: "1.0×",
   voiceLanguage: "Português (Portugal)",
   autoSpeak: false,

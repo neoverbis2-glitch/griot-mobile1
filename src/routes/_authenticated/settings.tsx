@@ -7,7 +7,7 @@ import { UserAvatar } from "@/components/griot/user-avatar";
 import { useCurrentUser } from "@/hooks/use-user";
 import { Section, ToggleRow, SelectRow, InfoRow, ActionRow } from "@/components/griot/settings-kit";
 import { useTheme } from "@/lib/theme";
-import { DEFAULT_MODEL, QUICK_CHAT_MODELS } from "@/lib/griot";
+import { DEFAULT_MODEL, QUICK_CHAT_MODELS, getAvailableModels, modelLabel, isModelOS } from "@/lib/griot";
 import { uploadUserAvatar, getLocalCacheStats } from "@/lib/storage";
 import {
   APP_LANGUAGES,
@@ -92,7 +92,6 @@ const SHOW_DESKTOP_PAIRING = false;
 const SHOW_FAKE_CONNECTIONS = false;
 
 const MODEL_KEY = "griot-default-model";
-const MODEL_LABELS = QUICK_CHAT_MODELS.map((model) => model.label);
 const LANGUAGE_LABELS = APP_LANGUAGES.map((language) => language.label);
 const ANSWER_LANGUAGES = ["Automático", ...LANGUAGE_LABELS];
 
@@ -146,6 +145,9 @@ function SettingsPage() {
   useEffect(() => {
     if (displayName) setName(displayName);
   }, [displayName]);
+
+  const availableModels = useMemo(() => getAvailableModels(prefs), [prefs]);
+  const modelLabels = useMemo(() => availableModels.map((m) => m.label), [availableModels]);
 
   const currentAppLang = (prefs.appLanguage || prefs.voiceLanguage || labelFromLocale(locale) || "Português") as string;
   const langInfo = useMemo(() => resolveSpeechLanguage(currentAppLang), [currentAppLang]);
@@ -429,7 +431,8 @@ function SettingsPage() {
   }
 
   const modelName =
-    QUICK_CHAT_MODELS.find((model) => model.id === defaultModel)?.label ?? defaultModel;
+    availableModels.find((model) => model.id === defaultModel)?.label ??
+    (isModelOS(defaultModel) ? "ModelOS" : modelLabel(defaultModel));
 
   // There is no subscription-tier column on the real wallet — only a real
   // GCU balance. Avoid inventing a "Free/Pro" label that isn't backed by data.
@@ -624,9 +627,9 @@ function SettingsPage() {
         <SelectRow
           label={t("Modelo predefinido")}
           value={modelName}
-          options={MODEL_LABELS}
+          options={modelLabels}
           onChange={(label) => {
-            const found = QUICK_CHAT_MODELS.find((model) => model.label === label);
+            const found = availableModels.find((model) => model.label === label);
             if (!found) return;
             setDefaultModel(found.id);
             window.localStorage.setItem(MODEL_KEY, found.id);
@@ -694,7 +697,7 @@ function SettingsPage() {
       </Section>
 
       <Section title={t("Modelos")} note={t("Disponíveis, favoritos e avisos")} Icon={Cpu}>
-        {QUICK_CHAT_MODELS.map((model) => (
+        {availableModels.map((model) => (
           <ToggleRow
             key={model.id}
             label={model.label}
@@ -710,14 +713,14 @@ function SettingsPage() {
         />
         <SelectRow
           label={t("Modelo rápido predefinido")}
-          value={text("fastModel")}
-          options={MODEL_LABELS}
+          value={text("fastModel") === "GPT-5.6 LUNA" ? "ModelOS" : text("fastModel")}
+          options={modelLabels}
           onChange={(v) => set("fastModel", v)}
         />
         <SelectRow
           label={t("Modelo avançado predefinido")}
-          value={text("advancedModel")}
-          options={MODEL_LABELS}
+          value={text("advancedModel") === "GPT-5.6 SOL" ? "ModelOS" : text("advancedModel")}
+          options={modelLabels}
           onChange={(v) => set("advancedModel", v)}
         />
         <ToggleRow
@@ -1218,7 +1221,18 @@ function SettingsPage() {
           label={t("Modo")}
           value={text("appearance")}
           options={["Sistema", "Claro", "Escuro"]}
-          onChange={(v) => set("appearance", v)}
+          onChange={(v) => {
+            set("appearance", v);
+            if (v === "Claro") {
+              if (theme !== "light") toggle();
+            } else if (v === "Escuro") {
+              if (theme !== "dark") toggle();
+            } else {
+              const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+              if (prefersDark && theme !== "dark") toggle();
+              if (!prefersDark && theme !== "light") toggle();
+            }
+          }}
         />
         <SelectRow
           label={t("Accent GRIOT")}
@@ -1416,8 +1430,8 @@ function SettingsPage() {
       </Section>
 
       <Section title={t("Advanced")} note={t("Só se precisares")} Icon={Terminal}>
-        <InfoRow label={t("Versão da app")} value="1.0.0" />
-        <InfoRow label={t("Build")} value="2026.08.09" />
+        <InfoRow label={t("Versão da app")} value="1.0.25" />
+        <InfoRow label={t("Build")} value="2026.09.06 (v26)" />
         <InfoRow label={t("Região / backend")} value="eu-central-1 (Supabase)" />
         <ActionRow label={t("Logs")} onClick={() => void navigate({ to: "/control" })} />
         <ActionRow
