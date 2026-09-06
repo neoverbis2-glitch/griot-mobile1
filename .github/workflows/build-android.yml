@@ -85,8 +85,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.26' }}
-          name: "GRIOT Mobile ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.26' }}"
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.28' }}
+          name: "GRIOT Mobile ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.28' }}"
           files: GRIOT-Mobile-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
