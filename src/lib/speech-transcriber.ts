@@ -13,6 +13,7 @@ export interface TranscribeOptions {
   language?: string;
   contextPrompt?: string;
   preferredProvider?: "gemini" | "groq" | "openai" | "auto";
+  fallbackText?: string;
   signal?: AbortSignal;
 }
 
@@ -171,7 +172,7 @@ export async function transcribeAudioElite(
     // Servidor local ausente
   }
 
-  return "";
+  return (options.fallbackText || "").trim();
 }
 
 /** Transcrição direta via Groq Whisper Large v3 */
@@ -220,9 +221,12 @@ async function transcribeWithGemini(
   signal?: AbortSignal,
 ): Promise<string> {
   const base64Audio = await blobToBase64(audioBlob);
-  const mimeType = (audioBlob.type || "audio/webm").split(";")[0];
+  let mimeType = (audioBlob.type || "audio/webm").split(";")[0].toLowerCase();
+  if (!mimeType || mimeType === "application/octet-stream") {
+    mimeType = "audio/wav";
+  }
 
-  const candidateModels = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash-preview", "gemini-2.5-flash"];
 
   for (const model of candidateModels) {
     try {

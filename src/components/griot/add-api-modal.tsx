@@ -62,6 +62,14 @@ export const PROVIDER_INFO: Record<
     docUrl: "https://console.groq.com/keys",
     placeholder: "gsk_...",
   },
+  elevenlabs: {
+    label: "ElevenLabs Voz",
+    short: "11",
+    vendor: "ElevenLabs AI",
+    hint: "TTS Neural Ultra-Realista",
+    docUrl: "https://elevenlabs.io/app/speech-synthesis",
+    placeholder: "sk_...",
+  },
   openrouter: {
     label: "OpenRouter",
     short: "OR",

@@ -13,6 +13,7 @@ import { labelFromLocale, useI18n, useT } from "@/lib/i18n";
 import { VoiceSession } from "@/lib/voice-session";
 import { transcribeAudioElite, resolveSpeechLanguage } from "@/lib/speech-transcriber";
 import { loadPrefs } from "@/lib/settings";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { CapsulePanel } from "@/components/griot/capsule-panel";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -128,6 +129,24 @@ const SPEECH_SPEEDS: Record<string, number> = {
   "1.2×": 1.2,
   "1.5×": 1.45,
 };
+
+function triggerHaptic(type: "light" | "medium" | "heavy" | "selection" = "light") {
+  try {
+    const prefs = loadPrefs();
+    if (prefs["haptics"] === false) return;
+    if (type === "selection") {
+      void Haptics.selectionChanged().catch(() => undefined);
+    } else {
+      const style =
+        type === "heavy"
+          ? ImpactStyle.Heavy
+          : type === "medium"
+            ? ImpactStyle.Medium
+            : ImpactStyle.Light;
+      void Haptics.impact({ style }).catch(() => undefined);
+    }
+  } catch {}
+}
 
 function generatePreviewSrcDoc(files: WorkspaceFile[]): string {
   const htmlFile = files.find((f) => f.path.endsWith(".html") || f.path === "index.html") || files[0];
@@ -810,6 +829,20 @@ Atua como um grupo dinâmico de deliberação e debate. Divide a tua intervenç�
 Cada membro deve ser conciso, direto e falar na sua voz própria, como membros de uma equipa num grupo de rede social.`;
     }
 
+    if (opts?.voice || voiceChat) {
+      const prefs = loadPrefs();
+      const langInfo = resolveSpeechLanguage((prefs["voiceLanguage"] as string) || (prefs["appLanguage"] as string));
+      sysInstruction += `\n\n[MODO DE CONVERSAÇÃO POR VOZ EM TEMPO REAL]
+Estás numa chamada de voz falada direta com o utilizador em tempo real.
+DIRETRIZES ESTRITAS DE FALA HUMANA:
+- Responde SEMPRE em linguagem falada fluida, natural, concisa e humana no idioma ${langInfo.name} (${langInfo.bcp47}).
+- Sê direto: responde habitualmente em 1 a 3 frases bem articuladas.
+- NUNCA uses formatações de escrita Markdown: sem títulos (#), sem asteriscos (**negrito**), sem numeração mecânica, sem bullet points (-), sem blocos de código nem tabelas.
+- NUNCA emitas tags de raciocínio como <think> ou explicações do sistema.
+- Converte números e símbolos em texto falado (ex: diz "vinte por cento" em vez de 20%, "cinquenta euros" em vez de 50€).
+- Fala de forma expressiva, amigável e conversacional, como uma pessoa ao telefone.`;
+    }
+
     if (!context && currentProject) {
       context = `Projeto: ${currentProject.name}\nDescrição: ${currentProject.description || "GRIOT Mobile"}\nProgresso: ${currentProject.progress}%\nEstado: ${currentProject.status || "ativo"}`;
     }
@@ -1260,12 +1293,26 @@ Cada membro deve ser conciso, direto e falar na sua voz própria, como membros d
       allowInterrupt: prefs["allowInterrupt"] !== false,
       // Barge-in (voz ou orbe) aborta também o stream do modelo.
       onInterrupt: () => abortRef.current?.abort(),
-      onState: (state) => setVoiceState(state),
+      onState: (state) => {
+        setVoiceState(state);
+        if (state === "listening") {
+          triggerHaptic("selection");
+          setVoiceDraft("");
+        } else if (state === "thinking") {
+          triggerHaptic("medium");
+        } else if (state === "speaking") {
+          triggerHaptic("light");
+        }
+      },
       onLevels: (values) => setLevels(values),
       onPartial: (text) => setVoiceText(text),
       onPartialParts: (stable, tentative) => {
         setVoiceText(stable);
         setVoiceDraft(tentative);
+      },
+      onSpeakingSentence: (sentence) => {
+        setVoiceText(sentence);
+        setVoiceDraft("");
       },
       onError: (message) => toast.error(t(message)),
       onTranscript: async (said) => {
@@ -1339,6 +1386,7 @@ Cada membro deve ser conciso, direto e falar na sua voz própria, como membros d
 
   /** Interromper: cala a resposta e volta a ouvir imediatamente. */
   function bargeIn() {
+    triggerHaptic("selection");
     sessionRef.current?.interrupt();
   }
 

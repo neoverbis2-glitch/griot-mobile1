@@ -31,6 +31,8 @@ type Options = {
   onTranscript: (text: string) => void | Promise<void>;
   /** Reconciliação se a transcrição final divergir do otimista */
   onCorrected?: (text: string) => void | Promise<void>;
+  /** Frase que o assistente está ativamente a verbalizar (para legendas sincronizadas) */
+  onSpeakingSentence?: (sentence: string) => void;
   onError: (message: string) => void;
   bars?: number;
   voice?: string;
@@ -145,6 +147,51 @@ function toneOf(sentence: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Sanitizador fonético de ultra-precisão para Síntese de Voz (TTS).
+ * Remove raciocínios (<think>), blocos de código, tags markdown e links,
+ * e converte símbolos técnicos para palavras faladas naturais em português.
+ */
+export function cleanVoiceText(raw: string): string {
+  let text = raw || "";
+  // 1. Remove blocos <think>...</think> de modelos de raciocínio (DeepSeek R1, QwQ, etc.)
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, " ");
+  // 2. Remove tags XML/HTML residuais
+  text = text.replace(/<[^>]+>/g, " ");
+  // 3. Remove blocos de código markdown completos ```lang ... ```
+  text = text.replace(/```[\s\S]*?```/g, " ");
+  // 4. Remove código inline `code`
+  text = text.replace(/`([^`]+)`/g, "$1");
+  // 5. Remove links markdown: [Texto](http...) -> Texto
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  // 6. Remove URLs isoladas
+  text = text.replace(/https?:\/\/\S+/gi, " ");
+  // 7. Remove títulos markdown (#, ##, etc.)
+  text = text.replace(/^#{1,6}\s+/gm, "");
+  // 8. Remove marcadores de listas (-, *, •, 1., etc.)
+  text = text.replace(/^\s*[-*•–—]\s+/gm, "");
+  text = text.replace(/^\s*\d+[\.\)]\s+/gm, "");
+  // 9. Remove ênfases markdown (*, **, _, __, ~~)
+  text = text.replace(/\*\*([^*]+)\*\*/g, "$1");
+  text = text.replace(/\*([^*]+)\*/g, "$1");
+  text = text.replace(/__([^_]+)__/g, "$1");
+  text = text.replace(/_([^_]+)_/g, "$1");
+  text = text.replace(/~~([^~]+)~~/g, "$1");
+  // 10. Expansão fonética de símbolos monetários e matemáticos
+  text = text.replace(/(\d+)%/g, "$1 por cento");
+  text = text.replace(/€\s*(\d+)/g, "$1 euros").replace(/(\d+)\s*€/g, "$1 euros");
+  text = text.replace(/\$\s*(\d+)/g, "$1 dólares").replace(/(\d+)\s*\$/g, "$1 dólares");
+  text = text.replace(/\s*\+\s*/g, " mais ");
+  text = text.replace(/\s*&\s*/g, " e ");
+  // 11. Remove emojis e caracteres gráficos estranhos à fala humana
+  text = text.replace(
+    /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu,
+    "",
+  );
+  // 12. Normaliza espaços múltiplos
+  return text.replace(/\s+/g, " ").trim();
+}
+
 type SentenceStream = {
   chunks: Float32Array<ArrayBuffer>[];
   ended: boolean;
@@ -246,7 +293,51 @@ export class VoiceSession {
     this.setState("listening");
     this.loop();
 
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.getVoices();
+    }
+
     void this.initNeuralVad();
+  }
+
+  private liveRecognizer: any = null;
+
+  private startLiveRecognizer() {
+    if (typeof window === "undefined") return;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) return;
+    try {
+      this.stopLiveRecognizer();
+      const rec = new SpeechRec();
+      rec.continuous = true;
+      rec.interimResults = true;
+      const langInfo = resolveSpeechLanguage(this.opts.languageName);
+      rec.lang = langInfo.bcp47;
+      rec.onresult = (event: any) => {
+        if (!this.active || !this.turnActive) return;
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          interim += event.results[i][0]?.transcript || "";
+        }
+        if (interim.trim()) {
+          this.partialText = interim.trim();
+          this.opts.onPartial(this.partialText, false);
+          this.opts.onPartialParts?.(this.partialText, "", false);
+        }
+      };
+      rec.onerror = () => undefined;
+      rec.start();
+      this.liveRecognizer = rec;
+    } catch {}
+  }
+
+  private stopLiveRecognizer() {
+    if (this.liveRecognizer) {
+      try {
+        this.liveRecognizer.abort();
+      } catch {}
+      this.liveRecognizer = null;
+    }
   }
 
   private async initNeuralVad() {
@@ -264,11 +355,13 @@ export class VoiceSession {
       onMisfire: () => {
         this.turnActive = false;
         this.turnAudio = [];
+        this.stopLiveRecognizer();
         this.stopPartials();
       },
       onSpeechEnd: (audio) => {
         if (!this.active || this.state !== "listening" || !this.turnActive) return;
         this.turnActive = false;
+        this.stopLiveRecognizer();
         this.stopPartials();
         void this.closeTurn(audio);
       },
@@ -294,6 +387,7 @@ export class VoiceSession {
     this.partialTerminal = false;
     this.recordingSince = performance.now();
     void this.ctx?.resume().catch(() => undefined);
+    this.startLiveRecognizer();
     this.startNeuralPartials();
   }
 
@@ -306,6 +400,7 @@ export class VoiceSession {
     this.neural = false;
     this.turnActive = false;
     this.turnAudio = [];
+    this.stopLiveRecognizer();
     this.stopRecorder(false);
     this.abortPending();
     this.silenceOutput();
@@ -458,11 +553,7 @@ export class VoiceSession {
   }
 
   private push(sentence: string) {
-    const clean = sentence
-      .replace(/```[\s\S]*?```/g, " ")
-      .replace(/[#*`_>|~]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const clean = cleanVoiceText(sentence);
     if (clean.length < 2) return;
     this.spoken += 1;
     this.lastReply = clean;
@@ -486,6 +577,7 @@ export class VoiceSession {
       }
 
       this.currentSpokenSentence = sentence;
+      this.opts.onSpeakingSentence?.(sentence);
 
       // Se estiver em pausa suave (utilizador a hesitar), aguarda a decisão
       while (this.active && turn === this.turn && this.isPausedForEvaluation) {
@@ -518,8 +610,8 @@ export class VoiceSession {
   }
 
   /**
-   * Síntese com OpenAI TTS (se houver chave OpenAI configurada)
-   * ou chamada a proxy TTS com formato PCM direto 24kHz.
+   * Síntese com ElevenLabs Neural (se houver chave ElevenLabs)
+   * ou OpenAI TTS (se houver chave OpenAI) em formato PCM direto 24kHz.
    */
   private streamSentence(text: string): SentenceStream {
     const handle: SentenceStream = {
@@ -533,9 +625,62 @@ export class VoiceSession {
 
     handle.done = (async () => {
       try {
-        const userApis = getUserSavedApis();
-        const openaiApi = userApis.find((a) => a.providerId === "openai" && a.apiKey);
+        const clean = cleanVoiceText(text);
+        if (!clean) return;
 
+        const userApis = getUserSavedApis();
+
+        // 1. Ápice da Síntese: ElevenLabs Multilingual v2 (se configurado)
+        const elevenApi = userApis.find((a) => a.providerId === "elevenlabs" && a.apiKey);
+        if (elevenApi) {
+          try {
+            const voiceStyle = (this.opts.voice || "").toLowerCase();
+            const voiceId =
+              voiceStyle.includes("grave") || voiceStyle.includes("deep")
+                ? "pNInz6obpgDQGcFmaJgB" // Adam
+                : voiceStyle.includes("serena") || voiceStyle.includes("calm")
+                  ? "EXAVITQu4vr4xnSDxMaL" // Bella
+                  : "21m00Tcm4TlvDq8ikWAM"; // Rachel
+
+            const res = await fetch(
+              `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=pcm_24000`,
+              {
+                method: "POST",
+                headers: {
+                  "xi-api-key": elevenApi.apiKey.trim(),
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  text: clean,
+                  model_id: "eleven_multilingual_v2",
+                  voice_settings: {
+                    stability: 0.52,
+                    similarity_boost: 0.82,
+                    style: 0.25,
+                    use_speaker_boost: true,
+                  },
+                }),
+                signal: controller.signal,
+              },
+            );
+
+            if (res.ok) {
+              const buf = await res.arrayBuffer();
+              const samples = new Int16Array(buf, 0, Math.floor(buf.byteLength / 2));
+              const floats = new Float32Array(samples.length);
+              for (let i = 0; i < samples.length; i++) floats[i] = samples[i]! / 32768;
+              if (floats.length > 0) {
+                handle.chunks.push(floats);
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn("[GRIOT TTS] ElevenLabs fallback:", e);
+          }
+        }
+
+        // 2. OpenAI TTS
+        const openaiApi = userApis.find((a) => a.providerId === "openai" && a.apiKey);
         if (openaiApi) {
           const res = await fetch("https://api.openai.com/v1/audio/speech", {
             method: "POST",
@@ -546,7 +691,7 @@ export class VoiceSession {
             body: JSON.stringify({
               model: "tts-1",
               voice: this.opts.voice || "alloy",
-              input: text,
+              input: clean,
               response_format: "pcm",
               speed: this.opts.speed || 1.0,
             }),
@@ -558,21 +703,23 @@ export class VoiceSession {
             const samples = new Int16Array(buf, 0, Math.floor(buf.byteLength / 2));
             const floats = new Float32Array(samples.length);
             for (let i = 0; i < samples.length; i++) floats[i] = samples[i]! / 32768;
-            if (floats.length > 0) handle.chunks.push(floats);
-            return;
+            if (floats.length > 0) {
+              handle.chunks.push(floats);
+              return;
+            }
           }
         }
 
-        // Tenta rota /api/tts interna caso disponível
+        // 3. Rota /api/tts interna caso disponível
         const response = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text,
+            text: clean,
             voice: this.opts.voice ?? "alloy",
             speed: this.opts.speed ?? 1.0,
             stream: true,
-            tone: toneOf(text),
+            tone: toneOf(clean),
           }),
           signal: controller.signal,
         });
@@ -619,14 +766,20 @@ export class VoiceSession {
 
   /**
    * Síntese Nativa do Navegador/Android estritamente vinculada ao idioma do app
-   * com suporte a pausa suave, retoma cirúrgica e animação de níveis no orbe.
+   * com suporte a pausa suave, retoma cirúrgica, animação de níveis no orbe e watchdog keepalive.
    */
   private async speakNative(sentence: string, turn: number): Promise<void> {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     if (!this.active || turn !== this.turn) return;
 
     return new Promise((resolve) => {
-      const utterance = new SpeechSynthesisUtterance(sentence);
+      const clean = cleanVoiceText(sentence);
+      if (!clean) {
+        resolve();
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(clean);
       this.nativeUtterance = utterance;
       this.isNativeSpeaking = true;
 
@@ -643,36 +796,49 @@ export class VoiceSession {
         const selectedVoiceName = this.opts.voice?.toLowerCase() || "";
         const preferred =
           matchingVoices.find((v) => v.name.toLowerCase().includes(selectedVoiceName)) ||
-          matchingVoices.find((v) => v.name.toLowerCase().includes("google") || v.name.toLowerCase().includes("natural")) ||
+          matchingVoices.find((v) =>
+            v.name.toLowerCase().includes("natural") ||
+            v.name.toLowerCase().includes("neural") ||
+            v.name.toLowerCase().includes("google") ||
+            v.name.toLowerCase().includes("online"),
+          ) ||
           matchingVoices[0];
         if (preferred) utterance.voice = preferred;
       }
 
-      utterance.rate = this.opts.speed || 1.0;
+      utterance.rate = Math.max(0.7, Math.min(1.5, this.opts.speed || 1.0));
 
       // Prosódia por estilo
       const voiceStyle = (this.opts.voice || "").toLowerCase();
       if (voiceStyle.includes("grave") || voiceStyle.includes("deep")) {
-        utterance.pitch = 0.8;
+        utterance.pitch = 0.82;
       } else if (voiceStyle.includes("serena") || voiceStyle.includes("calm")) {
-        utterance.pitch = 1.15;
+        utterance.pitch = 1.12;
       } else {
         utterance.pitch = 1.0;
       }
 
       this.spokeAt = performance.now();
 
-      utterance.onend = () => {
+      // Watchdog para evitar que o Android corte a fala após alguns segundos
+      const watchdog = window.setInterval(() => {
+        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        } else {
+          window.clearInterval(watchdog);
+        }
+      }, 4000);
+
+      const finish = () => {
+        window.clearInterval(watchdog);
         this.isNativeSpeaking = false;
         this.nativeUtterance = null;
         resolve();
       };
 
-      utterance.onerror = () => {
-        this.isNativeSpeaking = false;
-        this.nativeUtterance = null;
-        resolve();
-      };
+      utterance.onend = finish;
+      utterance.onerror = finish;
 
       window.speechSynthesis.speak(utterance);
     });
@@ -1067,60 +1233,49 @@ export class VoiceSession {
 
   private async closeTurn(audio: Float32Array) {
     if (!this.active) return;
-    if (audio.length < VAD_SAMPLE_RATE * 0.2) {
+    this.stopLiveRecognizer();
+    if (audio.length < VAD_SAMPLE_RATE * 0.25) {
       this.resumeListening();
       return;
     }
-    if (this.segCursor > 0 && this.segText) {
-      const samples = concatFloat32(this.turnAudio);
-      const from = Math.max(0, this.segCursor - VAD_SAMPLE_RATE * (SEGMENT_OVERLAP_MS / 1000));
-      const tail = samples.slice(from);
-      if (tail.length >= VAD_SAMPLE_RATE * 0.15) {
-        await this.dispatchTurn(encodeWav(tail, VAD_SAMPLE_RATE), this.segText);
-        return;
-      }
-    }
-    await this.dispatchTurn(encodeWav(audio, VAD_SAMPLE_RATE));
+    const wav = encodeWav(audio, VAD_SAMPLE_RATE);
+    await this.dispatchTurn(wav);
   }
 
   private async closeTurnBlob(blob: Blob) {
     if (!this.active) return;
+    this.stopLiveRecognizer();
     await this.dispatchTurn(blob);
   }
 
   private async dispatchTurn(blob: Blob, prefix = "") {
     this.setState("thinking");
-    const best = this.partialText.trim();
-
-    if (best.length >= 2) {
-      this.optimistic = best;
-      this.optimisticAt = performance.now();
-      this.opts.onPartial(best, true);
-      this.opts.onPartialParts?.(best, "", true);
-      this.streamDone = false;
-      void this.confirmTranscript(blob, prefix);
-      try {
-        await this.opts.onTranscript(best);
-      } catch {}
-      return;
-    }
 
     try {
-      const tail = (await this.requestTranscript(blob, true)).trim();
+      // 1. Transcrição de Elite: processa o áudio consolidado do turno completo (Groq Whisper / Gemini)
+      let text = (await this.requestTranscript(blob, true)).trim();
+
+      // 2. Se a API externa não retornou texto (ou sem rede/chaves), recorre ao texto capturado localmente
+      if (!text && this.partialText.trim().length >= 2) {
+        text = this.partialText.trim();
+      }
+
       if (!this.active) return;
-      const said = prefix ? joinOverlap(prefix, tail) : tail;
-      const merged = this.stabilizer.push(said, true);
-      const text = merged.text.trim() || said;
-      if (text.length < 2) {
+
+      const said = prefix ? joinOverlap(prefix, text) : text;
+      const clean = said.trim();
+
+      if (clean.length < 2) {
         this.opts.onPartial("", true);
         this.resumeListening();
         return;
       }
-      this.partialText = text;
-      this.opts.onPartial(text, true);
-      this.opts.onPartialParts?.(text, "", true);
+
+      this.partialText = clean;
+      this.opts.onPartial(clean, true);
+      this.opts.onPartialParts?.(clean, "", true);
       this.streamDone = false;
-      await this.opts.onTranscript(text);
+      await this.opts.onTranscript(clean);
     } catch (error) {
       if (!this.active || (error as Error).name === "AbortError") return;
       this.opts.onError("Não consegui ouvir. Tenta outra vez.");
@@ -1128,34 +1283,8 @@ export class VoiceSession {
     }
   }
 
-  private async confirmTranscript(blob: Blob, prefix = "") {
-    let precise = "";
-    try {
-      const tail = (await this.requestTranscript(blob, true)).trim();
-      precise = prefix ? joinOverlap(prefix, tail) : tail;
-    } catch {
-      return;
-    }
-    if (!this.active || precise.length < 2) return;
-
-    const optimistic = this.optimistic;
-    if (!optimistic || !this.opts.onCorrected) return;
-    if (performance.now() - this.optimisticAt > CORRECTION_WINDOW_MS) return;
-    if (divergence(optimistic, precise) < CORRECTION_THRESHOLD) return;
-
-    this.turn += 1;
-    this.queue = [];
-    this.buffer = "";
-    this.playing = false;
-    this.streamDone = false;
-    this.silenceOutput();
-    this.optimistic = precise;
-    this.partialText = precise;
-    this.opts.onPartial(precise, true);
-    this.opts.onPartialParts?.(precise, "", true);
-    this.setState("thinking");
-    try {
-      await this.opts.onCorrected(precise);
-    } catch {}
+  private async confirmTranscript(_blob: Blob, _prefix = "") {
+    // Mantido por compatibilidade de assinatura; o dispatchTurn agora envia sempre o áudio completo consolidado
+    return;
   }
 }

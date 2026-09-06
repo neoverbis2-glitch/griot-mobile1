@@ -11,7 +11,7 @@ import { saveGriotCredential, deleteGriotCredential } from "@/lib/griot-api";
 
 export interface UserSavedApi {
   id: string;
-  providerId: "gemini" | "openai" | "claude" | "deepseek" | "groq" | "anthropic";
+  providerId: "gemini" | "openai" | "claude" | "deepseek" | "groq" | "anthropic" | "elevenlabs";
   label: string;
   apiKey: string;
   model?: string;
@@ -30,6 +30,7 @@ const PROVIDER_DEFAULT_NAMES: Record<string, string> = {
   anthropic: "Anthropic Claude",
   deepseek: "DeepSeek",
   groq: "Groq Llama",
+  elevenlabs: "ElevenLabs Voz",
 };
 
 /** Carrega todas as APIs guardadas pelo utilizador */
@@ -50,7 +51,7 @@ export function getUserSavedApis(): UserSavedApi[] {
   }
 
   // Migração/compatibilidade com chaves unitárias legadas (se não estiverem na lista)
-  const legacyProviders = ["gemini", "openai", "claude", "deepseek", "groq"];
+  const legacyProviders = ["gemini", "openai", "claude", "deepseek", "groq", "elevenlabs"];
   for (const prov of legacyProviders) {
     const legacyVal =
       localStorage.getItem(`griot_api_key_${prov}`) ||
@@ -77,7 +78,7 @@ export function getUserSavedApis(): UserSavedApi[] {
 
 /** Guarda ou adiciona uma nova API */
 export async function saveUserApi(input: {
-  providerId: "gemini" | "openai" | "claude" | "deepseek" | "groq" | "anthropic";
+  providerId: "gemini" | "openai" | "claude" | "deepseek" | "groq" | "anthropic" | "elevenlabs";
   apiKey: string;
   label?: string;
   model?: string;
