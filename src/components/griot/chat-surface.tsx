@@ -269,13 +269,15 @@ function saveConversationLocally(conv: Conversation) {
     const raw = localStorage.getItem("griot_conversations_v1");
     const list: Conversation[] = raw ? JSON.parse(raw) : [];
     const index = list.findIndex((c) => c.id === conv.id);
+    const scopeKey = conv.scope === "quick" ? "quick" : "main";
+    const normalizedConv = { ...conv, scope: scopeKey, updated_at: new Date().toISOString() };
     if (index >= 0) {
-      list[index] = { ...list[index], ...conv, updated_at: new Date().toISOString() };
+      list[index] = { ...list[index], ...normalizedConv };
     } else {
-      list.unshift({ ...conv, updated_at: new Date().toISOString() });
+      list.unshift(normalizedConv);
     }
     localStorage.setItem("griot_conversations_v1", JSON.stringify(list));
-    localStorage.setItem("griot_active_" + conv.scope + "_conv_id", conv.id);
+    localStorage.setItem("griot_active_" + scopeKey + "_conv_id", conv.id);
     window.dispatchEvent(new CustomEvent("griot_conversations_changed"));
   } catch {}
 }
@@ -457,6 +459,10 @@ export function ChatSurface({ userId }: { userId: string }) {
   // Callbacks da sessão de voz vivem para lá de um render: estes refs garantem
   // que cada turno usa o histórico e as funções mais recentes.
   const messagesRef = useRef<Row[]>([]);
+  const conversationRef = useRef<Conversation | null>(null);
+  conversationRef.current = conversation;
+  const scopeRef = useRef<"main" | "quick">(scope);
+  scopeRef.current = scope;
   const sendRef = useRef<typeof send | null>(null);
   const runRef = useRef<typeof run | null>(null);
 
@@ -526,7 +532,7 @@ export function ChatSurface({ userId }: { userId: string }) {
           if (raw) {
             const list: Conversation[] = JSON.parse(raw);
             if (activeId) {
-              localConv = list.find((c) => c.id === activeId && !c.archived) || null;
+              localConv = list.find((c) => c.id === activeId && !c.archived && (c.scope || "main") === "main") || null;
             }
             if (!localConv) {
               localConv = list.find((c) => (c.scope || "main") === "main" && !c.archived) || null;
@@ -861,6 +867,9 @@ export function ChatSurface({ userId }: { userId: string }) {
       return;
     }
 
+    const targetConvId = conversationId;
+    const targetScope = scope;
+
     setBusy(true);
     setStreaming("");
     setReasoning("");
@@ -946,17 +955,21 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           messages: base,
           systemInstruction: sysInstruction,
           context,
+          maxIterations: targetScope === "quick" ? 1 : 2,
           callbacks: {
             onToken: (token) => {
+              if (conversationRef.current?.id !== targetConvId) return;
               answer += token;
               setStreaming(answer);
               streamedAny = true;
               if (voiceMode) sessionRef.current?.feed(token);
             },
             onReasoning: (r) => {
+              if (conversationRef.current?.id !== targetConvId) return;
               setReasoning((current) => current + r);
             },
             onStepChange: (step) => {
+              if (conversationRef.current?.id !== targetConvId) return;
               setSteps(step);
             },
           },
@@ -965,7 +978,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
         if (loopResult.finalAnswer) {
           answer = loopResult.finalAnswer;
-          setStreaming(answer);
+          if (conversationRef.current?.id === targetConvId) {
+            setStreaming(answer);
+          }
           streamedAny = true;
         }
       } catch (aiErr: any) {
@@ -1065,7 +1080,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             .from("griot_messages")
             .insert({
               workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-              conversation_id: conversationId,
+              conversation_id: targetConvId,
               actor_kind: "model",
               content: answer,
               status: "succeeded",
@@ -1094,22 +1109,35 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             feedback: null,
           };
         }
-        setMessages((current) => {
-          const updated = current.some((m) => m.id === row!.id) ? current : [...current, row!];
-          if (typeof window !== "undefined" && conversationId) {
-            try {
-              localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(updated));
-            } catch {}
-          }
-          return updated;
-        });
+
+        // Guarda sempre localmente no cache da conversa de destino
+        if (typeof window !== "undefined" && targetConvId) {
+          try {
+            const rawStored = localStorage.getItem("griot_messages_" + targetConvId);
+            const currentList: Row[] = rawStored ? JSON.parse(rawStored) : [];
+            if (!currentList.some((m) => m.id === row!.id)) {
+              currentList.push(row!);
+              localStorage.setItem("griot_messages_" + targetConvId, JSON.stringify(currentList));
+            }
+          } catch {}
+        }
+
+        // Só atualiza o estado em memória se a conversa ativa no momento for a de destino
+        if (conversationRef.current?.id === targetConvId) {
+          setMessages((current) => {
+            return current.some((m) => m.id === row!.id) ? current : [...current, row!];
+          });
+        }
       }
     } catch (error) {
       if ((error as Error).name !== "AbortError") toast.error((error as Error).message);
     } finally {
-      setStreaming("");
-      setReasoning("");
-      setBusy(false);
+      if (conversationRef.current?.id === targetConvId) {
+        setStreaming("");
+        setReasoning("");
+        setSteps(0);
+        setBusy(false);
+      }
       abortRef.current = null;
     }
   }
@@ -1155,6 +1183,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     setDraft("");
     setPlugin(null);
 
+    const targetConvId = conversationId;
     const clean = text.trim();
     // Em voz a resposta arranca primeiro; a gravação da mensagem acontece em paralelo.
     const persist = (async () => {
@@ -1165,7 +1194,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           .from("griot_messages")
           .insert({
             workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-            conversation_id: conversationId,
+            conversation_id: targetConvId,
             actor_kind: "human",
             content: clean,
             status: "succeeded",
@@ -1193,16 +1222,22 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           feedback: null,
         };
       }
-      setMessages((current) => {
-        const updated = current.some((m) => m.id === row!.id) ? current : [...current, row!];
-        if (typeof window !== "undefined" && conversationId) {
-          try {
-            localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(updated));
-          } catch {}
-        }
-        return updated;
-      });
+      if (typeof window !== "undefined" && targetConvId) {
+        try {
+          const rawStored = localStorage.getItem("griot_messages_" + targetConvId);
+          const currentList: Row[] = rawStored ? JSON.parse(rawStored) : [];
+          if (!currentList.some((m) => m.id === row!.id)) {
+            currentList.push(row!);
+            localStorage.setItem("griot_messages_" + targetConvId, JSON.stringify(currentList));
+          }
+        } catch {}
+      }
 
+      if (conversationRef.current?.id === targetConvId) {
+        setMessages((current) => {
+          return current.some((m) => m.id === row!.id) ? current : [...current, row!];
+        });
+      }
       const needsTitle =
         !conversation?.title ||
         conversation.title === "Nova Conversa" ||
@@ -1212,7 +1247,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       if (needsTitle) {
         const title = clean.slice(0, 48);
         try {
-          await (supabase as any).from("griot_conversations").update({ title }).eq("id", conversationId);
+          await (supabase as any).from("griot_conversations").update({ title }).eq("id", targetConvId);
         } catch {
           // ignore
         }
@@ -1628,14 +1663,26 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
   async function switchScope(targetScope: "main" | "quick") {
     if (targetScope === scope) return;
 
-    // Guarda a conversa atual antes de alternar
+    // 1. Cancela imediatamente qualquer requisição ou streaming ativo
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setBusy(false);
+    setStreaming("");
+    setReasoning("");
+    setSteps(0);
+    setDraft("");
+    setMessages([]);
+
+    // 2. Guarda a conversa atual antes de alternar
     if (conversation) {
       saveConversationLocally({ ...conversation, scope });
     }
 
     setScope(targetScope);
 
-    // Procura a conversa ativa ou mais recente pertencente ao targetScope
+    // 3. Procura a conversa ativa ou mais recente pertencente estritamente ao targetScope
     let targetConv: Conversation | null = null;
     if (typeof window !== "undefined") {
       try {
@@ -1644,10 +1691,10 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         if (raw) {
           const list: Conversation[] = JSON.parse(raw);
           if (activeId) {
-            targetConv = list.find((c) => c.id === activeId && !c.archived) || null;
+            targetConv = list.find((c) => c.id === activeId && !c.archived && (c.scope || "main") === targetScope) || null;
           }
           if (!targetConv) {
-            targetConv = list.find((c) => c.scope === targetScope && !c.archived) || null;
+            targetConv = list.find((c) => (c.scope || "main") === targetScope && !c.archived) || null;
           }
         }
       } catch {}
@@ -1660,7 +1707,8 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         try {
           const cached = localStorage.getItem("griot_messages_" + targetConv.id);
           if (cached) {
-            setMessages(JSON.parse(cached));
+            const parsed = JSON.parse(cached);
+            setMessages(Array.isArray(parsed) ? parsed : []);
           } else {
             setMessages([]);
           }
@@ -2622,42 +2670,28 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                           } catch {}
                         }
                       }}
-                      className={`flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left active:bg-secondary transition-colors ${
-                        isModelOS(option.id) ? "text-[#c084fc] hover:bg-[#a855f7]/10" : ""
-                      }`}
+                      className="flex w-full items-center justify-between gap-2 px-3.5 py-2 text-left active:bg-secondary transition-colors"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         {(() => {
                           const Logo = isModelOS(option.id) ? GriotAiLogo : getAiLogo(option.id.split(":")[0]);
                           return (
                             <div className="grid size-6 shrink-0 place-items-center rounded-full border border-hairline/60 bg-surface">
-                              <Logo className="size-3.5" />
+                              <Logo className="size-3.5 text-foreground" />
                             </div>
                           );
                         })()}
                         <span className="min-w-0">
-                          <span
-                            className={`block truncate text-[13px] font-medium leading-tight ${
-                              isModelOS(option.id) ? "text-[#c084fc] font-semibold" : ""
-                            }`}
-                          >
+                          <span className="block truncate text-[13px] font-medium leading-tight">
                             {option.label}
                           </span>
-                          <span
-                            className={`block truncate text-[10.5px] leading-tight ${
-                              isModelOS(option.id) ? "text-[#c084fc]/70" : "text-muted-foreground"
-                            }`}
-                          >
+                          <span className="block truncate text-[10.5px] leading-tight text-muted-foreground">
                             {option.hint}
                           </span>
                         </span>
                       </div>
                       {model === option.id ? (
-                        <Check
-                          className={`size-[14px] shrink-0 ${
-                            isModelOS(option.id) ? "text-[#c084fc]" : ""
-                          }`}
-                        />
+                        <Check className="size-[14px] shrink-0 text-foreground" />
                       ) : null}
                     </button>
                   ))
@@ -2819,14 +2853,12 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-all ${
                       availableModels.length === 0
                         ? "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
-                        : isModelOS(model)
-                        ? "bg-[#a855f7]/15 hover:bg-[#a855f7]/25 text-[#c084fc] border border-[#a855f7]/30"
-                        : "bg-secondary text-foreground hover:bg-secondary/80"
+                        : "bg-secondary text-foreground hover:bg-secondary/80 border border-hairline/60"
                     }`}
                   >
                     {availableModels.length > 0 && (() => {
                       const Logo = isModelOS(model) ? GriotAiLogo : getAiLogo(model.split(":")[0]);
-                      return <Logo className="size-3.5 shrink-0" />;
+                      return <Logo className="size-3.5 shrink-0 text-foreground" />;
                     })()}
                     <span className="max-w-[130px] truncate">
                       {availableModels.length === 0 ? t("+ Adicionar API") : modelLabel(model)}
@@ -2835,8 +2867,6 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                       className={`size-4 ${
                         availableModels.length === 0
                           ? "text-primary/70"
-                          : isModelOS(model)
-                          ? "text-[#c084fc]/70"
                           : "text-muted-foreground"
                       }`}
                     />

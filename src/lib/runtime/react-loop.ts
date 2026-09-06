@@ -39,7 +39,7 @@ export interface ReActLoopOptions {
   signal?: AbortSignal;
 }
 
-const MAX_DEFAULT_ITERATIONS = 4;
+const MAX_DEFAULT_ITERATIONS = 2;
 
 export async function executeReActLoop(options: ReActLoopOptions): Promise<ReActLoopResult> {
   const {

@@ -159,7 +159,7 @@
 }
 
 @utility safe-top {
-  padding-top: calc(max(env(safe-area-inset-top, 0px), 24px) + 0.75rem);
+  padding-top: calc(max(env(safe-area-inset-top, 0px), 38px) + 0.75rem);
 }
 
 @utility hairline-b {

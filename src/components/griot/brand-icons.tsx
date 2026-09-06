@@ -310,18 +310,11 @@ export function MetaAiLogo({ className = "size-5", ...props }: IconProps) {
 export function GriotAiLogo({ className = "size-5", ...props }: IconProps) {
   return (
     <svg viewBox="100 150 315 212" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
-      <defs>
-        <linearGradient id="griot__ai_grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#C084FC" />
-          <stop offset="60%" stopColor="#A855F7" />
-          <stop offset="100%" stopColor="#7E22CE" />
-        </linearGradient>
-      </defs>
       <g transform="translate(2, 0)">
         <path
           d="M 196 186 C 130 186, 130 256, 196 256 C 262 256, 262 326, 328 326 C 394 326, 394 256, 328 256 C 262 256, 262 186, 196 186 Z"
           fill="none"
-          stroke="url(#griot__ai_grad)"
+          stroke="#FFFFFF"
           strokeWidth="32"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -331,7 +324,7 @@ export function GriotAiLogo({ className = "size-5", ...props }: IconProps) {
           y1="256"
           x2="385"
           y2="256"
-          stroke="url(#griot__ai_grad)"
+          stroke="#FFFFFF"
           strokeWidth="32"
           strokeLinecap="round"
         />

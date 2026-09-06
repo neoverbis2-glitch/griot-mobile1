@@ -149,7 +149,13 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
     else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
     else if (prov === "deepseek") mName = "deepseek-chat";
     else if (prov === "groq") mName = "llama-3.3-70b-versatile";
-    return { provider: prov, modelName: userApi.model || mName, specificApiKey: userApi.apiKey };
+    else if (prov === "gemini") {
+      const declared = (userApi.model || "").toLowerCase();
+      if (declared.includes("1.5-pro")) mName = "gemini-1.5-pro";
+      else if (declared.includes("1.5-flash")) mName = "gemini-1.5-flash";
+      else mName = "gemini-2.0-flash";
+    }
+    return { provider: prov, modelName: mName, specificApiKey: userApi.apiKey };
   }
 
   const m = modelId.toLowerCase();
@@ -159,11 +165,11 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
       : m.includes("1.5-flash")
       ? "gemini-1.5-flash"
       : m.includes("2.5-pro")
-      ? "gemini-2.5-pro"
+      ? "gemini-2.0-flash"
       : m.includes("2.5-flash")
-      ? "gemini-2.5-flash"
+      ? "gemini-2.0-flash"
       : m.includes("3.6-flash")
-      ? "gemini-3.6-flash"
+      ? "gemini-2.0-flash"
       : "gemini-2.0-flash";
     return { provider: "gemini", modelName: name };
   }
@@ -280,14 +286,32 @@ async function streamGeminiDirect(params: {
       parts: [{ text: m.content }],
     }));
 
+  // Ferramentas só são ativadas se o utilizador solicitar explicitamente operações de ficheiro/shell
+  const needsTools = messages.some((m) => {
+    const c = (m.content || "").toLowerCase();
+    return (
+      c.includes("ficheiro") ||
+      c.includes("arquivo") ||
+      c.includes("terminal") ||
+      c.includes("comando") ||
+      c.includes("shell") ||
+      c.includes("executa") ||
+      c.includes("npm ") ||
+      c.includes("git ")
+    );
+  });
+
   const body: Record<string, unknown> = {
     contents,
     generationConfig: {
       temperature: 0.7,
       maxOutputTokens: 8192,
     },
-    tools: [{ functionDeclarations: GEMINI_TOOL_DECLARATIONS }],
   };
+
+  if (needsTools) {
+    body.tools = [{ functionDeclarations: GEMINI_TOOL_DECLARATIONS }];
+  }
 
   if (systemInstruction) {
     body.systemInstruction = {
@@ -297,15 +321,42 @@ async function streamGeminiDirect(params: {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-  const geminiTimeout = AbortSignal.timeout(35000);
-  const effectiveSignal = signal ? AbortSignal.any([signal, geminiTimeout]) : geminiTimeout;
+  // Temporizador seguro compatível com todas as versões de WebView Android
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => {
+    ctrl.abort(new Error("Timeout após 25s de espera pela API do Gemini."));
+  }, 25000);
 
-  let response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: effectiveSignal,
-  });
+  const onParentAbort = () => {
+    clearTimeout(timeoutId);
+    ctrl.abort(signal?.reason);
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timeoutId);
+      ctrl.abort(signal.reason);
+    } else {
+      signal.addEventListener("abort", onParentAbort, { once: true });
+    }
+  }
+
+  const effectiveSignal = ctrl.signal;
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: effectiveSignal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+    if (signal) {
+      signal.removeEventListener("abort", onParentAbort);
+    }
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
@@ -407,10 +458,14 @@ async function streamGeminiDirect(params: {
           const parts = candidate.content?.parts || [];
           for (const part of parts) {
             if (part.text) {
-              fullText += part.text;
-              callbacks?.onToken?.(part.text);
-            }
-            if (part.thought) {
+              if (part.thought) {
+                fullReasoning += part.text;
+                callbacks?.onReasoning?.(part.text);
+              } else {
+                fullText += part.text;
+                callbacks?.onToken?.(part.text);
+              }
+            } else if (typeof part.thought === "string") {
               fullReasoning += part.thought;
               callbacks?.onReasoning?.(part.thought);
             }
