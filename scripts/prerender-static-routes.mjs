@@ -2,6 +2,7 @@ process.env.NODE_ENV = "production";
 
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 async function prerender() {
   const ssrPath = path.resolve(".output/server/index.mjs");
@@ -10,7 +11,7 @@ async function prerender() {
     return;
   }
 
-  const ssr = await import(ssrPath);
+  const ssr = await import(pathToFileURL(ssrPath).href);
   const routes = [
     {
       urlPath: "/home",

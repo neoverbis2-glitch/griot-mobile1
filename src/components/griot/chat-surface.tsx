@@ -8,6 +8,8 @@ import { AddApiModal } from "@/components/griot/add-api-modal";
 import { toast } from "sonner";
 import { Thinking } from "@/components/griot/thinking";
 import { UserActions, AssistantActions } from "@/components/griot/message-actions";
+import { ChatMessageItem } from "./chat-message-item";
+import { MarkdownContent } from "./markdown-content";
 import { ConversationDrawer, type Conversation } from "@/components/griot/chat-drawers";
 import { labelFromLocale, useI18n, useT } from "@/lib/i18n";
 import { VoiceSession } from "@/lib/voice-session";
@@ -87,16 +89,19 @@ import {
   Lightbulb,
   Sparkles,
 } from "lucide-react";
-import { getAiLogo } from "@/components/griot/brand-icons";
+import { getAiLogo, GriotAiLogo } from "@/components/griot/brand-icons";
+import { PluginsView } from "@/components/griot/plugins-view";
 
 import {
   captureAsText,
   captureTitle,
   exactDateTime,
   listQuickCaptures,
+  captureUrl,
   type CaptureRow,
 } from "@/lib/capture-share";
 import { getStoredCaptures, saveCapture } from "@/lib/capture-service";
+
 
 type Row = {
   id: string;
@@ -257,6 +262,23 @@ function getPersonaConfig(roleRaw: string): QuickPersonaConfig {
   };
 }
 
+function saveConversationLocally(conv: Conversation) {
+  if (typeof window === "undefined" || !conv?.id) return;
+  try {
+    const raw = localStorage.getItem("griot_conversations_v1");
+    const list: Conversation[] = raw ? JSON.parse(raw) : [];
+    const index = list.findIndex((c) => c.id === conv.id);
+    if (index >= 0) {
+      list[index] = { ...list[index], ...conv, updated_at: new Date().toISOString() };
+    } else {
+      list.unshift({ ...conv, updated_at: new Date().toISOString() });
+    }
+    localStorage.setItem("griot_conversations_v1", JSON.stringify(list));
+    localStorage.setItem("griot_active_" + conv.scope + "_conv_id", conv.id);
+    window.dispatchEvent(new CustomEvent("griot_conversations_changed"));
+  } catch {}
+}
+
 export function ChatSurface({ userId }: { userId: string }) {
   const navigate = useNavigate();
   const t = useT();
@@ -279,6 +301,7 @@ export function ChatSurface({ userId }: { userId: string }) {
   });
   const [effort, setEffort] = useState<Effort>("medium");
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [pluginsViewOpen, setPluginsViewOpen] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [drawerKey, setDrawerKey] = useState(0);
   const [projects, setProjects] = useState<GriotProject[]>([]);
@@ -493,83 +516,86 @@ export function ChatSurface({ userId }: { userId: string }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      // 1. Tenta carregar do localStorage a conversa activa do escopo padrão ("main")
+      let localConv: Conversation | null = null;
+      if (typeof window !== "undefined") {
+        try {
+          const activeId = localStorage.getItem("griot_active_main_conv_id");
+          const raw = localStorage.getItem("griot_conversations_v1");
+          if (raw) {
+            const list: Conversation[] = JSON.parse(raw);
+            if (activeId) {
+              localConv = list.find((c) => c.id === activeId && !c.archived) || null;
+            }
+            if (!localConv) {
+              localConv = list.find((c) => (c.scope || "main") === "main" && !c.archived) || null;
+            }
+          }
+        } catch {}
+      }
+
+      if (localConv) {
+        if (!cancelled) {
+          setConversation(localConv);
+          setModel(localConv.model || DEFAULT_MODEL);
+        }
+        return;
+      }
+
+      // 2. Se não encontrou no local, busca do Supabase
       try {
-        const { data: existing, error: selectError } = await (supabase as any)
+        const { data: existing } = await (supabase as any)
           .from("griot_conversations")
           .select("id, title, updated_at")
           .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .limit(15);
 
-        let row: Conversation | null = null;
-        if (existing) {
-          row = {
-            id: existing.id,
-            scope,
-            title: existing.title || "Conversa Principal",
-            model: DEFAULT_MODEL,
-            pinned: false,
-            archived: false,
-            updated_at: existing.updated_at,
-          };
-        }
-
-        if (!row && !selectError) {
-          const workspaceId = await getPrimaryWorkspaceId(userId);
-          const { data: created } = await (supabase as any)
-            .from("griot_conversations")
-            .insert({
-              workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-              title: "Conversa Principal",
-              owner_id: userId && userId !== "anonymous" ? userId : null,
-              created_by: userId && userId !== "anonymous" ? userId : null,
-            })
-            .select("id, title, updated_at")
-            .single();
-
-          if (created) {
-            row = {
-              id: created.id,
-              scope,
-              title: created.title || "Conversa Principal",
+        let matched: Conversation | null = null;
+        if (existing && existing.length > 0) {
+          let localMap: Record<string, any> = {};
+          if (typeof window !== "undefined") {
+            try {
+              const raw = localStorage.getItem("griot_conversations_v1");
+              if (raw) {
+                for (const item of JSON.parse(raw)) {
+                  if (item?.id) localMap[item.id] = item;
+                }
+              }
+            } catch {}
+          }
+          const candidate = existing.find((c: any) => {
+            const loc = localMap[c.id];
+            const itemScope = loc?.scope || "main";
+            return itemScope === "main" && !loc?.archived;
+          });
+          if (candidate) {
+            matched = {
+              id: candidate.id,
+              scope: "main",
+              title: candidate.title || "Conversa Principal",
               model: DEFAULT_MODEL,
               pinned: false,
               archived: false,
-              updated_at: created.updated_at,
+              updated_at: candidate.updated_at,
             };
           }
         }
 
-        // Fallback local caso o Supabase não esteja disponível ou ocorra erro
-        if (!row) {
-          row = {
-            id: "local-conv-" + scope,
-            scope,
-            title: "Conversa Principal",
-            model: DEFAULT_MODEL,
-            pinned: false,
-            archived: false,
-            updated_at: new Date().toISOString(),
-          };
+        if (matched) {
+          if (!cancelled) {
+            setConversation(matched);
+            setModel(matched.model || DEFAULT_MODEL);
+            saveConversationLocally(matched);
+          }
+          return;
         }
 
-        if (cancelled || !row) return;
-        setConversation(row);
-        setModel(row.model || DEFAULT_MODEL);
-      } catch (err) {
-        console.warn("Fallback de conversa local acionado:", err);
         if (!cancelled) {
-          const localFallback: Conversation = {
-            id: "local-conv-" + scope,
-            scope,
-            title: "Conversa Principal",
-            model: DEFAULT_MODEL,
-            pinned: false,
-            archived: false,
-            updated_at: new Date().toISOString(),
-          };
-          setConversation(localFallback);
-          setModel(DEFAULT_MODEL);
+          await newConversation("main");
+        }
+      } catch {
+        if (!cancelled) {
+          await newConversation("main");
         }
       }
     }
@@ -577,27 +603,53 @@ export function ChatSurface({ userId }: { userId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [scope, userId]);
+  }, [userId]);
 
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
     let cancelled = false;
+
+    // Cache local imediato para não piscar mensagens de outra conversa
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("griot_messages_" + conversationId);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed)) setMessages(parsed);
+          else setMessages([]);
+        } else {
+          setMessages([]);
+        }
+      } catch {
+        setMessages([]);
+      }
+    }
+
     void (supabase as any)
       .from("griot_messages")
       .select("id, actor_kind, content, created_at, metadata")
       .eq("conversation_id", conversationId)
       .order("created_at")
       .then(({ data }: any) => {
-        if (!cancelled && data && data.length > 0) {
-          setMessages(
-            data.map((m: any) => ({
-              id: m.id,
-              role: m.actor_kind === "human" ? "user" : m.actor_kind === "model" ? "assistant" : "system",
-              content: m.content,
-              created_at: m.created_at,
-              feedback: null,
-            })),
-          );
+        if (!cancelled && data) {
+          const mapped: Row[] = data.map((m: any) => ({
+            id: m.id,
+            role: m.actor_kind === "human" ? "user" : m.actor_kind === "model" ? "assistant" : "system",
+            content: m.content,
+            created_at: m.created_at,
+            feedback: null,
+          }));
+          if (mapped.length > 0) {
+            setMessages(mapped);
+            if (typeof window !== "undefined") {
+              try {
+                localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(mapped));
+              } catch {}
+            }
+          }
         }
       });
     return () => {
@@ -753,6 +805,7 @@ export function ChatSurface({ userId }: { userId: string }) {
     const content = await captureAsText(capture);
     void send(content);
     toast.success(t("Captura adicionada à conversa."));
+    setSheet(null);
   }
 
   const empty = messages.length === 0 && !streaming && !reasoning;
@@ -1002,9 +1055,15 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             feedback: null,
           };
         }
-        setMessages((current) =>
-          current.some((m) => m.id === row!.id) ? current : [...current, row!],
-        );
+        setMessages((current) => {
+          const updated = current.some((m) => m.id === row!.id) ? current : [...current, row!];
+          if (typeof window !== "undefined" && conversationId) {
+            try {
+              localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(updated));
+            } catch {}
+          }
+          return updated;
+        });
       }
     } catch (error) {
       if ((error as Error).name !== "AbortError") toast.error((error as Error).message);
@@ -1095,17 +1154,36 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           feedback: null,
         };
       }
-      setMessages((current) =>
-        current.some((m) => m.id === row!.id) ? current : [...current, row!],
-      );
-      if (!conversation?.title) {
+      setMessages((current) => {
+        const updated = current.some((m) => m.id === row!.id) ? current : [...current, row!];
+        if (typeof window !== "undefined" && conversationId) {
+          try {
+            localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(updated));
+          } catch {}
+        }
+        return updated;
+      });
+
+      const needsTitle =
+        !conversation?.title ||
+        conversation.title === "Nova Conversa" ||
+        conversation.title === "Novo Quick" ||
+        conversation.title === "Conversa Principal";
+
+      if (needsTitle) {
         const title = clean.slice(0, 48);
         try {
           await (supabase as any).from("griot_conversations").update({ title }).eq("id", conversationId);
         } catch {
           // ignore
         }
-        setConversation((current) => (current ? { ...current, title } : current));
+        setConversation((current) => {
+          const updated = current ? { ...current, title, updated_at: new Date().toISOString() } : current;
+          if (updated) saveConversationLocally(updated);
+          return updated;
+        });
+      } else if (conversation) {
+        saveConversationLocally({ ...conversation, updated_at: new Date().toISOString() });
       }
     })();
 
@@ -1417,14 +1495,11 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
   async function attach(file: File) {
     if (!conversationId) return;
     try {
-      const kind = file.type.startsWith("image/")
-        ? "photo"
-        : file.type.startsWith("video/")
-          ? "video"
-          : file.type.startsWith("audio/")
-            ? "audio"
-            : "document";
-      await saveCapture({
+      const isImg = file.type.startsWith("image/");
+      const isVid = file.type.startsWith("video/");
+      const isAud = file.type.startsWith("audio/");
+      const kind = isImg ? "photo" : isVid ? "video" : isAud ? "audio" : "document";
+      const saved = await saveCapture({
         kind,
         note: file.name,
         file,
@@ -1432,6 +1507,29 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         fileType: file.type,
         userId,
       });
+
+      if (isImg) {
+        const imgUrl = saved && saved.storage_path ? await captureUrl(saved.storage_path, saved) : null;
+        if (imgUrl) {
+          toast.success(t("Imagem anexada à conversa."));
+          void send(`![${file.name}](${imgUrl})\n\nPor favor analisa esta imagem.`);
+          return;
+        }
+      }
+
+      if (
+        file.type.startsWith("text/") ||
+        file.type.includes("json") ||
+        /\.(txt|json|md|ts|tsx|js|jsx|py|csv|html|css|yaml|yml|sql|sh)$/i.test(file.name)
+      ) {
+        try {
+          const content = await file.text();
+          toast.success(t("Ficheiro anexado à conversa."));
+          void send(`[Ficheiro: ${file.name}]\n\`\`\`\n${content.slice(0, 12000)}\n\`\`\`\nPor favor analisa este ficheiro.`);
+          return;
+        } catch {}
+      }
+
       toast.success(t("Adicionado à conversa."));
       void send(t(`Anexei o ficheiro "${file.name}".`));
     } catch {
@@ -1441,6 +1539,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
   async function newConversation(next: "main" | "quick") {
     let createdConv: Conversation | null = null;
+    const defaultTitle = next === "quick" ? "Novo Quick" : "Nova Conversa";
     try {
       const workspaceId = await getPrimaryWorkspaceId(userId);
       const { data: created } = await (supabase as any)
@@ -1449,7 +1548,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
           owner_id: userId && userId !== "anonymous" ? userId : null,
           created_by: userId && userId !== "anonymous" ? userId : null,
-          title: "Nova Conversa",
+          title: defaultTitle,
         })
         .select("id, title, updated_at")
         .single();
@@ -1457,7 +1556,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         createdConv = {
           id: created.id,
           scope: next,
-          title: created.title || "Nova Conversa",
+          title: created.title || defaultTitle,
           model,
           pinned: false,
           archived: false,
@@ -1470,9 +1569,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
     if (!createdConv) {
       createdConv = {
-        id: "local-conv-" + Date.now(),
+        id: "local-conv-" + next + "-" + Date.now(),
         scope: next,
-        title: "Nova Conversa",
+        title: defaultTitle,
         model,
         pinned: false,
         archived: false,
@@ -1483,7 +1582,56 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     setScope(next);
     setConversation(createdConv);
     setMessages([]);
+    saveConversationLocally(createdConv);
     setDrawerKey((value) => value + 1);
+  }
+
+  async function switchScope(targetScope: "main" | "quick") {
+    if (targetScope === scope) return;
+
+    // Guarda a conversa atual antes de alternar
+    if (conversation) {
+      saveConversationLocally({ ...conversation, scope });
+    }
+
+    setScope(targetScope);
+
+    // Procura a conversa ativa ou mais recente pertencente ao targetScope
+    let targetConv: Conversation | null = null;
+    if (typeof window !== "undefined") {
+      try {
+        const activeId = localStorage.getItem("griot_active_" + targetScope + "_conv_id");
+        const raw = localStorage.getItem("griot_conversations_v1");
+        if (raw) {
+          const list: Conversation[] = JSON.parse(raw);
+          if (activeId) {
+            targetConv = list.find((c) => c.id === activeId && !c.archived) || null;
+          }
+          if (!targetConv) {
+            targetConv = list.find((c) => c.scope === targetScope && !c.archived) || null;
+          }
+        }
+      } catch {}
+    }
+
+    if (targetConv) {
+      setConversation(targetConv);
+      setModel(targetConv.model || DEFAULT_MODEL);
+      if (typeof window !== "undefined") {
+        try {
+          const cached = localStorage.getItem("griot_messages_" + targetConv.id);
+          if (cached) {
+            setMessages(JSON.parse(cached));
+          } else {
+            setMessages([]);
+          }
+        } catch {
+          setMessages([]);
+        }
+      }
+    } else {
+      await newConversation(targetScope);
+    }
   }
 
   async function share() {
@@ -1491,28 +1639,76 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       .map((m) => `${m.role === "user" ? t("Eu") : "GRIOT"}: ${m.content}`)
       .join("\n\n");
     const title = conversation?.title ?? t("Conversa GRIOT");
-    if (navigator.share) {
+    if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ title, text });
         return;
-      } catch {
-        return;
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
       }
     }
-    await navigator.clipboard.writeText(text);
-    toast.success(t("Conversa copiada."));
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      toast.success(t("Conversa copiada para a área de transferência."));
+    }
   }
 
   async function togglePin() {
     if (!conversation) return;
     const pinned = !conversation.pinned;
     setConversation({ ...conversation, pinned });
+
+    try {
+      await (supabase as any)
+        .from("griot_conversations")
+        .update({ pinned })
+        .eq("id", conversation.id);
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("griot_conversations_v1");
+        const list = raw ? JSON.parse(raw) : [];
+        const index = list.findIndex((c: any) => c.id === conversation.id);
+        if (index >= 0) {
+          list[index] = { ...list[index], pinned };
+        } else {
+          list.push({ ...conversation, pinned });
+        }
+        localStorage.setItem("griot_conversations_v1", JSON.stringify(list));
+        window.dispatchEvent(new CustomEvent("griot_conversations_changed"));
+      } catch {}
+    }
+
     setDrawerKey((value) => value + 1);
     toast.success(pinned ? t("Conversa afixada.") : t("Conversa desafixada."));
   }
 
   async function archive() {
     if (!conversation) return;
+
+    try {
+      await (supabase as any)
+        .from("griot_conversations")
+        .update({ archived: true })
+        .eq("id", conversation.id);
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("griot_conversations_v1");
+        const list = raw ? JSON.parse(raw) : [];
+        const index = list.findIndex((c: any) => c.id === conversation.id);
+        if (index >= 0) {
+          list[index] = { ...list[index], archived: true };
+        } else {
+          list.push({ ...conversation, archived: true });
+        }
+        localStorage.setItem("griot_conversations_v1", JSON.stringify(list));
+        window.dispatchEvent(new CustomEvent("griot_conversations_changed"));
+      } catch {}
+    }
+
     toast.success(t("Conversa arquivada."));
     setConversation(null);
     setMessages([]);
@@ -1522,8 +1718,25 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
   async function remove() {
     if (!conversation) return;
-    await (supabase as any).from("griot_messages").delete().eq("conversation_id", conversation.id).catch(() => null);
-    await (supabase as any).from("griot_conversations").delete().eq("id", conversation.id).catch(() => null);
+
+    try {
+      await (supabase as any).from("griot_messages").delete().eq("conversation_id", conversation.id);
+      await (supabase as any).from("griot_conversations").delete().eq("id", conversation.id);
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("griot_conversations_v1");
+        if (raw) {
+          const list = JSON.parse(raw);
+          const filtered = list.filter((c: any) => c.id !== conversation.id);
+          localStorage.setItem("griot_conversations_v1", JSON.stringify(filtered));
+        }
+        localStorage.removeItem(`griot_messages_${conversation.id}`);
+        window.dispatchEvent(new CustomEvent("griot_conversations_changed"));
+      } catch {}
+    }
+
     toast.success(t("Conversa eliminada."));
     setConversation(null);
     setMessages([]);
@@ -1531,35 +1744,38 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     await newConversation(scope);
   }
 
-  async function assignProject(projectId: string) {
-    setActiveProject(projectId);
-    const proj = projects.find((p) => p.id === projectId);
-    if (proj) setActiveProjectState(proj);
+  async function assignProject(projectId: string | null) {
+    const nextProjectId = conversation?.project_id === projectId ? null : projectId;
+    setActiveProject(nextProjectId || "");
+    const proj = nextProjectId ? projects.find((p) => p.id === nextProjectId) : null;
+    setActiveProjectState(proj || null);
 
     if (conversation) {
       try {
         await (supabase as any)
           .from("griot_conversations")
-          .update({ project_id: projectId })
+          .update({ project_id: nextProjectId })
           .eq("id", conversation.id);
       } catch {}
 
       if (typeof window !== "undefined") {
         try {
           const raw = localStorage.getItem("griot_conversations_v1");
-          if (raw) {
-            const list = JSON.parse(raw);
-            const updated = list.map((c: any) =>
-              c.id === conversation.id ? { ...c, project_id: projectId } : c,
-            );
-            localStorage.setItem("griot_conversations_v1", JSON.stringify(updated));
+          const list = raw ? JSON.parse(raw) : [];
+          const index = list.findIndex((c: any) => c.id === conversation.id);
+          if (index >= 0) {
+            list[index] = { ...list[index], project_id: nextProjectId };
+          } else {
+            list.push({ ...conversation, project_id: nextProjectId });
           }
+          localStorage.setItem("griot_conversations_v1", JSON.stringify(list));
+          window.dispatchEvent(new CustomEvent("griot_conversations_changed"));
         } catch {}
       }
 
-      setConversation((prev) => (prev ? { ...prev, project_id: projectId } : null));
+      setConversation((prev) => (prev ? { ...prev, project_id: nextProjectId } : null));
     }
-    toast.success(t("Conversa ligada ao projeto."));
+    toast.success(nextProjectId ? t("Conversa ligada ao projeto.") : t("Conversa desvinculada do projeto."));
     setSheet(null);
   }
 
@@ -1569,21 +1785,50 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       label: t("Câmara"),
       hint: t("Tirar foto agora"),
       Icon: Camera,
-      run: () => cameraRef.current?.click(),
+      run: async () => {
+        setSheet(null);
+        try {
+          const { Camera: CapCamera, CameraResultType, CameraSource } = await import("@capacitor/camera");
+          const photo = await CapCamera.getPhoto({
+            quality: 90,
+            allowEditing: false,
+            resultType: CameraResultType.Uri,
+            source: CameraSource.Camera,
+          });
+          if (photo.webPath) {
+            const res = await fetch(photo.webPath);
+            const blob = await res.blob();
+            const file = new File([blob], `camera_${Date.now()}.${photo.format || "jpg"}`, {
+              type: blob.type || "image/jpeg",
+            });
+            void attach(file);
+            return;
+          }
+        } catch {
+          // Fallback para input de câmara web
+        }
+        cameraRef.current?.click();
+      },
     },
     {
       id: "media",
       label: t("Imagem ou vídeo"),
       hint: t("Da galeria"),
       Icon: ImageIcon,
-      run: () => mediaRef.current?.click(),
+      run: () => {
+        setSheet(null);
+        mediaRef.current?.click();
+      },
     },
     {
       id: "file",
       label: t("Ficheiros"),
       hint: t("Documentos e dados"),
       Icon: Paperclip,
-      run: () => fileRef.current?.click(),
+      run: () => {
+        setSheet(null);
+        fileRef.current?.click();
+      },
     },
     {
       id: "captures",
@@ -1597,12 +1842,10 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       label: t("Plugins"),
       hint: t("Agentes e integrações"),
       Icon: Puzzle,
-      run: () =>
-        toast(
-          t("Os plugins pedem permissão no chat quando o GRIOT precisa deles.") +
-            " " +
-            PLUGINS.map((item) => item.label).join(" · "),
-        ),
+      run: () => {
+        setSheet(null);
+        setPluginsViewOpen(true);
+      },
     },
   ] as const;
 
@@ -1684,19 +1927,19 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       }}
     >
       {/* Barra superior fixa: zona ativa à esquerda (conversas) e à direita (ações). */}
-      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(env(safe-area-inset-top,28px)+18px)]">
+      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(env(safe-area-inset-top,28px)+28px)]">
         <button
           aria-label={t("Abrir conversas")}
           onClick={() => setDrawer(true)}
           className="h-11 flex-1 self-stretch"
         />
-        <div className="flex shrink-0 rounded-full border border-hairline bg-surface/90 p-1 backdrop-blur-xl">
+        <div className="flex shrink-0 rounded-full border border-hairline bg-surface/90 p-1 backdrop-blur-xl shadow-xs">
           {(["main", "quick"] as const).map((value) => (
             <button
               key={value}
-              onClick={() => setScope(value)}
-              className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors duration-200 ${
-                scope === value ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+              onClick={() => void switchScope(value)}
+              className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-all duration-200 active:scale-95 ${
+                scope === value ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {value === "main" ? t("Chat") : t("Quick")}
@@ -1712,7 +1955,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
       {/* Pré-visualização de Projeto / Jogo Criado */}
       {workspaceFiles.some((f) => f.path.endsWith(".html") || f.path === "index.html") && (
-        <div className="absolute right-3.5 top-[calc(env(safe-area-inset-top,28px)+20px)] z-45">
+        <div className="absolute right-3.5 top-[calc(env(safe-area-inset-top,28px)+30px)] z-45">
           <button
             type="button"
             onClick={() => setPreviewOpen(true)}
@@ -1740,7 +1983,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
       {/* Feed da conversa */}
       <div className="no-scrollbar h-full overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(env(safe-area-inset-top,28px)+76px)] pb-52">
+        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(env(safe-area-inset-top,28px)+86px)] pb-52">
           {/* Deliberation Bar no topo da lista quando há mensagens no modo Quick */}
           {scope === "quick" && !empty && (
             <div className="rounded-3xl bg-card border border-white/[0.08] p-2 shadow-md mb-2">
@@ -1770,78 +2013,20 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             </div>
           ) : null}
 
-          {messages.map((message) =>
-            message.role === "user" ? (
-              <div key={message.id} className="flex flex-col items-end">
-                <div className="max-w-[85%] rounded-3xl bg-primary px-4 py-2.5 text-[15.5px] leading-relaxed text-primary-foreground">
-                  {message.content}
-                </div>
-                <UserActions
-                  content={message.content}
-                  onEdit={() => void editMessage(message.id)}
-                />
-              </div>
-            ) : scope === "quick" ? (
-              <div key={message.id} className="space-y-3">
-                {parseQuickSegments(message.content).map((segment, sIdx) => {
-                  const cfg = getPersonaConfig(segment.roleRaw);
-                  return (
-                    <div key={sIdx} className="flex items-start gap-2.5 my-2 animate-fade-in">
-                      {/* Avatar circular à esquerda estilo membro de grupo Instagram */}
-                      <div
-                        className={`relative grid size-9 shrink-0 place-items-center rounded-full border shadow-xs ${cfg.avatarBg}`}
-                        title={cfg.name}
-                      >
-                        {cfg.icon}
-                      </div>
-
-                      {/* Balão de fala do participante */}
-                      <div className="flex-1 min-w-0 max-w-[88%]">
-                        <div className="flex items-center gap-2 mb-1 px-1">
-                          <span className="text-[12px] font-semibold text-foreground tracking-tight">
-                            {cfg.name}
-                          </span>
-                          <span className="rounded-md bg-secondary/80 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
-                            {cfg.badge}
-                          </span>
-                        </div>
-                        <div className="rounded-3xl rounded-tl-sm border border-hairline/80 bg-surface/90 px-4 py-3 text-[15px] leading-relaxed text-foreground shadow-xs whitespace-pre-wrap">
-                          {segment.content}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                <AssistantActions
-                  content={message.content}
-                  feedback={message.feedback ?? null}
-                  onFeedback={(value) => void setFeedback(message.id, value)}
-                  onRegenerate={() => void regenerate(message.id)}
-                />
-              </div>
-            ) : (
-              <div key={message.id}>
-                {(message as any).model?.startsWith("app:") ? (
-                  <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                    <span className="size-1.5 rounded-full bg-emerald-500" />
-                    <span>{modelLabel((message as any).model)}</span>
-                    <span className="text-muted-foreground/60 text-[10.5px]">
-                      · {t("Chat Fixo")}
-                    </span>
-                  </div>
-                ) : null}
-                <div className="text-[15.5px] leading-relaxed whitespace-pre-wrap">
-                  {message.content}
-                </div>
-                <AssistantActions
-                  content={message.content}
-                  feedback={message.feedback ?? null}
-                  onFeedback={(value) => void setFeedback(message.id, value)}
-                  onRegenerate={() => void regenerate(message.id)}
-                />
-              </div>
-            ),
-          )}
+          {messages.map((message) => (
+            <ChatMessageItem
+              key={message.id}
+              message={message}
+              scope={scope}
+              onEdit={(id) => void editMessage(id)}
+              onFeedback={(id, value) => void setFeedback(id, value)}
+              onRegenerate={(id) => void regenerate(id)}
+              t={t}
+              parseQuickSegments={parseQuickSegments}
+              getPersonaConfig={getPersonaConfig}
+              modelLabel={modelLabel}
+            />
+          ))}
 
           {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
 
@@ -1868,8 +2053,8 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                               {cfg.badge}
                             </span>
                           </div>
-                          <div className="rounded-3xl rounded-tl-sm border border-hairline/80 bg-surface/90 px-4 py-3 text-[15px] leading-relaxed text-foreground shadow-xs whitespace-pre-wrap">
-                            {segment.content}
+                          <div className="rounded-3xl rounded-tl-sm border border-hairline/80 bg-surface/90 px-4 py-3 text-[15px] leading-relaxed text-foreground shadow-xs">
+                            <MarkdownContent content={segment.content} />
                           </div>
                         </div>
                       </div>
@@ -1878,8 +2063,8 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                 )}
               </div>
             ) : (
-              <div className="text-[15.5px] leading-relaxed whitespace-pre-wrap">
-                {stripPartialPlugin(stripPartialBlock(streaming))}
+              <div className="text-[15.5px] leading-relaxed">
+                <MarkdownContent content={stripPartialPlugin(stripPartialBlock(streaming))} />
               </div>
             )
           ) : null}
@@ -2140,10 +2325,23 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         activeId={conversationId}
         refreshKey={drawerKey}
         onSelect={(row) => {
-          setScope(row.scope === "quick" ? "quick" : "main");
+          const targetScope = row.scope === "quick" ? "quick" : "main";
+          setScope(targetScope);
           setConversation(row);
           setModel(row.model || DEFAULT_MODEL);
-          setMessages([]);
+          saveConversationLocally(row);
+          if (typeof window !== "undefined") {
+            try {
+              const cached = localStorage.getItem("griot_messages_" + row.id);
+              if (cached) {
+                setMessages(JSON.parse(cached));
+              } else {
+                setMessages([]);
+              }
+            } catch {
+              setMessages([]);
+            }
+          }
         }}
         onCreate={(next) => void newConversation(next)}
       />
@@ -2247,18 +2445,30 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                   </button>
                 </div>
               ) : (
-                projects.map((project) => (
+                <>
+                  {projects.map((project) => (
+                    <button
+                      key={project.id}
+                      onClick={() => void assignProject(project.id)}
+                      className="flex w-full items-center justify-between border-t border-hairline px-4 py-3.5 text-left active:bg-secondary"
+                    >
+                      <span className="text-[15px] font-medium">{project.name}</span>
+                      {conversation?.project_id === project.id && (
+                        <Check className="size-4 text-primary" />
+                      )}
+                    </button>
+                  ))}
                   <button
-                    key={project.id}
-                    onClick={() => void assignProject(project.id)}
-                    className="flex w-full items-center justify-between border-t border-hairline px-4 py-3.5 text-left active:bg-secondary"
+                    type="button"
+                    onClick={() => void assignProject(null)}
+                    className="flex w-full items-center justify-between border-t border-hairline px-4 py-3 text-left active:bg-secondary text-muted-foreground"
                   >
-                    <span className="text-[15px] font-medium">{project.name}</span>
-                    {conversation?.project_id === project.id && (
+                    <span className="text-[14px]">{t("Nenhum projeto (conversa livre)")}</span>
+                    {!conversation?.project_id && (
                       <Check className="size-4 text-primary" />
                     )}
                   </button>
-                ))
+                </>
               )}
             </div>
           ) : null}
@@ -2379,7 +2589,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         {(() => {
-                          const Logo = getAiLogo(option.id.split(":")[0]);
+                          const Logo = isModelOS(option.id) ? GriotAiLogo : getAiLogo(option.id.split(":")[0]);
                           return (
                             <div className="grid size-6 shrink-0 place-items-center rounded-full border border-hairline/60 bg-surface">
                               <Logo className="size-3.5" />
@@ -2576,7 +2786,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     }`}
                   >
                     {availableModels.length > 0 && (() => {
-                      const Logo = getAiLogo(model.split(":")[0]);
+                      const Logo = isModelOS(model) ? GriotAiLogo : getAiLogo(model.split(":")[0]);
                       return <Logo className="size-3.5 shrink-0" />;
                     })()}
                     <span className="max-w-[130px] truncate">
@@ -2668,6 +2878,13 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
               className="h-full w-full border-none"
             />
           </div>
+        </div>
+      )}
+
+      {/* Modal do Gestor de Plugins Reais */}
+      {pluginsViewOpen && (
+        <div className="fixed inset-0 z-50 bg-background animate-in fade-in duration-200">
+          <PluginsView onBack={() => setPluginsViewOpen(false)} />
         </div>
       )}
     </div>

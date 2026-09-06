@@ -126,7 +126,7 @@ function HomePage() {
         const mappedRuns: RunRow[] = rawUsage.map((u: any) => ({
           created_at: u.created_at,
           cost_usd: Number(u.estimated_cost_usd || (u.total_tokens ? u.total_tokens * 0.0000005 : 0)),
-          duration_ms: 800,
+          duration_ms: Number(u.duration_ms || u.latency_ms || 0),
         }));
 
         // Serviços e credenciais ativas

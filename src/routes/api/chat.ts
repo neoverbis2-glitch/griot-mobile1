@@ -74,6 +74,38 @@ export const Route = createFileRoute("/api/chat")({
             const emit = (t: "text" | "reason" | "step", d: string) => {
               controller.enqueue(encoder.encode(`${JSON.stringify({ t, d })}\n`));
             };
+
+            // 1. Streaming Direto de Alta Velocidade no Servidor com Google Gen AI
+            if (process.env.GEMINI_API_KEY && (provider === "gemini" || rawModel === "modelos")) {
+              try {
+                const { generateContentStreamWithFallback } = await import("@/lib/gemini.server");
+                const contents = rawMessages.slice(-20).map((m) => ({
+                  role: m.role === "assistant" ? "model" : "user",
+                  parts: [{ text: m.content }],
+                }));
+
+                const { stream: genStream } = await generateContentStreamWithFallback({
+                  contents,
+                  config: {
+                    temperature: 0.7,
+                    maxOutputTokens: 8192,
+                  },
+                });
+
+                for await (const chunk of genStream) {
+                  const chunkText = chunk.text;
+                  if (chunkText) {
+                    emit("text", chunkText);
+                  }
+                }
+                controller.close();
+                return;
+              } catch (directErr) {
+                console.warn("[GRIOT Server] Streaming direto Gemini falhou, caindo para orquestrador:", directErr);
+              }
+            }
+
+            // 2. Fallback para o Edge Orchestrator com histórico de mensagens
             try {
               const upstream = await fetch(
                 `${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`,
@@ -86,6 +118,7 @@ export const Route = createFileRoute("/api/chat")({
                   },
                   body: JSON.stringify({
                     prompt,
+                    messages: rawMessages.slice(-20),
                     provider,
                     model,
                     conversationId: body.conversationId || undefined,
@@ -94,12 +127,8 @@ export const Route = createFileRoute("/api/chat")({
                 },
               );
 
-              const payload = (await upstream.json().catch(() => ({}))) as {
-                error?: string;
-                result?: { content?: string };
-              };
-
               if (!upstream.ok) {
+                const payload = (await upstream.json().catch(() => ({}))) as { error?: string };
                 const message =
                   upstream.status === 409
                     ? "Ainda não ligaste uma chave de API de IA. Vai a Definições → Chave de IA para ligar uma (ex.: Gemini) antes de conversar."
@@ -109,17 +138,64 @@ export const Route = createFileRoute("/api/chat")({
                 return;
               }
 
-              const text = payload.result?.content || "";
-              if (!text) {
-                emit("text", "O modelo não devolveu texto.");
-                controller.close();
-                return;
-              }
+              // Se o upstream suporta streaming em tempo real
+              if (upstream.body) {
+                const reader = upstream.body.getReader();
+                const decoder = new TextDecoder();
+                let accumulated = "";
 
-              const words = text.split(/(\s+)/);
-              for (const word of words) {
-                if (!word) continue;
-                emit("text", word);
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  const chunk = decoder.decode(value, { stream: true });
+                  accumulated += chunk;
+
+                  // Tenta extrair linhas de texto ou tokens se for streaming
+                  const lines = accumulated.split("\n");
+                  accumulated = lines.pop() || "";
+
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    if (trimmed.startsWith("data: ")) {
+                      try {
+                        const json = JSON.parse(trimmed.slice(6));
+                        const token = json.text || json.content || json.delta || "";
+                        if (token) emit("text", token);
+                      } catch {
+                        emit("text", trimmed.slice(6));
+                      }
+                    } else {
+                      try {
+                        const json = JSON.parse(trimmed);
+                        if (json.text) emit("text", json.text);
+                        else if (json.result?.content) emit("text", json.result.content);
+                      } catch {
+                        emit("text", trimmed);
+                      }
+                    }
+                  }
+                }
+
+                if (accumulated.trim()) {
+                  try {
+                    const json = JSON.parse(accumulated.trim());
+                    if (json.text) emit("text", json.text);
+                    else if (json.result?.content) emit("text", json.result.content);
+                  } catch {
+                    emit("text", accumulated.trim());
+                  }
+                }
+              } else {
+                const payload = (await upstream.json().catch(() => ({}))) as {
+                  result?: { content?: string };
+                };
+                const text = payload.result?.content || "";
+                if (text) {
+                  emit("text", text);
+                } else {
+                  emit("text", "O modelo não devolveu texto.");
+                }
               }
             } catch (error) {
               console.error("api/chat -> griot-orchestrator error:", error);

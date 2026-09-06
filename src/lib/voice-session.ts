@@ -46,15 +46,15 @@ type Options = {
   onInterrupt?: () => void;
 };
 
-/** Limites do turno */
+/** Limites do turno ultra-responsivos estilo ChatGPT */
 const MAX_TURN_MS = 24000;
-const MIN_TURN_MS = 300;
-const SILENCE_MS = 620;
-const SILENCE_TERMINAL_MS = 380;
-const PARTIAL_EVERY_MS = 850;
-const SEGMENT_MS = 1500;
-const SEGMENT_OVERLAP_MS = 320;
-const SEGMENT_TICK_MS = 250;
+const MIN_TURN_MS = 250;
+const SILENCE_MS = 380;
+const SILENCE_TERMINAL_MS = 250;
+const PARTIAL_EVERY_MS = 800;
+const SEGMENT_MS = 1400;
+const SEGMENT_OVERLAP_MS = 300;
+const SEGMENT_TICK_MS = 220;
 
 /** Ignora barge-in nos primeiros ms de fala (cauda do próprio áudio). */
 const BARGE_GRACE_MS = 250;
@@ -193,7 +193,7 @@ export function cleanVoiceText(raw: string): string {
 }
 
 type SentenceStream = {
-  chunks: Float32Array<ArrayBuffer>[];
+  chunks: (Float32Array<ArrayBuffer> | AudioBuffer)[];
   ended: boolean;
   failed: boolean;
   done: Promise<void>;
@@ -710,44 +710,35 @@ export class VoiceSession {
           }
         }
 
-        // 3. Rota /api/tts interna caso disponível
+        // 3. Rota /api/tts interna (Síntese Neural Studio de Alta Fidelidade)
         const response = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             text: clean,
-            voice: this.opts.voice ?? "alloy",
+            voice: this.opts.voice ?? "griot",
             speed: this.opts.speed ?? 1.0,
-            stream: true,
+            lang: this.opts.languageName,
             tone: toneOf(clean),
           }),
           signal: controller.signal,
         });
 
-        if (response.ok && response.body) {
-          const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-          let pending = "";
-          for (;;) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            pending += value;
-            let sep = pending.indexOf("\n\n");
-            while (sep >= 0) {
-              const raw = pending.slice(0, sep);
-              pending = pending.slice(sep + 2);
-              for (const line of raw.split("\n")) {
-                if (!line.startsWith("data:")) continue;
-                const data = line.slice(5).trim();
-                if (!data || data === "[DONE]") continue;
-                try {
-                  const event = JSON.parse(data) as { type?: string; audio?: string };
-                  if (event.type === "speech.audio.delta" && event.audio) {
-                    const floats = decodePcm(event.audio);
-                    if (floats.length > 0) handle.chunks.push(floats);
-                  }
-                } catch {}
+        if (response.ok) {
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("audio/")) {
+            const arrayBuffer = await response.arrayBuffer();
+            if (arrayBuffer.byteLength > 0 && this.ctx) {
+              try {
+                // Decodifica diretamente no Web Audio API
+                const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+                if (audioBuffer && audioBuffer.duration > 0) {
+                  handle.chunks.push(audioBuffer);
+                  return;
+                }
+              } catch (decodeErr) {
+                console.warn("[GRIOT Voice] Erro ao decodificar áudio neural:", decodeErr);
               }
-              sep = pending.indexOf("\n\n");
             }
           }
         }
@@ -856,9 +847,14 @@ export class VoiceSession {
     let cursor = 0;
     let first = true;
 
-    const schedule = (floats: Float32Array<ArrayBuffer>) => {
-      const audioBuffer = ctx.createBuffer(1, floats.length, PCM_RATE);
-      audioBuffer.copyToChannel(floats, 0);
+    const schedule = (item: Float32Array<ArrayBuffer> | AudioBuffer) => {
+      let audioBuffer: AudioBuffer;
+      if (item instanceof AudioBuffer) {
+        audioBuffer = item;
+      } else {
+        audioBuffer = ctx.createBuffer(1, item.length, PCM_RATE);
+        audioBuffer.copyToChannel(item, 0);
+      }
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(gain);

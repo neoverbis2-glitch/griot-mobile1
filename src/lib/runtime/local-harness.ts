@@ -25,6 +25,23 @@ export interface WorkspaceCommit {
 }
 
 const STORAGE_PREFIX = "griot_ws_";
+const memoryStorageCache = new Map<string, string>();
+
+function safeSetItem(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, value);
+    memoryStorageCache.set(key, value);
+  } catch (err) {
+    console.warn("[GRIOT Harness] Quota de armazenamento local atingida. Mantido em memória:", err);
+    memoryStorageCache.set(key, value);
+  }
+}
+
+function safeGetItem(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  return memoryStorageCache.get(key) ?? localStorage.getItem(key);
+}
 
 function getStorageKey(workspaceId: string): string {
   const cleanId = (workspaceId || "default").replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -40,7 +57,7 @@ function getCommitStorageKey(workspaceId: string): string {
 export function getWorkspaceFiles(workspaceId = "default"): WorkspaceFile[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(getStorageKey(workspaceId));
+    const raw = safeGetItem(getStorageKey(workspaceId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -74,7 +91,7 @@ export function saveWorkspaceFile(
   }
 
   if (typeof window !== "undefined") {
-    localStorage.setItem(getStorageKey(workspaceId), JSON.stringify(files));
+    safeSetItem(getStorageKey(workspaceId), JSON.stringify(files));
     window.dispatchEvent(
       new CustomEvent("griot:workspace-files-updated", {
         detail: { workspaceId, path: cleanPath, fileCount: files.length },
@@ -93,7 +110,7 @@ export function deleteWorkspaceFile(path: string, workspaceId = "default"): bool
   if (filtered.length === files.length) return false;
 
   if (typeof window !== "undefined") {
-    localStorage.setItem(getStorageKey(workspaceId), JSON.stringify(filtered));
+    safeSetItem(getStorageKey(workspaceId), JSON.stringify(filtered));
     window.dispatchEvent(
       new CustomEvent("griot:workspace-files-updated", {
         detail: { workspaceId, path: cleanPath, fileCount: filtered.length },
@@ -319,10 +336,10 @@ export async function executeLocalAction(
 
       if (typeof window !== "undefined") {
         try {
-          const raw = localStorage.getItem(getCommitStorageKey(workspaceId)) || "[]";
+          const raw = safeGetItem(getCommitStorageKey(workspaceId)) || "[]";
           const commits: WorkspaceCommit[] = JSON.parse(raw);
           commits.unshift(commit);
-          localStorage.setItem(getCommitStorageKey(workspaceId), JSON.stringify(commits.slice(0, 50)));
+          safeSetItem(getCommitStorageKey(workspaceId), JSON.stringify(commits.slice(0, 50)));
         } catch {}
       }
 
@@ -342,7 +359,7 @@ export async function executeLocalAction(
       let commits: WorkspaceCommit[] = [];
       if (typeof window !== "undefined") {
         try {
-          commits = JSON.parse(localStorage.getItem(getCommitStorageKey(workspaceId)) || "[]");
+          commits = JSON.parse(safeGetItem(getCommitStorageKey(workspaceId)) || "[]");
         } catch {}
       }
       const stdout = commits.length > 0

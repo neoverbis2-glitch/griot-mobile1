@@ -186,7 +186,7 @@ export async function verifyRealBiometrics(
     if (credential) {
       return { success: true };
     }
-    return { success: true };
+    return { success: false, error: "Autenticação biométrica cancelada ou não confirmada." };
   } catch (err: unknown) {
     // User might cancel or no credentials registered yet — simulate platform fallback confirmation
     const message = err instanceof Error ? err.message : "Falha na verificação biométrica.";

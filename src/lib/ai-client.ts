@@ -567,6 +567,67 @@ async function streamSupabaseOrchestratorFallback(params: {
     );
   }
 
+  // 1. Tentar endpoint /api/chat com streaming em tempo real e histórico preservado
+  if (typeof window !== "undefined") {
+    try {
+      const localChatRes = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          messages: messages.slice(-20),
+          model: modelName,
+        }),
+        signal,
+      });
+
+      if (localChatRes.ok && localChatRes.body) {
+        const reader = localChatRes.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "";
+        let lineBuffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          lineBuffer += decoder.decode(value, { stream: true });
+          const lines = lineBuffer.split("\n");
+          lineBuffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const parsed = JSON.parse(trimmed);
+              if (parsed.t === "text" && parsed.d) {
+                fullText += parsed.d;
+                callbacks?.onToken?.(parsed.d);
+              }
+            } catch {
+              fullText += trimmed;
+              callbacks?.onToken?.(trimmed);
+            }
+          }
+        }
+
+        if (fullText.trim()) {
+          return { text: fullText, reasoning: "", toolCalls: [] };
+        }
+      }
+    } catch (e) {
+      console.warn("[GRIOT Client] Tentativa via /api/chat em streaming falhou, recorrendo a Edge Function:", e);
+    }
+  }
+
+  // 2. Se /api/chat não respondeu, recorrer ao Supabase Edge Function
+  if (!token) {
+    throw new Error(
+      `Sem chave de API configurada para ${provider.toUpperCase()}. Vai a Home → APIs ou Definições → Chave de IA para adicionar a tua chave gratuitamente (ex: Google Gemini).`,
+    );
+  }
+
   const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
   const prompt = lastUserMsg?.content || "";
 
@@ -579,6 +640,7 @@ async function streamSupabaseOrchestratorFallback(params: {
     },
     body: JSON.stringify({
       prompt,
+      messages: messages.slice(-20),
       provider,
       model: modelName,
     }),
@@ -596,12 +658,11 @@ async function streamSupabaseOrchestratorFallback(params: {
   const payload = await response.json();
   const text = payload.result?.content || "";
 
-  // Simula streaming do resultado em blocos suaves
   const words = text.split(/(\s+)/);
   for (const word of words) {
     if (!word) continue;
     callbacks?.onToken?.(word);
-    await new Promise((r) => setTimeout(r, 12));
+    await new Promise((r) => setTimeout(r, 8));
   }
 
   return { text, reasoning: "", toolCalls: [] };

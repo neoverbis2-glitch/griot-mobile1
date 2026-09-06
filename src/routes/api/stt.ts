@@ -22,11 +22,9 @@ export const Route = createFileRoute("/api/stt")({
           const arrayBuffer = await file.arrayBuffer();
           const base64Audio = Buffer.from(arrayBuffer).toString("base64");
 
-          // Para janelas parciais usamos Flash-Lite; para o turno final tentamos 3.5-transcribe com fallback para Flash-Lite
-          const candidateModels =
-            mode === "final"
-              ? ["gemini-3.5-transcribe", "gemini-3.1-flash-lite"]
-              : ["gemini-3.1-flash-lite", "gemini-3.5-transcribe"];
+          // Modelos ultrarrápidos e multimodais ativos na API Gemini
+          const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash"];
+
 
           const { result: response } = await generateContentWithFallback({
             models: candidateModels,

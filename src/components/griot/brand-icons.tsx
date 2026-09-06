@@ -306,9 +306,45 @@ export function MetaAiLogo({ className = "size-5", ...props }: IconProps) {
   );
 }
 
+/** GRIOT / ModelOS AI Logo */
+export function GriotAiLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 512 512" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true" {...props}>
+      <defs>
+        <linearGradient id="griot__ai_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#C084FC" />
+          <stop offset="60%" stopColor="#A855F7" />
+          <stop offset="100%" stopColor="#7E22CE" />
+        </linearGradient>
+      </defs>
+      <rect width="512" height="512" rx="128" fill="#0E0817" />
+      <g transform="translate(2, 0)">
+        <path
+          d="M 196 186 C 130 186, 130 256, 196 256 C 262 256, 262 326, 328 326 C 394 326, 394 256, 328 256 C 262 256, 262 186, 196 186 Z"
+          fill="none"
+          stroke="url(#griot__ai_grad)"
+          strokeWidth="32"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <line
+          x1="328"
+          y1="256"
+          x2="385"
+          y2="256"
+          stroke="url(#griot__ai_grad)"
+          strokeWidth="32"
+          strokeLinecap="round"
+        />
+      </g>
+    </svg>
+  );
+}
+
 export function getAiLogo(providerId?: string) {
-  if (!providerId) return GeminiAiLogo;
+  if (!providerId) return GriotAiLogo;
   const p = providerId.toLowerCase();
+  if (p.includes("modelos") || p.includes("griot")) return GriotAiLogo;
   if (p.includes("gemini") || p.includes("google")) return GeminiAiLogo;
   if (p.includes("claude") || p.includes("anthropic")) return ClaudeAiLogo;
   if (p.includes("openai") || p.includes("gpt") || p.includes("chatgpt")) return OpenAiLogo;
@@ -322,5 +358,6 @@ export function getAiLogo(providerId?: string) {
   if (p.includes("ollama")) return OllamaAiLogo;
   if (p.includes("mistral")) return MistralAiLogo;
   if (p.includes("meta") || p.includes("llama")) return MetaAiLogo;
-  return GeminiAiLogo;
+  return GriotAiLogo;
 }
+

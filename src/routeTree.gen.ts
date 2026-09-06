@@ -25,6 +25,7 @@ import { Route as ApiTranslateRouteImport } from './routes/api/translate'
 import { Route as ApiTtsRouteImport } from './routes/api/tts'
 import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects/index'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects/$projectId'
+import { Route as ApiRuntimeExecuteRouteImport } from './routes/api/runtime/execute'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -108,6 +109,11 @@ const AuthenticatedProjectsProjectIdRoute =
     path: '/projects/$projectId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiRuntimeExecuteRoute = ApiRuntimeExecuteRouteImport.update({
+  id: '/api/runtime/execute',
+  path: '/api/runtime/execute',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/api/translate': typeof ApiTranslateRoute
   '/api/tts': typeof ApiTtsRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/api/runtime/execute': typeof ApiRuntimeExecuteRoute
   '/projects/': typeof AuthenticatedProjectsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -141,6 +148,7 @@ export interface FileRoutesByTo {
   '/api/translate': typeof ApiTranslateRoute
   '/api/tts': typeof ApiTtsRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/api/runtime/execute': typeof ApiRuntimeExecuteRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
 }
 export interface FileRoutesById {
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/api/translate': typeof ApiTranslateRoute
   '/api/tts': typeof ApiTtsRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/api/runtime/execute': typeof ApiRuntimeExecuteRoute
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
 }
 export interface FileRouteTypes {
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/api/translate'
     | '/api/tts'
     | '/projects/$projectId'
+    | '/api/runtime/execute'
     | '/projects/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -196,6 +206,7 @@ export interface FileRouteTypes {
     | '/api/translate'
     | '/api/tts'
     | '/projects/$projectId'
+    | '/api/runtime/execute'
     | '/projects'
   id:
     | '__root__'
@@ -214,6 +225,7 @@ export interface FileRouteTypes {
     | '/api/translate'
     | '/api/tts'
     | '/_authenticated/projects/$projectId'
+    | '/api/runtime/execute'
     | '/_authenticated/projects/'
   fileRoutesById: FileRoutesById
 }
@@ -226,6 +238,7 @@ export interface RootRouteChildren {
   ApiSttRoute: typeof ApiSttRoute
   ApiTranslateRoute: typeof ApiTranslateRoute
   ApiTtsRoute: typeof ApiTtsRoute
+  ApiRuntimeExecuteRoute: typeof ApiRuntimeExecuteRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -342,6 +355,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsProjectIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/runtime/execute': {
+      id: '/api/runtime/execute'
+      path: '/api/runtime/execute'
+      fullPath: '/api/runtime/execute'
+      preLoaderRoute: typeof ApiRuntimeExecuteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -379,6 +399,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSttRoute: ApiSttRoute,
   ApiTranslateRoute: ApiTranslateRoute,
   ApiTtsRoute: ApiTtsRoute,
+  ApiRuntimeExecuteRoute: ApiRuntimeExecuteRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

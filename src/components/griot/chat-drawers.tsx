@@ -15,24 +15,75 @@ export type Conversation = {
 };
 
 export async function listConversations(): Promise<Conversation[]> {
+  const localMap: Record<string, Partial<Conversation>> = {};
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem("griot_conversations_v1");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && item.id) localMap[item.id] = item;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  let dbRows: any[] = [];
   try {
     const { data } = await (supabase as any)
       .from("griot_conversations")
       .select("id, title, updated_at")
       .order("updated_at", { ascending: false })
       .limit(60);
-    return ((data ?? []) as any[]).map((c) => ({
+    dbRows = data ?? [];
+  } catch {}
+
+  const mergedMap = new Map<string, Conversation>();
+
+  for (const c of dbRows) {
+    const loc = localMap[c.id] || {};
+    const title = c.title || loc.title || "Conversa GRIOT";
+    const inferredScope: "main" | "quick" =
+      loc.scope === "quick" || title.toLowerCase().startsWith("quick") || title.toLowerCase().includes("quick")
+        ? "quick"
+        : (loc.scope as "main" | "quick") || "main";
+
+    mergedMap.set(c.id, {
       id: c.id,
-      scope: "main",
-      title: c.title || "Conversa GRIOT",
-      model: "gemini-2.0-flash",
-      pinned: false,
-      archived: false,
-      updated_at: c.updated_at,
-    }));
-  } catch {
-    return [];
+      scope: inferredScope,
+      title,
+      model: loc.model || "ModelOS",
+      pinned: Boolean(loc.pinned),
+      archived: Boolean(loc.archived),
+      updated_at: c.updated_at || loc.updated_at || new Date().toISOString(),
+    });
   }
+
+  for (const id in localMap) {
+    if (!mergedMap.has(id)) {
+      const loc = localMap[id];
+      const title = loc.title || (loc.scope === "quick" ? "Novo Quick" : "Conversa GRIOT");
+      mergedMap.set(id, {
+        id,
+        scope: loc.scope === "quick" ? "quick" : "main",
+        title,
+        model: loc.model || "ModelOS",
+        pinned: Boolean(loc.pinned),
+        archived: Boolean(loc.archived),
+        updated_at: loc.updated_at || new Date().toISOString(),
+      });
+    }
+  }
+
+  const all = Array.from(mergedMap.values()).filter((c) => !c.archived);
+
+  return all.sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  });
 }
 
 /** Barra lateral esquerda: conversas e quicks. */
@@ -64,6 +115,14 @@ export function ConversationDrawer({
       cancelled = true;
     };
   }, [open, refreshKey]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      void listConversations().then(setItems);
+    };
+    window.addEventListener("griot_conversations_changed", handleUpdate);
+    return () => window.removeEventListener("griot_conversations_changed", handleUpdate);
+  }, []);
 
   const chats = items.filter((item) => item.scope === "main");
   const quicks = items.filter((item) => item.scope === "quick");
