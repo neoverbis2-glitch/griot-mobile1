@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Screen, Panel } from "@/components/griot/screen";
@@ -24,6 +24,7 @@ import {
   verifyGriotCredential,
 } from "@/lib/griot-api";
 import { saveUserApi } from "@/lib/user-apis";
+import { resolveSpeechLanguage } from "@/lib/speech-transcriber";
 import { useI18n, useT, labelFromLocale, localeFromLabel } from "@/lib/i18n";
 import { toast } from "sonner";
 import {
@@ -145,6 +146,49 @@ function SettingsPage() {
   useEffect(() => {
     if (displayName) setName(displayName);
   }, [displayName]);
+
+  const currentAppLang = (prefs.appLanguage || prefs.voiceLanguage || labelFromLocale(locale) || "Português") as string;
+  const langInfo = useMemo(() => resolveSpeechLanguage(currentAppLang), [currentAppLang]);
+  const [deviceVoices, setDeviceVoices] = useState<string[]>([]);
+
+  useEffect(() => {
+    function updateVoices() {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+      const all = window.speechSynthesis.getVoices();
+      const matching = all
+        .filter((v) => v.lang.toLowerCase().replace("_", "-").startsWith(langInfo.code))
+        .map((v) => v.name);
+      setDeviceVoices(matching);
+    }
+    updateVoices();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, [langInfo.code]);
+
+  const voiceOptions = useMemo(() => {
+    const baseTones =
+      langInfo.code === "pt"
+        ? ["GRIOT Nativa (Português)", "Serena (pt)", "Grave (pt)", "Neutra (pt)"]
+        : langInfo.code === "en"
+        ? ["GRIOT Native (English)", "Serene (en)", "Deep (en)", "Neutral (en)"]
+        : langInfo.code === "es"
+        ? ["GRIOT Nativo (Español)", "Serena (es)", "Grave (es)", "Neutra (es)"]
+        : [
+            `GRIOT Nativa (${langInfo.name})`,
+            `Serena (${langInfo.code})`,
+            `Grave (${langInfo.code})`,
+            `Neutra (${langInfo.code})`,
+          ];
+
+    const filteredDevice = deviceVoices.filter((v) => !baseTones.includes(v));
+    return [...baseTones, ...filteredDevice];
+  }, [langInfo.code, langInfo.name, deviceVoices]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem(MODEL_KEY);
@@ -849,8 +893,9 @@ function SettingsPage() {
         />
         <SelectRow
           label={t("Voz do GRIOT")}
-          value={text("voice")}
-          options={["GRIOT Nativa", "Serena", "Grave", "Neutra"]}
+          value={voiceOptions.includes(text("voice")) ? text("voice") : voiceOptions[0]}
+          options={voiceOptions}
+          searchable
           onChange={(v) => set("voice", v)}
         />
         <SelectRow

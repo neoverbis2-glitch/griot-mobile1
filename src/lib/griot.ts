@@ -14,7 +14,7 @@ export const MODEL_OS_ID = "modelos";
 export const BASE_CHAT_MODELS: ModelOption[] = [];
 export const QUICK_CHAT_MODELS: ModelOption[] = [];
 
-export const DEFAULT_MODEL = "gemini-2.0-flash";
+export const DEFAULT_MODEL = MODEL_OS_ID;
 
 export function isModelOS(id?: string): boolean {
   if (!id) return false;
@@ -27,14 +27,17 @@ export function isModelOS(id?: string): boolean {
 }
 
 export function getAvailableModels(_prefs?: Record<string, unknown>): ModelOption[] {
+  const options: ModelOption[] = [
+    {
+      id: MODEL_OS_ID,
+      label: "ModelOS",
+      hint: "Orquestrador Cognitivo · ModelGPU RAL",
+      isApp: true,
+      vendor: "modelos",
+    },
+  ];
+
   const userApis = getUserSavedApis();
-  if (userApis.length === 0) {
-    return [];
-  }
-
-  const options: ModelOption[] = [];
-
-  // Adiciona estritamente e exclusivamente as APIs reais configuradas pelo utilizador
   for (const api of userApis) {
     options.push({
       id: api.id,

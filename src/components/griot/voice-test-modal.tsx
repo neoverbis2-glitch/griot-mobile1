@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, Volume2, Camera, X, Play, Square, Video, CheckCircle2 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { loadPrefs } from "@/lib/settings";
+import { resolveSpeechLanguage } from "@/lib/speech-transcriber";
 
 interface VoiceTestModalProps {
   open: boolean;
@@ -71,24 +72,48 @@ export function VoiceTestModal({ open, onClose, mode = "voice" }: VoiceTestModal
     const voiceSpeed = parseFloat(String(prefs.voiceSpeed || "1.0").replace("×", "")) || 1.0;
     const voiceType = String(prefs.voice || "GRIOT Nativa");
 
-    const sampleText =
-      "Olá! O núcleo de voz do GRIOT e o ModelOS estão operacionais e configurados no seu dispositivo.";
+    const langInfo = resolveSpeechLanguage(
+      (prefs.voiceLanguage as string) || (prefs.appLanguage as string),
+    );
+
+    let sampleText =
+      "Olá! O núcleo de voz do GRIOT e o ModelOS estão operacionais com transcrição de ultra-precisão e pausa suave.";
+    if (langInfo.code === "en") {
+      sampleText =
+        "Hello! The GRIOT voice engine and ModelOS are fully active with advanced speech recognition and soft pause.";
+    } else if (langInfo.code === "es") {
+      sampleText =
+        "¡Hola! El núcleo de voz de GRIOT y ModelOS están activos con transcripción avanzada y pausa suave.";
+    } else if (langInfo.code === "fr") {
+      sampleText =
+        "Bonjour ! Le moteur vocal de GRIOT et ModelOS sont opérationnels avec transcription avancée.";
+    } else if (langInfo.code === "de") {
+      sampleText =
+        "Hallo! Die GRIOT-Sprach-Engine und ModelOS sind einsatzbereit mit fortschrittlicher Spracherkennung.";
+    }
 
     const utterance = new SpeechSynthesisUtterance(sampleText);
     utterance.rate = voiceSpeed;
+    utterance.lang = langInfo.bcp47;
 
     // Pitch based on selected voice
-    if (voiceType.includes("Grave")) {
+    if (voiceType.toLowerCase().includes("grave") || voiceType.toLowerCase().includes("deep")) {
       utterance.pitch = 0.75;
-    } else if (voiceType.includes("Serena")) {
-      utterance.pitch = 1.2;
+    } else if (voiceType.toLowerCase().includes("serena") || voiceType.toLowerCase().includes("calm")) {
+      utterance.pitch = 1.18;
     } else {
       utterance.pitch = 1.0;
     }
 
     const voices = window.speechSynthesis.getVoices();
-    const ptVoice = voices.find((v) => v.lang.startsWith("pt")) || voices[0];
-    if (ptVoice) utterance.voice = ptVoice;
+    const langVoices = voices.filter((v) =>
+      v.lang.toLowerCase().replace("_", "-").startsWith(langInfo.code),
+    );
+    const selectedVoiceName = voiceType.toLowerCase();
+    const matchedVoice =
+      langVoices.find((v) => v.name.toLowerCase().includes(selectedVoiceName)) ||
+      langVoices[0];
+    if (matchedVoice) utterance.voice = matchedVoice;
 
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);

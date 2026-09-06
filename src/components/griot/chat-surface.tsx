@@ -11,6 +11,7 @@ import { UserActions, AssistantActions } from "@/components/griot/message-action
 import { ConversationDrawer, type Conversation } from "@/components/griot/chat-drawers";
 import { labelFromLocale, useI18n, useT } from "@/lib/i18n";
 import { VoiceSession } from "@/lib/voice-session";
+import { transcribeAudioElite, resolveSpeechLanguage } from "@/lib/speech-transcriber";
 import { loadPrefs } from "@/lib/settings";
 import { CapsulePanel } from "@/components/griot/capsule-panel";
 import { useServerFn } from "@tanstack/react-start";
@@ -250,9 +251,12 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [reasoning, setReasoning] = useState("");
   const [steps, setSteps] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [model, setModel] = useState(() => {
-    const saved = getUserSavedApis();
-    return saved[0]?.id || DEFAULT_MODEL;
+  const [model, setModel] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const stored = window.localStorage.getItem("griot-default-model");
+      if (stored) return stored;
+    }
+    return DEFAULT_MODEL;
   });
   const [effort, setEffort] = useState<Effort>("medium");
   const [sheet, setSheet] = useState<Sheet>(null);
@@ -402,6 +406,9 @@ export function ChatSurface({ userId }: { userId: string }) {
   const frame = useRef<number | null>(null);
 
   const recognitionRef = useRef<{ stop: () => void; abort: () => void } | null>(null);
+  const dictationRecorderRef = useRef<MediaRecorder | null>(null);
+  const dictationChunksRef = useRef<Blob[]>([]);
+  const dictationStreamRef = useRef<MediaStream | null>(null);
   const lastAnswerRef = useRef("");
   const sessionRef = useRef<VoiceSession | null>(null);
   // Callbacks da sessão de voz vivem para lá de um render: estes refs garantem
@@ -1114,7 +1121,28 @@ Cada membro deve ser conciso, direto e falar na sua voz própria, como membros d
       .catch(() => null);
   }
 
-  function startVoice() {
+  async function startVoice() {
+    const prefs = loadPrefs();
+    const appLangName =
+      (prefs["voiceLanguage"] as string) ||
+      (prefs["appLanguage"] as string) ||
+      labelFromLocale(locale);
+    const langInfo = resolveSpeechLanguage(appLangName);
+
+    dictationChunksRef.current = [];
+
+    // Tenta abrir gravação direta como backup de alta precisão
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      dictationStreamRef.current = stream;
+      const rec = new MediaRecorder(stream);
+      rec.ondataavailable = (e) => {
+        if (e.data.size > 0) dictationChunksRef.current.push(e.data);
+      };
+      rec.start(150);
+      dictationRecorderRef.current = rec;
+    } catch {}
+
     const SpeechRecognition =
       (
         window as unknown as {
@@ -1123,55 +1151,87 @@ Cada membro deve ser conciso, direto e falar na sua voz própria, como membros d
         }
       ).SpeechRecognition ??
       (window as unknown as { webkitSpeechRecognition?: new () => never }).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      toast.error(t("Este dispositivo não permite ditado por voz no browser."));
-      return;
+
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition() as unknown as {
+          lang: string;
+          interimResults: boolean;
+          continuous: boolean;
+          start: () => void;
+          stop: () => void;
+          abort: () => void;
+          onresult: (event: { results: Array<Array<{ transcript: string }>> }) => void;
+          onerror: () => void;
+          onend: () => void;
+        };
+        recognition.lang = langInfo.bcp47;
+        recognition.interimResults = true;
+        recognition.continuous = true;
+        recognition.onresult = (event) => {
+          const parts: string[] = [];
+          const results = event.results as unknown as ArrayLike<ArrayLike<{ transcript: string }>>;
+          for (let index = 0; index < results.length; index += 1) {
+            parts.push(results[index]?.[0]?.transcript ?? "");
+          }
+          setDraft(parts.join(" ").trim());
+        };
+        recognition.onerror = () => {
+          // Erro no Web Speech nativo não invalida a gravação pelo MediaRecorder
+        };
+        recognition.onend = () => {
+          setRecording(false);
+          stopMeter();
+        };
+        recognitionRef.current = recognition;
+        recognition.start();
+      } catch {}
     }
-    const recognition = new SpeechRecognition() as unknown as {
-      lang: string;
-      interimResults: boolean;
-      continuous: boolean;
-      start: () => void;
-      stop: () => void;
-      abort: () => void;
-      onresult: (event: { results: Array<Array<{ transcript: string }>> }) => void;
-      onerror: () => void;
-      onend: () => void;
-    };
-    recognition.lang = "pt-PT";
-    recognition.interimResults = true;
-    recognition.continuous = true;
-    recognition.onresult = (event) => {
-      const parts: string[] = [];
-      const results = event.results as unknown as ArrayLike<ArrayLike<{ transcript: string }>>;
-      for (let index = 0; index < results.length; index += 1) {
-        parts.push(results[index]?.[0]?.transcript ?? "");
-      }
-      setDraft(parts.join(" ").trim());
-    };
-    recognition.onerror = () => {
-      setRecording(false);
-      stopMeter();
-      toast.error(t("Não consegui ouvir. Tenta outra vez."));
-    };
-    recognition.onend = () => {
-      setRecording(false);
-      stopMeter();
-    };
-    recognitionRef.current = recognition;
-    recognition.start();
+
     setRecording(true);
     void startMeter();
   }
 
-  function stopVoice(sendAfter: boolean) {
+  async function stopVoice(sendAfter: boolean) {
     recognitionRef.current?.stop();
     recognitionRef.current = null;
+
+    if (dictationRecorderRef.current && dictationRecorderRef.current.state !== "inactive") {
+      dictationRecorderRef.current.stop();
+    }
+    dictationRecorderRef.current = null;
+
+    if (dictationStreamRef.current) {
+      dictationStreamRef.current.getTracks().forEach((t) => t.stop());
+      dictationStreamRef.current = null;
+    }
+
     setRecording(false);
     stopMeter();
+
+    let finalText = draft.trim();
+
+    // Se o reconhecimento nativo não apanhou nada mas gravámos o áudio, transcreve com STT de Elite!
+    if (!finalText && dictationChunksRef.current.length > 0) {
+      try {
+        const blob = new Blob(dictationChunksRef.current, { type: "audio/webm" });
+        const prefs = loadPrefs();
+        const appLangName =
+          (prefs["voiceLanguage"] as string) ||
+          (prefs["appLanguage"] as string) ||
+          labelFromLocale(locale);
+        finalText = (await transcribeAudioElite(blob, { language: appLangName })).trim();
+        if (finalText) setDraft(finalText);
+      } catch {}
+    }
+    dictationChunksRef.current = [];
+
     if (sendAfter) {
-      const text = draft;
-      window.setTimeout(() => void send(text), 60);
+      if (finalText) {
+        window.setTimeout(() => void send(finalText), 60);
+      } else {
+        toast.error(t("Não consegui ouvir. Tenta outra vez."));
+      }
     } else {
       setDraft("");
     }
@@ -1185,11 +1245,18 @@ Cada membro deve ser conciso, direto e falar na sua voz própria, como membros d
     if (sessionRef.current) return;
     setSheet(null);
     const prefs = loadPrefs();
+    const chosenVoice = String(prefs["voice"] || "");
+    const mappedVoice = TTS_VOICES[chosenVoice] || chosenVoice || "GRIOT Nativa";
+    const appLang =
+      (prefs["voiceLanguage"] as string) ||
+      (prefs["appLanguage"] as string) ||
+      labelFromLocale(locale);
+
     const session = new VoiceSession({
       bars: 22,
-      voice: TTS_VOICES[String(prefs["voice"])] ?? "alloy",
+      voice: mappedVoice,
       speed: SPEECH_SPEEDS[String(prefs["voiceSpeed"])] ?? 1.0,
-      languageName: labelFromLocale(locale),
+      languageName: appLang,
       allowInterrupt: prefs["allowInterrupt"] !== false,
       // Barge-in (voz ou orbe) aborta também o stream do modelo.
       onInterrupt: () => abortRef.current?.abort(),
