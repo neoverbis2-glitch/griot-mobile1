@@ -30,7 +30,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools
+          packages: 'platform-tools platforms;android-34 platforms;android-35 build-tools;34.0.0'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -69,6 +69,7 @@ jobs:
           echo "APK=GRIOT-Mobile-debug.apk" >> "$GITHUB_ENV"
           sha256sum GRIOT-Mobile-debug.apk
           ls -lh GRIOT-Mobile-debug.apk
+          $ANDROID_HOME/build-tools/34.0.0/aapt2 dump badging GRIOT-Mobile-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
