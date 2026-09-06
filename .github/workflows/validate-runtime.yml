@@ -20,6 +20,12 @@ jobs:
         with:
           node-version: '22.13.0'
       - run: node --check runtime-runner/server.mjs
-      - run: node --input-type=module -e "import('./runtime-runner/server.mjs').catch(e => { if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e })"
+      - name: Test runner startup and health check
+        run: |
+          node runtime-runner/server.mjs &
+          SERVER_PID=$!
+          sleep 2
+          curl --retry 5 --retry-connrefused -f http://127.0.0.1:8080/healthz || exit 1
+          kill $SERVER_PID
       - name: Build runtime container
         run: docker build --pull -t griot-runtime-runner:ci runtime-runner

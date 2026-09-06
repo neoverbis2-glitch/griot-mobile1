@@ -65,16 +65,16 @@ jobs:
         run: |
           APK=$(find android -type f -path '*/outputs/apk/debug/*-debug.apk' | head -n 1)
           test -n "$APK"
-          cp "$APK" GRIOT-v1.0.23-debug.apk
-          echo "APK=GRIOT-v1.0.23-debug.apk" >> "$GITHUB_ENV"
-          sha256sum GRIOT-v1.0.23-debug.apk
-          ls -lh GRIOT-v1.0.23-debug.apk
+          cp "$APK" GRIOT-Mobile-debug.apk
+          echo "APK=GRIOT-Mobile-debug.apk" >> "$GITHUB_ENV"
+          sha256sum GRIOT-Mobile-debug.apk
+          ls -lh GRIOT-Mobile-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: griot-mobile-v1-debug-apk
-          path: GRIOT-v1.0.23-debug.apk
+          name: griot-mobile-debug-apk
+          path: GRIOT-Mobile-debug.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -82,9 +82,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         continue-on-error: true
         with:
-          tag_name: v1.0.23
-          name: "GRIOT Mobile v1.0.23"
-          body: "Página completa de 30 Plugins e Conexões nas Definições com logos SVG reais, logos oficiais das IAs no Home e Seletores, e Quick Deliberation Room com personas sociais (Estrategista, Crítico, Analista, Inovador) com avatares circulares estilo grupo de rede social."
-          files: GRIOT-v1.0.23-debug.apk
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.26' }}
+          name: "GRIOT Mobile ${{ github.ref_type == 'tag' && github.ref_name || 'v1.0.26' }}"
+          files: GRIOT-Mobile-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
