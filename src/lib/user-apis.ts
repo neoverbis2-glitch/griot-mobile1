@@ -173,19 +173,38 @@ export async function deleteUserApi(apiId: string): Promise<void> {
 /** Procura uma API por ID ou pelo provedor */
 export function findApiByIdOrProvider(idOrProvider: string): UserSavedApi | null {
   const apis = getUserSavedApis();
+  if (!apis.length) return null;
+
+  // 1. Procura por ID exato
   const byId = apis.find((a) => a.id === idOrProvider);
   if (byId) return byId;
 
+  // 2. Procura por rótulo amigável exato (ex: "Dam", "Google Gemini")
+  const byLabel = apis.find((a) => a.label?.toLowerCase() === idOrProvider.toLowerCase());
+  if (byLabel) return byLabel;
+
   const normalized = idOrProvider.toLowerCase();
+
+  // 3. Procura por provedor compatível
   const byProvider = apis.find(
     (a) =>
       a.providerId === normalized ||
       (normalized.includes("gemini") && a.providerId === "gemini") ||
       (normalized.includes("gpt") && a.providerId === "openai") ||
-      (normalized.includes("claude") && (a.providerId === "claude" || a.providerId === "anthropic")) ||
+      (normalized.includes("openai") && a.providerId === "openai") ||
+      ((normalized.includes("claude") || normalized.includes("anthropic")) && (a.providerId === "claude" || a.providerId === "anthropic")) ||
       (normalized.includes("deepseek") && a.providerId === "deepseek") ||
       (normalized.includes("groq") && a.providerId === "groq"),
   );
+  if (byProvider) return byProvider;
 
-  return byProvider || apis[0] || null;
+  // 4. Se for ModelOS ou genérico, usa a melhor API disponível (prioridade Gemini)
+  if (normalized === "modelos" || normalized === "model-os" || normalized === "default" || !idOrProvider) {
+    const geminiApi = apis.find((a) => a.providerId === "gemini" && a.status === "active");
+    if (geminiApi) return geminiApi;
+    return apis.find((a) => a.status === "active") || apis[0] || null;
+  }
+
+  return null;
 }
+

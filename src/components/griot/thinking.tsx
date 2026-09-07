@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Brain, ChevronDown } from "lucide-react";
+import { Brain, ChevronDown, Square } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
-type Props = { text: string; active: boolean; steps: number };
+type Props = { text: string; active: boolean; steps: number; onStop?: () => void };
 
 const PHASES = [
   "A ler o pedido",
@@ -16,7 +16,7 @@ const PHASES = [
  * Painel de raciocínio: mostra em tempo real o que o GRIOT está a pensar
  * e as decisões que vai tomando. Fecha-se sozinho quando a resposta começa.
  */
-export function Thinking({ text, active, steps }: Props) {
+export function Thinking({ text, active, steps, onStop }: Props) {
   const t = useT();
   const [open, setOpen] = useState(true);
   const [phase, setPhase] = useState(0);
@@ -34,30 +34,51 @@ export function Thinking({ text, active, steps }: Props) {
 
   return (
     <div className="rise overflow-hidden rounded-[22px] border border-hairline bg-surface/60 backdrop-blur-xl">
-      <button
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-      >
-        <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-secondary">
-          {active ? (
-            <span className="pulse-ring absolute inset-0 rounded-full bg-foreground/15" />
-          ) : null}
-          <Brain className="size-[15px]" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className={`block text-[13.5px] font-medium ${active ? "shimmer-text" : ""}`}>
-            {active ? t(PHASES[phase] ?? PHASES[0] ?? "A pensar") : t("Raciocínio")}
+      <div className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex flex-1 items-center gap-3 min-w-0"
+        >
+          <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-secondary">
+            {active ? (
+              <span className="pulse-ring absolute inset-0 rounded-full bg-foreground/15" />
+            ) : null}
+            <Brain className="size-[15px]" />
           </span>
-          <span className="block text-[11.5px] text-muted-foreground">
-            {steps > 0 ? `${steps} ${t("decisões")}` : t("cadeia de decisão")}
+          <span className="min-w-0 flex-1 text-left">
+            <span className={`block text-[13.5px] font-medium ${active ? "shimmer-text" : ""}`}>
+              {active ? t(PHASES[phase] ?? PHASES[0] ?? "A pensar") : t("Raciocínio")}
+            </span>
+            <span className="block text-[11.5px] text-muted-foreground">
+              {steps > 0 ? `${steps} ${t("decisões")}` : t("cadeia de decisão")}
+            </span>
           </span>
-        </span>
-        <ChevronDown
-          className={`size-4 shrink-0 text-muted-foreground transition-transform duration-300 ${
-            open ? "rotate-180" : ""
-          }`}
-        />
-      </button>
+        </button>
+
+        {active && onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="flex items-center gap-1.5 rounded-full bg-secondary/90 px-3 py-1.5 text-[11.5px] font-medium text-foreground hover:bg-secondary active:scale-95 transition-all shadow-xs"
+          >
+            <Square className="size-2.5 fill-current" />
+            <span>{t("Parar")}</span>
+          </button>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="grid size-7 place-items-center rounded-full active:scale-90"
+        >
+          <ChevronDown
+            className={`size-4 shrink-0 text-muted-foreground transition-transform duration-300 ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+      </div>
 
       {open ? (
         <div className="border-t border-hairline px-4 py-3">

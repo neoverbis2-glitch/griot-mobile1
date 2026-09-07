@@ -267,6 +267,118 @@ export async function streamDirectAI(params: {
   });
 }
 
+function createSafeTimeoutSignal(ms: number, parentSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    ctrl.abort(new Error(`Timeout após ${Math.round(ms / 1000)}s`));
+  }, ms);
+
+  const onAbort = () => {
+    clearTimeout(timer);
+    ctrl.abort(parentSignal?.reason);
+  };
+
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      clearTimeout(timer);
+      ctrl.abort(parentSignal.reason);
+    } else {
+      parentSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  return {
+    signal: ctrl.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      if (parentSignal) {
+        parentSignal.removeEventListener("abort", onAbort);
+      }
+    },
+  };
+}
+
+/** Chamada síncrona / REST de fallback para Gemini quando streaming SSE é bloqueado ou falha no WebView */
+async function fetchGeminiDirectSync(params: {
+  apiKey: string;
+  modelName: string;
+  body: Record<string, unknown>;
+  callbacks?: StreamCallbacks;
+  signal?: AbortSignal;
+}): Promise<AIResponse> {
+  const { apiKey, modelName, body, callbacks, signal } = params;
+  const syncEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(20000, signal);
+  let res: Response;
+  try {
+    res = await fetch(syncEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: safeSignal,
+    });
+  } finally {
+    cleanup();
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Google Gemini erro ${res.status}: ${errText.slice(0, 180)}`);
+  }
+
+  const data = await res.json();
+  const candidate = data.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
+
+  let fullText = "";
+  let fullReasoning = "";
+  const toolCalls: GriotAction[] = [];
+
+  for (const part of parts) {
+    if (part.text) {
+      if (part.thought) {
+        fullReasoning += part.text;
+        callbacks?.onReasoning?.(part.text);
+      } else {
+        fullText += part.text;
+      }
+    } else if (part.thought) {
+      fullReasoning += part.thought;
+      callbacks?.onReasoning?.(part.thought);
+    }
+    if (part.functionCall) {
+      callbacks?.onStep?.();
+      const fn = part.functionCall;
+      const mappedType = mapFunctionNameToActionType(fn.name);
+      toolCalls.push({
+        id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: mappedType,
+        category: mappedType.split(".")[0] as any,
+        risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+        params: fn.args || {},
+        requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  // Emite as palavras com micro-delay para animação natural de streaming
+  if (fullText) {
+    const tokens = fullText.split(/(\s+)/);
+    for (const tok of tokens) {
+      if (signal?.aborted) break;
+      if (tok) {
+        callbacks?.onToken?.(tok);
+        await new Promise((r) => setTimeout(r, 6));
+      }
+    }
+  }
+
+  return { text: fullText, reasoning: fullReasoning, toolCalls };
+}
+
 /** Streaming nativo Google Gemini REST API */
 async function streamGeminiDirect(params: {
   apiKey: string;
@@ -278,13 +390,21 @@ async function streamGeminiDirect(params: {
 }): Promise<AIResponse> {
   const { apiKey, modelName, messages, systemInstruction, callbacks, signal } = params;
 
-  // Converte mensagens para o formato do Gemini
+  if (signal?.aborted) {
+    throw new DOMException("Operação cancelada pelo utilizador.", "AbortError");
+  }
+
+  // Converte mensagens para o formato do Gemini, filtrando mensagens vazias
   const contents = messages
-    .filter((m) => m.role !== "system")
+    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
     .map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
+
+  if (contents.length === 0) {
+    contents.push({ role: "user", parts: [{ text: "Olá" }] });
+  }
 
   // Ferramentas só são ativadas se o utilizador solicitar explicitamente operações de ficheiro/shell
   const needsTools = messages.some((m) => {
@@ -321,48 +441,32 @@ async function streamGeminiDirect(params: {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-  // Temporizador seguro compatível com todas as versões de WebView Android
-  const ctrl = new AbortController();
-  const timeoutId = setTimeout(() => {
-    ctrl.abort(new Error("Timeout após 25s de espera pela API do Gemini."));
-  }, 25000);
+  // Temporizador de conexão
+  const { signal: connectSignal, cleanup: cleanupConnect } = createSafeTimeoutSignal(12000, signal);
 
-  const onParentAbort = () => {
-    clearTimeout(timeoutId);
-    ctrl.abort(signal?.reason);
-  };
-
-  if (signal) {
-    if (signal.aborted) {
-      clearTimeout(timeoutId);
-      ctrl.abort(signal.reason);
-    } else {
-      signal.addEventListener("abort", onParentAbort, { once: true });
-    }
-  }
-
-  const effectiveSignal = ctrl.signal;
-
-  let response: Response;
+  let response: Response | null = null;
   try {
     response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: effectiveSignal,
+      signal: connectSignal,
     });
-  } finally {
-    clearTimeout(timeoutId);
-    if (signal) {
-      signal.removeEventListener("abort", onParentAbort);
+  } catch (fetchErr: any) {
+    cleanupConnect();
+    if (signal?.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
     }
+    console.warn("[GRIOT] Falha no streaming SSE do Gemini, tentando REST direto:", fetchErr);
+    return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
+  } finally {
+    cleanupConnect();
   }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
 
     // 1. Auto-recuperação inteligente se a Google sugerir um novo modelo no erro 404
-    // Ex: "Please update your code to use models/gemini-3.6-flash"
     const updateMatch = errorText.match(/use models\/([a-zA-Z0-9.-]+)/i) || errorText.match(/models\/([a-zA-Z0-9.-]+)/g);
     let suggestedModel: string | null = null;
     if (updateMatch) {
@@ -405,26 +509,16 @@ async function streamGeminiDirect(params: {
       }
     }
 
-    // 3. Se deu erro 400 por incompatibilidade de ferramentas, tenta sem tools
+    // 3. Se deu erro 400 por ferramentas, tenta síncrono sem tools
     if (response.status === 400 && (errorText.includes("tool") || errorText.includes("function"))) {
       const bodyNoTools = { ...body };
       delete bodyNoTools.tools;
-      const resNoTools = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bodyNoTools),
-        signal,
-      });
-      if (resNoTools.ok) {
-        response = resNoTools;
-      }
+      return fetchGeminiDirectSync({ apiKey, modelName, body: bodyNoTools, callbacks, signal });
     }
 
-    if (!response.ok) {
-      throw new Error(
-        `Google Gemini retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
-      );
-    }
+    throw new Error(
+      `Google Gemini retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
+    );
   }
 
   let fullText = "";
@@ -432,63 +526,112 @@ async function streamGeminiDirect(params: {
   const toolCalls: GriotAction[] = [];
 
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("Stream de resposta indisponível.");
+  if (!reader) {
+    return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
+  }
+
+  // Interrompe imediatamente o leitor do stream quando o sinal de aborto for disparado
+  const onParentAbort = () => {
+    try {
+      void reader.cancel();
+    } catch {}
+  };
+  if (signal) {
+    signal.addEventListener("abort", onParentAbort, { once: true });
+  }
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let receivedAnyToken = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    // Watchdog: se não receber tokens em 12 segundos, cancela o stream e usa o fallback síncrono
+    const watchdogTimer = setTimeout(() => {
+      if (!receivedAnyToken && !signal?.aborted) {
+        try {
+          void reader.cancel();
+        } catch {}
+      }
+    }, 12000);
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+    while (true) {
+      if (signal?.aborted) {
+        clearTimeout(watchdogTimer);
+        throw new DOMException("Operação cancelada.", "AbortError");
+      }
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const jsonStr = trimmed.replace(/^data:\s*/, "");
-      if (!jsonStr || jsonStr === "[DONE]") continue;
+      const { done, value } = await reader.read();
+      if (done) {
+        clearTimeout(watchdogTimer);
+        break;
+      }
 
-      try {
-        const payload = JSON.parse(jsonStr);
-        const candidates = payload.candidates || [];
-        for (const candidate of candidates) {
-          const parts = candidate.content?.parts || [];
-          for (const part of parts) {
-            if (part.text) {
-              if (part.thought) {
-                fullReasoning += part.text;
-                callbacks?.onReasoning?.(part.text);
-              } else {
-                fullText += part.text;
-                callbacks?.onToken?.(part.text);
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const jsonStr = trimmed.replace(/^data:\s*/, "");
+        if (!jsonStr || jsonStr === "[DONE]") continue;
+
+        try {
+          const payload = JSON.parse(jsonStr);
+          const candidates = payload.candidates || [];
+          for (const candidate of candidates) {
+            const parts = candidate.content?.parts || [];
+            for (const part of parts) {
+              if (part.text) {
+                receivedAnyToken = true;
+                clearTimeout(watchdogTimer);
+                if (part.thought) {
+                  fullReasoning += part.text;
+                  callbacks?.onReasoning?.(part.text);
+                } else {
+                  fullText += part.text;
+                  callbacks?.onToken?.(part.text);
+                }
+              } else if (typeof part.thought === "string") {
+                receivedAnyToken = true;
+                clearTimeout(watchdogTimer);
+                fullReasoning += part.thought;
+                callbacks?.onReasoning?.(part.thought);
               }
-            } else if (typeof part.thought === "string") {
-              fullReasoning += part.thought;
-              callbacks?.onReasoning?.(part.thought);
-            }
-            if (part.functionCall) {
-              callbacks?.onStep?.();
-              const fn = part.functionCall;
-              const mappedType = mapFunctionNameToActionType(fn.name);
-              toolCalls.push({
-                id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-                type: mappedType,
-                category: mappedType.split(".")[0] as any,
-                risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
-                params: fn.args || {},
-                requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
-                status: "pending",
-                createdAt: new Date().toISOString(),
-              });
+              if (part.functionCall) {
+                callbacks?.onStep?.();
+                const fn = part.functionCall;
+                const mappedType = mapFunctionNameToActionType(fn.name);
+                toolCalls.push({
+                  id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                  type: mappedType,
+                  category: mappedType.split(".")[0] as any,
+                  risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+                  params: fn.args || {},
+                  requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
+                  status: "pending",
+                  createdAt: new Date().toISOString(),
+                });
+              }
             }
           }
+        } catch {
+          // fragmento incompleto
         }
-      } catch {
-        // fragmento incompleto
       }
+    }
+  } catch (streamErr: any) {
+    if (signal?.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
+    }
+    // Se o stream falhou a meio sem devolver resposta completa, tenta o fallback REST
+    if (!fullText.trim()) {
+      console.warn("[GRIOT] Stream SSE interrompido, recorrendo ao endpoint REST padrão:", streamErr);
+      return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
+    }
+  } finally {
+    if (signal) {
+      signal.removeEventListener("abort", onParentAbort);
     }
   }
 
@@ -545,61 +688,80 @@ async function streamOpenAIDirect(params: {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Stream de resposta indisponível.");
 
+  const onParentAbort = () => {
+    try {
+      void reader.cancel();
+    } catch {}
+  };
+  if (signal) {
+    signal.addEventListener("abort", onParentAbort, { once: true });
+  }
+
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        throw new DOMException("Operação cancelada.", "AbortError");
+      }
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const dataStr = trimmed.replace(/^data:\s*/, "");
-      if (dataStr === "[DONE]") break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
-      try {
-        const payload = JSON.parse(dataStr);
-        const delta = payload.choices?.[0]?.delta;
-        if (delta?.content) {
-          fullText += delta.content;
-          callbacks?.onToken?.(delta.content);
-        }
-        if (delta?.reasoning_content) {
-          fullReasoning += delta.reasoning_content;
-          callbacks?.onReasoning?.(delta.reasoning_content);
-        }
-        if (delta?.tool_calls) {
-          callbacks?.onStep?.();
-          for (const tc of delta.tool_calls) {
-            if (tc.function?.name) {
-              const mappedType = mapFunctionNameToActionType(tc.function.name);
-              let parsedArgs = {};
-              try {
-                parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
-              } catch {
-                parsedArgs = { raw: tc.function.arguments };
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const dataStr = trimmed.replace(/^data:\s*/, "");
+        if (dataStr === "[DONE]") break;
+
+        try {
+          const payload = JSON.parse(dataStr);
+          const delta = payload.choices?.[0]?.delta;
+          if (delta?.content) {
+            fullText += delta.content;
+            callbacks?.onToken?.(delta.content);
+          }
+          if (delta?.reasoning_content) {
+            fullReasoning += delta.reasoning_content;
+            callbacks?.onReasoning?.(delta.reasoning_content);
+          }
+          if (delta?.tool_calls) {
+            callbacks?.onStep?.();
+            for (const tc of delta.tool_calls) {
+              if (tc.function?.name) {
+                const mappedType = mapFunctionNameToActionType(tc.function.name);
+                let parsedArgs = {};
+                try {
+                  parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+                } catch {
+                  parsedArgs = { raw: tc.function.arguments };
+                }
+                toolCalls.push({
+                  id: tc.id || `act_${Date.now()}`,
+                  type: mappedType,
+                  category: mappedType.split(".")[0] as any,
+                  risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+                  params: parsedArgs,
+                  requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
+                  status: "pending",
+                  createdAt: new Date().toISOString(),
+                });
               }
-              toolCalls.push({
-                id: tc.id || `act_${Date.now()}`,
-                type: mappedType,
-                category: mappedType.split(".")[0] as any,
-                risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
-                params: parsedArgs,
-                requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
-                status: "pending",
-                createdAt: new Date().toISOString(),
-              });
             }
           }
+        } catch {
+          // fragmento incompleto
         }
-      } catch {
-        // fragmento incompleto
       }
+    }
+  } finally {
+    if (signal) {
+      signal.removeEventListener("abort", onParentAbort);
     }
   }
 
@@ -628,9 +790,8 @@ async function streamSupabaseOrchestratorFallback(params: {
 
   // 1. Tentar endpoint /api/chat SOMENTE se NÃO for Capacitor/móvel e com timeout estrito de 2.5s
   if (typeof window !== "undefined" && !isCapacitorOrNative) {
+    const { signal: chatSignal, cleanup: cleanupChat } = createSafeTimeoutSignal(2500, signal);
     try {
-      const chatTimeout = AbortSignal.timeout(2500);
-      const combinedSignal = signal ? AbortSignal.any([signal, chatTimeout]) : chatTimeout;
       const localChatRes = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -641,7 +802,7 @@ async function streamSupabaseOrchestratorFallback(params: {
           messages: messages.slice(-20),
           model: modelName,
         }),
-        signal: combinedSignal,
+        signal: chatSignal,
       });
 
       if (localChatRes.ok && localChatRes.body) {
@@ -679,6 +840,8 @@ async function streamSupabaseOrchestratorFallback(params: {
       }
     } catch {
       // continua para Supabase Edge Function
+    } finally {
+      cleanupChat();
     }
   }
 
@@ -693,24 +856,28 @@ async function streamSupabaseOrchestratorFallback(params: {
   const prompt = lastUserMsg?.content || "";
 
   // Timeout de 15 segundos para chamada remota
-  const edgeTimeout = AbortSignal.timeout(15000);
-  const edgeSignal = signal ? AbortSignal.any([signal, edgeTimeout]) : edgeTimeout;
+  const { signal: edgeSignal, cleanup: cleanupEdge } = createSafeTimeoutSignal(15000, signal);
 
-  const response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      apikey: GRIOT_SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify({
-      prompt,
-      messages: messages.slice(-20),
-      provider,
-      model: modelName,
-    }),
-    signal: edgeSignal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: GRIOT_SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({
+        prompt,
+        messages: messages.slice(-20),
+        provider,
+        model: modelName,
+      }),
+      signal: edgeSignal,
+    });
+  } finally {
+    cleanupEdge();
+  }
 
   if (!response.ok) {
     const errObj = await response.json().catch(() => ({}));

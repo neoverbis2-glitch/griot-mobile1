@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { DEFAULT_MODEL, getAvailableModels, modelLabel, isModelOS } from "@/lib/griot";
@@ -826,6 +826,19 @@ export function ChatSurface({ userId }: { userId: string }) {
     messagesRef.current = messages;
   }, [messages]);
 
+  const handleStop = useCallback(() => {
+    if (abortRef.current) {
+      try {
+        abortRef.current.abort();
+      } catch {}
+      abortRef.current = null;
+    }
+    setBusy(false);
+    setStreaming("");
+    setReasoning("");
+    setSteps(0);
+  }, []);
+
   async function run(
     base: { role: "user" | "assistant"; content: string }[],
     options?: { effort?: Effort; voice?: boolean },
@@ -1132,12 +1145,10 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     } catch (error) {
       if ((error as Error).name !== "AbortError") toast.error((error as Error).message);
     } finally {
-      if (conversationRef.current?.id === targetConvId) {
-        setStreaming("");
-        setReasoning("");
-        setSteps(0);
-        setBusy(false);
-      }
+      setStreaming("");
+      setReasoning("");
+      setSteps(0);
+      setBusy(false);
       abortRef.current = null;
     }
   }
@@ -1185,59 +1196,47 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
     const targetConvId = conversationId;
     const clean = text.trim();
-    // Em voz a resposta arranca primeiro; a gravação da mensagem acontece em paralelo.
+
+    // 1. Mensagem de utilizador criada e renderizada imediatamente de forma síncrona
+    const userRowId = `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const userRow: Row = {
+      id: userRowId,
+      role: "user",
+      content: clean,
+      created_at: new Date().toISOString(),
+      feedback: null,
+    };
+
+    setMessages((current) => [...current, userRow]);
+    if (typeof window !== "undefined" && targetConvId) {
+      try {
+        const rawStored = localStorage.getItem("griot_messages_" + targetConvId);
+        const currentList: Row[] = rawStored ? JSON.parse(rawStored) : [];
+        if (!currentList.some((m) => m.id === userRow.id)) {
+          currentList.push(userRow);
+          localStorage.setItem("griot_messages_" + targetConvId, JSON.stringify(currentList));
+        }
+      } catch {}
+    }
+
+    // 2. Persistência remota em background sem bloquear a IA nem a UI
     const persist = (async () => {
-      let row: Row | null = null;
       try {
         const workspaceId = await getPrimaryWorkspaceId(userId);
-        const { data: inserted } = await (supabase as any)
+        await (supabase as any)
           .from("griot_messages")
           .insert({
+            id: userRowId,
             workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
             conversation_id: targetConvId,
             actor_kind: "human",
             content: clean,
             status: "succeeded",
-          })
-          .select("id, actor_kind, content, created_at")
-          .single();
-        if (inserted) {
-          row = {
-            id: inserted.id,
-            role: "user",
-            content: inserted.content,
-            created_at: inserted.created_at,
-            feedback: null,
-          };
-        }
+          });
       } catch {
         // ignore
       }
-      if (!row) {
-        row = {
-          id: `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          role: "user",
-          content: clean,
-          created_at: new Date().toISOString(),
-          feedback: null,
-        };
-      }
-      if (typeof window !== "undefined" && targetConvId) {
-        try {
-          const rawStored = localStorage.getItem("griot_messages_" + targetConvId);
-          const currentList: Row[] = rawStored ? JSON.parse(rawStored) : [];
-          if (!currentList.some((m) => m.id === row!.id)) {
-            currentList.push(row!);
-            localStorage.setItem("griot_messages_" + targetConvId, JSON.stringify(currentList));
-          }
-        } catch {}
-      }
 
-      if (conversationRef.current?.id === targetConvId) {
-        setMessages((current) => {
-          return current.some((m) => m.id === row!.id) ? current : [...current, row!];
-        });
-      }
       const needsTitle =
         !conversation?.title ||
         conversation.title === "Nova Conversa" ||
@@ -1248,9 +1247,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         const title = clean.slice(0, 48);
         try {
           await (supabase as any).from("griot_conversations").update({ title }).eq("id", targetConvId);
-        } catch {
-          // ignore
-        }
+        } catch {}
         setConversation((current) => {
           const updated = current ? { ...current, title, updated_at: new Date().toISOString() } : current;
           if (updated) saveConversationLocally(updated);
@@ -1612,52 +1609,46 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
   }
 
   async function newConversation(next: "main" | "quick") {
-    let createdConv: Conversation | null = null;
     const defaultTitle = next === "quick" ? "Novo Quick" : "Nova Conversa";
-    try {
-      const workspaceId = await getPrimaryWorkspaceId(userId);
-      const { data: created } = await (supabase as any)
-        .from("griot_conversations")
-        .insert({
-          workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-          owner_id: userId && userId !== "anonymous" ? userId : null,
-          created_by: userId && userId !== "anonymous" ? userId : null,
-          title: defaultTitle,
-        })
-        .select("id, title, updated_at")
-        .single();
-      if (created) {
-        createdConv = {
-          id: created.id,
-          scope: next,
-          title: created.title || defaultTitle,
-          model,
-          pinned: false,
-          archived: false,
-          updated_at: created.updated_at,
-        };
-      }
-    } catch {
-      // ignore
-    }
-
-    if (!createdConv) {
-      createdConv = {
-        id: "local-conv-" + next + "-" + Date.now(),
-        scope: next,
-        title: defaultTitle,
-        model,
-        pinned: false,
-        archived: false,
-        updated_at: new Date().toISOString(),
-      };
-    }
+    const localId = `conv_${next}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const createdConv: Conversation = {
+      id: localId,
+      scope: next,
+      title: defaultTitle,
+      model,
+      pinned: false,
+      archived: false,
+      updated_at: new Date().toISOString(),
+    };
 
     setScope(next);
     setConversation(createdConv);
     setMessages([]);
     saveConversationLocally(createdConv);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("griot_active_" + next + "_conv_id", localId);
+      } catch {}
+    }
     setDrawerKey((value) => value + 1);
+
+    // Persiste no Supabase em segundo plano sem congelar a alternância
+    void (async () => {
+      try {
+        const workspaceId = await getPrimaryWorkspaceId(userId);
+        await (supabase as any)
+          .from("griot_conversations")
+          .insert({
+            id: localId,
+            workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
+            owner_id: userId && userId !== "anonymous" ? userId : null,
+            created_by: userId && userId !== "anonymous" ? userId : null,
+            title: defaultTitle,
+          });
+      } catch {
+        // ignore
+      }
+    })();
   }
 
   async function switchScope(targetScope: "main" | "quick") {
@@ -1678,6 +1669,11 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     // 2. Guarda a conversa atual antes de alternar
     if (conversation) {
       saveConversationLocally({ ...conversation, scope });
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("griot_active_" + scope + "_conv_id", conversation.id);
+        } catch {}
+      }
     }
 
     setScope(targetScope);
@@ -1705,6 +1701,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       setModel(targetConv.model || DEFAULT_MODEL);
       if (typeof window !== "undefined") {
         try {
+          localStorage.setItem("griot_active_" + targetScope + "_conv_id", targetConv.id);
           const cached = localStorage.getItem("griot_messages_" + targetConv.id);
           if (cached) {
             const parsed = JSON.parse(cached);
@@ -2014,7 +2011,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       }}
     >
       {/* Barra superior fixa: zona ativa à esquerda (conversas) e à direita (ações). */}
-      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(env(safe-area-inset-top,28px)+28px)]">
+      <div className="absolute inset-x-0 top-0 z-40 flex items-center pt-[calc(max(env(safe-area-inset-top,0px),24px)+4px)]">
         <button
           aria-label={t("Abrir conversas")}
           onClick={() => setDrawer(true)}
@@ -2042,7 +2039,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
       {/* Pré-visualização de Projeto / Jogo Criado */}
       {workspaceFiles.some((f) => f.path.endsWith(".html") || f.path === "index.html") && (
-        <div className="absolute right-3.5 top-[calc(env(safe-area-inset-top,28px)+30px)] z-45">
+        <div className="absolute right-3.5 top-[calc(max(env(safe-area-inset-top,0px),24px)+6px)] z-45">
           <button
             type="button"
             onClick={() => setPreviewOpen(true)}
@@ -2070,7 +2067,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
       {/* Feed da conversa */}
       <div className="no-scrollbar h-full overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(env(safe-area-inset-top,28px)+86px)] pb-52">
+        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(max(env(safe-area-inset-top,0px),24px)+52px)] pb-52">
           {/* Deliberation Bar no topo da lista quando há mensagens no modo Quick */}
           {scope === "quick" && !empty && (
             <div className="rounded-3xl bg-card border border-white/[0.08] p-2 shadow-md mb-2">
@@ -2115,7 +2112,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             />
           ))}
 
-          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
+          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} onStop={handleStop} /> : null}
 
           {streaming ? (
             scope === "quick" ? (
@@ -2888,7 +2885,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                   <button
                     onClick={() =>
                       busy
-                        ? abortRef.current?.abort()
+                        ? handleStop()
                         : draft.trim().length > 0
                           ? void send(draft)
                           : startVoice()
@@ -2899,7 +2896,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-transform duration-200 active:scale-90"
                   >
                     {busy ? (
-                      <Square className="size-3.5" />
+                      <Square className="size-3.5 fill-current" />
                     ) : draft.trim().length > 0 ? (
                       <ArrowUp className="size-[18px]" />
                     ) : (
