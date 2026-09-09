@@ -191,22 +191,49 @@ class ChatExecutionManager {
 
     let answer = "";
     let fullReasoning = "";
+    let effectiveModelId = modelId;
+    let modelGpuWorkloadId: string | null = null;
+    let effectiveSystemInstruction = systemInstruction;
+
+    if (isModelOS(modelId)) {
+      const allocated = modelGpuRalEngine.allocateCoreForModelOS({
+        prompt: userPrompt,
+        context,
+        title: `ModelOS · ${userPrompt.slice(0, 30) || "Cognitive Workload"}`,
+      });
+      effectiveModelId = allocated.targetModelId;
+      modelGpuWorkloadId = allocated.workload.id;
+
+      effectiveSystemInstruction += `\n\n[GRIOT ModelGPU RAL // ORQUESTRADOR COGNITIVO ATIVO]
+Núcleo Virtual Mobilizado: ${allocated.core.name} (${allocated.core.vendor})
+Identificador do Core: ${allocated.core.id}
+Afinidade da Tarefa: ${allocated.affinity}
+Status: Mobilizado no cluster descentralizado com sucesso.`;
+
+      const initialReasoning = `⚡ [ModelGPU RAL] Cluster mobilizou ${allocated.core.name} (${allocated.core.vendor}) · Afinidade: '${allocated.affinity}'.\n`;
+      fullReasoning = initialReasoning;
+      active.state.reasoning = fullReasoning;
+      this.notify(active, { ...active.state });
+    }
 
     try {
       const isFastMode = effort === "low" || scope === "quick";
-      const mLabel = modelLabel(modelId);
+      const mLabel = isModelOS(modelId) ? "ModelOS (ModelGPU RAL)" : modelLabel(modelId);
 
       // Em modo rápido, executa chamada direta ultrarrápida sem passar pelo ReAct loop iterativo
       if (isFastMode) {
         const directRes = await streamDirectAI({
-          modelId,
+          modelId: effectiveModelId,
           messages: baseMessages.map((m) => ({ role: m.role as any, content: m.content })),
-          systemInstruction,
+          systemInstruction: effectiveSystemInstruction,
           callbacks: {
             onToken: (tok) => {
               if (controller.signal.aborted) return;
               answer += tok;
               active.state.streaming = answer;
+              if (modelGpuWorkloadId) {
+                modelGpuRalEngine.updateWorkloadStreaming(modelGpuWorkloadId, tok);
+              }
               this.notify(active, { ...active.state });
             },
             onReasoning: (r) => {
@@ -227,9 +254,9 @@ class ChatExecutionManager {
       } else {
         // Modo equilibrado / profundo: ReAct loop resiliente
         const loopResult = await executeReActLoop({
-          modelId,
+          modelId: effectiveModelId,
           messages: baseMessages.map((m) => ({ role: m.role as any, content: m.content })),
-          systemInstruction,
+          systemInstruction: effectiveSystemInstruction,
           context,
           maxIterations: 2,
           callbacks: {
@@ -237,6 +264,9 @@ class ChatExecutionManager {
               if (controller.signal.aborted) return;
               answer += tok;
               active.state.streaming = answer;
+              if (modelGpuWorkloadId) {
+                modelGpuRalEngine.updateWorkloadStreaming(modelGpuWorkloadId, tok);
+              }
               this.notify(active, { ...active.state });
             },
             onReasoning: (r) => {
@@ -267,25 +297,29 @@ class ChatExecutionManager {
       }
     } catch (err: any) {
       if (controller.signal.aborted) {
-        // Usuário interrompeu explicitamente
+        if (modelGpuWorkloadId) {
+          modelGpuRalEngine.failWorkload(modelGpuWorkloadId, "Execução interrompida pelo utilizador.");
+        }
         return;
       }
       console.warn("[ChatExecutionManager] Falha na execução da IA:", err);
-      const mLabel = modelLabel(modelId);
+      if (modelGpuWorkloadId) {
+        modelGpuRalEngine.failWorkload(modelGpuWorkloadId, err?.message);
+      }
+      const mLabel = isModelOS(modelId) ? "ModelOS (ModelGPU RAL)" : modelLabel(modelId);
       answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Verifica a tua ligação à rede e a tua chave em **Definições → Chave Google Gemini**.`;
     } finally {
       // 2. Finalizar e salvar a mensagem do assistente localmente e no Supabase
       if (!controller.signal.aborted && answer.trim()) {
+        if (modelGpuWorkloadId) {
+          modelGpuRalEngine.completeWorkload(modelGpuWorkloadId, answer);
+        }
+
         const cleaned = parseProposals(answer).clean || answer;
 
         let appKey = "custom";
         if (isModelOS(modelId)) {
           appKey = "modelos";
-          void modelGpuRalEngine.dispatchComputeWorkload({
-            prompt: userPrompt || answer,
-            title: "ModelOS Workload",
-            affinity: "code_generation",
-          });
         } else {
           const m = modelId.toLowerCase();
           appKey = m.includes("claude")
@@ -316,7 +350,7 @@ class ChatExecutionManager {
           console.warn("[ChatExecutionManager] Observer non-critical:", obsErr);
         }
 
-        await this.finalizeAssistantMessage(conversationId, cleaned, userId, modelId);
+        await this.finalizeAssistantMessage(conversationId, cleaned, userId, isModelOS(modelId) ? "modelos" : modelId);
       }
 
       // Desregistar execução ativa

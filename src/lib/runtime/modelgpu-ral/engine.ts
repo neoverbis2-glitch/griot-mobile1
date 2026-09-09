@@ -14,6 +14,7 @@ import {
 import { observerEngine } from "../observer";
 import { nativeObserverBridge } from "../native-bridge";
 import { loadPrefs } from "@/lib/settings";
+import { getUserSavedApis } from "@/lib/user-apis";
 
 const INITIAL_CORES: Record<VirtualGpuCoreId, VirtualGpuCore> = {
   core_0_chatgpt: {
@@ -215,12 +216,19 @@ export class ModelGpuRalEngine {
 
     const APP_TO_PROVIDER: Record<string, string> = {
       chatgpt: "openai",
-      claude: "anthropic",
+      claude: "claude",
       gemini: "gemini",
       deepseek: "deepseek",
       groq: "groq",
       perplexity: "perplexity",
+      kimi: "kimi",
+      mistral: "mistral",
     };
+
+    let userApis: any[] = [];
+    try {
+      userApis = getUserSavedApis();
+    } catch {}
 
     for (const core of Object.values(this.state.cores)) {
       const p = APP_TO_PROVIDER[core.appId] || core.appId;
@@ -228,10 +236,20 @@ export class ModelGpuRalEngine {
         typeof window !== "undefined" &&
         Boolean(
           localStorage.getItem(`griot_api_key_${p}`) ||
-            localStorage.getItem(`griot_${p}_api_key`),
+            localStorage.getItem(`griot_${p}_api_key`) ||
+            (p === "claude" && localStorage.getItem("griot_api_key_anthropic")),
         );
 
+      const hasSavedApi = userApis.some(
+        (a) =>
+          a.status === "active" &&
+          (a.providerId === p ||
+            (p === "claude" && a.providerId === "anthropic") ||
+            (p === "anthropic" && a.providerId === "claude")),
+      );
+
       const isConnected =
+        hasSavedApi ||
         hasLocalKey ||
         prefs[`api:${p}`] === true ||
         prefs[p] === true ||
@@ -259,6 +277,228 @@ export class ModelGpuRalEngine {
   private notify() {
     const currentState = { ...this.state };
     this.listeners.forEach((l) => l(currentState));
+  }
+
+  /**
+   * Analisa semântica e intenção para classificar a afinidade computacional da tarefa
+   */
+  public detectAffinity(prompt: string, context?: string): GpuTaskAffinity {
+    const text = ((prompt || "") + " " + (context || "")).toLowerCase();
+
+    if (
+      text.includes("código") ||
+      text.includes("codigo") ||
+      text.includes("function") ||
+      text.includes("função") ||
+      text.includes("classe") ||
+      text.includes("class") ||
+      text.includes("debug") ||
+      text.includes("script") ||
+      text.includes("react") ||
+      text.includes("typescript") ||
+      text.includes("javascript") ||
+      text.includes("python") ||
+      text.includes("html") ||
+      text.includes("css") ||
+      text.includes("erro") ||
+      text.includes("bug")
+    ) {
+      return "code_generation";
+    }
+
+    if (
+      text.includes("arquitetura") ||
+      text.includes("sistema") ||
+      text.includes("estrutura") ||
+      text.includes("diagrama") ||
+      text.includes("banco de dados") ||
+      text.includes("database") ||
+      text.includes("schema") ||
+      text.includes("backend")
+    ) {
+      return "architecture";
+    }
+
+    if (
+      text.includes("calcula") ||
+      text.includes("matemática") ||
+      text.includes("math") ||
+      text.includes("equação") ||
+      text.includes("probabilidade") ||
+      text.includes("estatística") ||
+      text.includes("lógica") ||
+      text.includes("algoritmo")
+    ) {
+      return "math_logic";
+    }
+
+    if (
+      text.includes("porquê") ||
+      text.includes("porque") ||
+      text.includes("explica detalhadamente") ||
+      text.includes("raciocina") ||
+      text.includes("analisa") ||
+      text.includes("análise") ||
+      text.includes("profundo") ||
+      text.includes("comparativo") ||
+      text.includes("vantagens e desvantagens")
+    ) {
+      return "deep_reasoning";
+    }
+
+    if (
+      text.includes("pesquisa") ||
+      text.includes("busca") ||
+      text.includes("notícias") ||
+      text.includes("história") ||
+      text.includes("referências") ||
+      text.includes("artigos")
+    ) {
+      return "deep_research";
+    }
+
+    if (
+      text.includes("imagem") ||
+      text.includes("foto") ||
+      text.includes("screenshot") ||
+      text.includes("olha para isto") ||
+      text.includes("vê isto")
+    ) {
+      return "multimodal_vision";
+    }
+
+    return "rapid_chat";
+  }
+
+  /**
+   * Aloca um núcleo no cluster ModelGPU RAL especificamente para o ModelOS
+   * e resolve o modelo / rota de inferência real.
+   */
+  public allocateCoreForModelOS(params: {
+    prompt: string;
+    context?: string;
+    title?: string;
+  }): {
+    core: VirtualGpuCore;
+    workload: GpuComputeWorkload;
+    targetModelId: string;
+    affinity: GpuTaskAffinity;
+  } {
+    this.refreshCoreStatuses();
+    const affinity = this.detectAffinity(params.prompt, params.context);
+    const coreId = this.selectOptimalCore(affinity);
+    const core = this.state.cores[coreId];
+
+    const workloadId = "gpu_wl_" + Math.random().toString(36).substring(2, 9);
+    const workload: GpuComputeWorkload = {
+      id: workloadId,
+      title: params.title || `ModelOS Workload #${this.state.workloadHistory.length + 1}`,
+      prompt: params.prompt,
+      affinity,
+      targetCoreId: coreId,
+      status: "dispatched_to_app",
+      rawOutput: "",
+      actionsDetected: [],
+      executionResults: [],
+      startedAt: new Date().toISOString(),
+      estimatedGcu: 0.15,
+    };
+
+    this.state.activeWorkload = workload;
+    this.state.telemetry.totalZeroApiDispatches += 1;
+    this.state.telemetry.totalAllocatedGcu += workload.estimatedGcu;
+
+    core.status = "computing";
+    core.metrics.totalWorkloads += 1;
+    this.notify();
+
+    const targetModelId = this.resolveModelForCore(core);
+
+    return { core, workload, targetModelId, affinity };
+  }
+
+  /**
+   * Resolve o identificador do modelo de IA a executar correspondente ao Core selecionado
+   */
+  public resolveModelForCore(core: VirtualGpuCore): string {
+    const APP_TO_PROVIDER: Record<string, string> = {
+      chatgpt: "openai",
+      claude: "claude",
+      gemini: "gemini",
+      deepseek: "deepseek",
+      groq: "groq",
+      perplexity: "perplexity",
+      kimi: "kimi",
+      mistral: "mistral",
+    };
+
+    let userApis: any[] = [];
+    try {
+      userApis = getUserSavedApis();
+    } catch {}
+
+    const p = APP_TO_PROVIDER[core.appId] || core.appId;
+
+    // Procura chave específica do utilizador para este core
+    const match = userApis.find(
+      (a) =>
+        a.status === "active" &&
+        (a.providerId === p ||
+          (p === "claude" && a.providerId === "anthropic") ||
+          (p === "anthropic" && a.providerId === "claude")),
+    );
+    if (match) return match.id;
+
+    // Se o core for Gemini, usa o modelo Gemini direto
+    if (p === "gemini") return "gemini-2.0-flash";
+
+    // Se o utilizador tiver qualquer outra chave ativa, usa-a
+    const anyActive = userApis.find((a) => a.status === "active");
+    if (anyActive) return anyActive.id;
+
+    // Fallback padrão do sistema
+    return "gemini-2.0-flash";
+  }
+
+  /**
+   * Atualiza a recepção progressiva de tokens no ModelGPU RAL durante o streaming
+   */
+  public updateWorkloadStreaming(workloadId: string, chunk: string) {
+    if (this.state.activeWorkload?.id === workloadId) {
+      this.state.activeWorkload.rawOutput += chunk;
+      this.state.activeWorkload.status = "observing_stream";
+      const core = this.state.cores[this.state.activeWorkload.targetCoreId];
+      if (core && core.status !== "streaming") {
+        core.status = "streaming";
+      }
+      this.notify();
+    }
+  }
+
+  /**
+   * Marca uma carga de trabalho como falhada caso ocorra interrupção de rede
+   */
+  public failWorkload(workloadId: string, errorMsg?: string) {
+    if (this.state.activeWorkload?.id === workloadId) {
+      const finished: GpuComputeWorkload = {
+        ...this.state.activeWorkload,
+        rawOutput: errorMsg || "Erro na execução do workload no cluster",
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - new Date(this.state.activeWorkload.startedAt).getTime(),
+      };
+      const core = this.state.cores[finished.targetCoreId];
+      if (core) {
+        core.status = "cooling";
+        setTimeout(() => {
+          core.status = "idle";
+          this.notify();
+        }, 1200);
+      }
+      this.state.workloadHistory.unshift(finished);
+      this.state.activeWorkload = null;
+      this.notify();
+    }
   }
 
   /**
@@ -302,21 +542,31 @@ export class ModelGpuRalEngine {
   }
 
   /**
-   * Regista a conclusão da carga de trabalho recebida pelo Observer
+   * Regista a conclusão da carga de trabalho recebida pelo Observer ou inferência direta
    */
   public completeWorkload(workloadId: string, output: string) {
     if (this.state.activeWorkload?.id === workloadId) {
+      const durationMs = Date.now() - new Date(this.state.activeWorkload.startedAt).getTime();
+      const tokensEstimated = Math.max(1, Math.round(output.length / 4));
+
       const finished: GpuComputeWorkload = {
         ...this.state.activeWorkload,
         rawOutput: output,
         status: "completed",
         completedAt: new Date().toISOString(),
-        durationMs: Date.now() - new Date(this.state.activeWorkload.startedAt).getTime(),
+        durationMs,
       };
 
       const core = this.state.cores[finished.targetCoreId];
       if (core) {
         core.status = "cooling";
+        core.metrics.tokensScraped += tokensEstimated;
+        core.metrics.lastActiveTimestamp = new Date().toISOString();
+        if (durationMs > 0) {
+          core.metrics.avgLatencyMs = Math.round(
+            (core.metrics.avgLatencyMs * 0.7) + (durationMs * 0.3),
+          );
+        }
         setTimeout(() => {
           core.status = "idle";
           this.notify();
@@ -332,7 +582,7 @@ export class ModelGpuRalEngine {
   /**
    * Seleciona o Virtual Core ótimo para a afinidade pretendida
    */
-  private selectOptimalCore(affinity: GpuTaskAffinity): VirtualGpuCoreId {
+  public selectOptimalCore(affinity: GpuTaskAffinity): VirtualGpuCoreId {
     // 1. Procurar cores com afinidade prioritária que estejam ativos
     const candidates = Object.values(this.state.cores).filter(
       (c) => c.enabled && c.affinities.includes(affinity),
