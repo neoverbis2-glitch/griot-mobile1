@@ -159,7 +159,27 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
   }
 
   const m = modelId.toLowerCase();
-  if (m.includes("gemini") || m === "modelos" || m === "model-os") {
+  if (m === "modelos" || m === "model-os" || m.includes("modelos")) {
+    const savedApis = getUserSavedApis();
+    const activeApi = savedApis.find((a) => a.status === "active") || savedApis[0];
+    if (activeApi) {
+      const prov = activeApi.providerId;
+      let mName = "gemini-2.0-flash";
+      if (prov === "openai") mName = "gpt-4o";
+      else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
+      else if (prov === "deepseek") mName = "deepseek-chat";
+      else if (prov === "groq") mName = "llama-3.3-70b-versatile";
+      else if (prov === "gemini") {
+        const declared = (activeApi.model || "").toLowerCase();
+        if (declared.includes("1.5-pro")) mName = "gemini-1.5-pro";
+        else if (declared.includes("1.5-flash")) mName = "gemini-1.5-flash";
+        else mName = "gemini-2.0-flash";
+      }
+      return { provider: prov, modelName: mName, specificApiKey: activeApi.apiKey };
+    }
+    return { provider: "gemini", modelName: "gemini-2.0-flash" };
+  }
+  if (m.includes("gemini")) {
     const name = m.includes("1.5-pro")
       ? "gemini-1.5-pro"
       : m.includes("1.5-flash")
@@ -257,7 +277,19 @@ export async function streamDirectAI(params: {
     });
   }
 
-  // 5. Fallback para Supabase Edge Function se autenticado
+  // 5. Chamada direta ao Anthropic Claude
+  if ((provider === "claude" || provider === "anthropic") && directKey) {
+    return streamAnthropicDirect({
+      apiKey: directKey,
+      modelName,
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 6. Fallback para Supabase Edge Function se autenticado
   return streamSupabaseOrchestratorFallback({
     provider,
     modelName,
@@ -546,10 +578,13 @@ async function streamGeminiDirect(params: {
   let receivedAnyToken = false;
 
   // Watchdog de 4.5 segundos: se o WebView mobile sofrer de buffering SSE e não emitir tokens,
-  // aborta o stream ativo no socket e invoca imediatamente o endpoint REST direto (:generateContent)
+  // cancela o leitor e aborta o stream ativo no socket e invoca imediatamente o endpoint REST direto (:generateContent)
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT] Watchdog acionado: sem tokens SSE em 4.5s no WebView móvel. Abortando stream e recorrendo a REST...");
+      console.warn("[GRIOT] Watchdog acionado: sem tokens SSE em 4.5s no WebView móvel. Cancelando reader e recorrendo a REST...");
+      try {
+        void reader.cancel();
+      } catch {}
       try {
         streamAbortController.abort();
       } catch {}
@@ -677,10 +712,26 @@ async function fetchOpenAIDirectSync(params: {
   formattedMessages: any[];
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
+  withoutTools?: boolean;
 }): Promise<AIResponse> {
-  const { apiKey, baseUrl, modelName, formattedMessages, callbacks, signal } = params;
+  const { apiKey, baseUrl, modelName, formattedMessages, callbacks, signal, withoutTools } = params;
 
   const endpoint = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const isReasoning =
+    modelName.includes("reasoner") ||
+    modelName.includes("r1") ||
+    modelName.includes("o1") ||
+    modelName.includes("o3");
+
+  const reqBody: Record<string, unknown> = {
+    model: modelName,
+    messages: formattedMessages,
+    stream: false,
+  };
+  if (!withoutTools && !isReasoning) {
+    reqBody.tools = OPENAI_TOOLS;
+  }
+
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
   let res: Response;
   try {
@@ -690,12 +741,7 @@ async function fetchOpenAIDirectSync(params: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: modelName,
-        messages: formattedMessages,
-        stream: false,
-        tools: OPENAI_TOOLS,
-      }),
+      body: JSON.stringify(reqBody),
       signal: safeSignal,
     });
   } finally {
@@ -704,6 +750,10 @@ async function fetchOpenAIDirectSync(params: {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
+    if (res.status === 400 && !withoutTools) {
+      console.warn("[GRIOT] Provedor retornou 400. Re-tentando sem ferramentas...");
+      return fetchOpenAIDirectSync({ ...params, withoutTools: true });
+    }
     throw new Error(`Provedor de IA erro ${res.status}: ${errText.slice(0, 180)}`);
   }
 
@@ -778,6 +828,11 @@ async function streamOpenAIDirect(params: {
   }
 
   const endpoint = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const isReasoning =
+    modelName.includes("reasoner") ||
+    modelName.includes("r1") ||
+    modelName.includes("o1") ||
+    modelName.includes("o3");
 
   const streamAbortController = new AbortController();
   const onParentAbort = () => {
@@ -792,6 +847,15 @@ async function streamOpenAIDirect(params: {
     signal.addEventListener("abort", onParentAbort, { once: true });
   }
 
+  const streamBody: Record<string, unknown> = {
+    model: modelName,
+    messages: formattedMessages,
+    stream: true,
+  };
+  if (!isReasoning) {
+    streamBody.tools = OPENAI_TOOLS;
+  }
+
   let response: Response;
   try {
     response = await fetch(endpoint, {
@@ -800,12 +864,7 @@ async function streamOpenAIDirect(params: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: modelName,
-        messages: formattedMessages,
-        stream: true,
-        tools: OPENAI_TOOLS,
-      }),
+      body: JSON.stringify(streamBody),
       signal: streamAbortController.signal,
     });
   } catch (fetchErr: any) {
@@ -820,6 +879,10 @@ async function streamOpenAIDirect(params: {
   if (!response.ok) {
     if (signal) signal.removeEventListener("abort", onParentAbort);
     const errorText = await response.text().catch(() => "");
+    if (response.status === 400 && (errorText.includes("tool") || errorText.includes("function") || isReasoning)) {
+      console.warn("[GRIOT] Provedor OpenAI rejeitou tools (400), recorrendo a REST sem tools:", errorText);
+      return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal, withoutTools: true });
+    }
     throw new Error(
       `Provedor de IA retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
     );
@@ -841,7 +904,10 @@ async function streamOpenAIDirect(params: {
 
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT] Watchdog acionado: sem tokens OpenAI em 4.5s. Abortando stream para fallback REST...");
+      console.warn("[GRIOT] Watchdog acionado: sem tokens OpenAI em 4.5s. Cancelando leitor e abortando stream...");
+      try {
+        void reader.cancel();
+      } catch {}
       try {
         streamAbortController.abort();
       } catch {}
@@ -955,6 +1021,237 @@ async function streamOpenAIDirect(params: {
   }
 
   return { text: fullText, reasoning: fullReasoning, toolCalls };
+}
+
+/** Fallback não-streaming para Anthropic Claude */
+async function fetchAnthropicDirectSync(params: {
+  apiKey: string;
+  modelName: string;
+  messages: ChatMessage[];
+  systemInstruction?: string;
+  callbacks?: StreamCallbacks;
+  signal?: AbortSignal;
+}): Promise<AIResponse> {
+  const { apiKey, modelName, messages, systemInstruction, callbacks, signal } = params;
+  const endpoint = "https://api.anthropic.com/v1/messages";
+
+  const anthropicMessages = messages
+    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
+    .map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content,
+    }));
+
+  if (anthropicMessages.length === 0) {
+    anthropicMessages.push({ role: "user", content: "Olá" });
+  }
+
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: modelName,
+        max_tokens: 4096,
+        ...(systemInstruction ? { system: systemInstruction } : {}),
+        messages: anthropicMessages,
+      }),
+      signal: safeSignal,
+    });
+  } finally {
+    cleanup();
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Anthropic Claude erro ${res.status}: ${errText.slice(0, 180)}`);
+  }
+
+  const data = await res.json();
+  const fullText = (data.content || [])
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("");
+
+  if (fullText) {
+    const tokens = fullText.split(/(\s+)/);
+    for (const tok of tokens) {
+      if (signal?.aborted) break;
+      if (tok) {
+        callbacks?.onToken?.(tok);
+        await new Promise((r) => setTimeout(r, 6));
+      }
+    }
+  }
+
+  return { text: fullText, toolCalls: [] };
+}
+
+/** Streaming nativo Anthropic Claude */
+async function streamAnthropicDirect(params: {
+  apiKey: string;
+  modelName: string;
+  messages: ChatMessage[];
+  systemInstruction?: string;
+  callbacks?: StreamCallbacks;
+  signal?: AbortSignal;
+}): Promise<AIResponse> {
+  const { apiKey, modelName, messages, systemInstruction, callbacks, signal } = params;
+
+  if (signal?.aborted) {
+    throw new DOMException("Operação cancelada pelo utilizador.", "AbortError");
+  }
+
+  const anthropicMessages = messages
+    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
+    .map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content,
+    }));
+
+  if (anthropicMessages.length === 0) {
+    anthropicMessages.push({ role: "user", content: "Olá" });
+  }
+
+  const endpoint = "https://api.anthropic.com/v1/messages";
+  const streamAbortController = new AbortController();
+  const onParentAbort = () => {
+    try {
+      streamAbortController.abort();
+    } catch {}
+  };
+  if (signal) {
+    signal.addEventListener("abort", onParentAbort, { once: true });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: modelName,
+        max_tokens: 4096,
+        ...(systemInstruction ? { system: systemInstruction } : {}),
+        messages: anthropicMessages,
+        stream: true,
+      }),
+      signal: streamAbortController.signal,
+    });
+  } catch (fetchErr: any) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+    if (signal?.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
+    }
+    console.warn("[GRIOT] Falha no streaming SSE de Anthropic, recorrendo a REST direto:", fetchErr);
+    return fetchAnthropicDirectSync(params);
+  }
+
+  if (!response.ok) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      `Anthropic Claude retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
+    );
+  }
+
+  let fullText = "";
+  const reader = response.body?.getReader();
+  if (!reader) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+    return fetchAnthropicDirectSync(params);
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let receivedAnyToken = false;
+
+  let watchdogTimer: any = setTimeout(() => {
+    if (!receivedAnyToken && !signal?.aborted) {
+      console.warn("[GRIOT] Watchdog acionado: sem tokens Anthropic em 4.5s. Cancelando leitor e recorrendo a REST...");
+      try {
+        void reader.cancel();
+      } catch {}
+      try {
+        streamAbortController.abort();
+      } catch {}
+    }
+  }, 4500);
+
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        throw new DOMException("Operação cancelada.", "AbortError");
+      }
+
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const dataStr = trimmed.replace(/^data:\s*/, "");
+        if (dataStr === "[DONE]") break;
+
+        try {
+          const payload = JSON.parse(dataStr);
+          if (payload.type === "content_block_delta" && payload.delta?.type === "text_delta") {
+            const tok = payload.delta.text || "";
+            if (tok) {
+              if (!receivedAnyToken) {
+                receivedAnyToken = true;
+                if (watchdogTimer) {
+                  clearTimeout(watchdogTimer);
+                  watchdogTimer = null;
+                }
+              }
+              fullText += tok;
+              callbacks?.onToken?.(tok);
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch (streamErr: any) {
+    if (signal?.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
+    }
+    if (!fullText.trim()) {
+      console.warn("[GRIOT] Stream SSE Anthropic interrompido, recorrendo ao endpoint REST padrão:", streamErr);
+      return fetchAnthropicDirectSync(params);
+    }
+  } finally {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+    try {
+      void reader.cancel();
+    } catch {}
+  }
+
+  if (!fullText.trim() && !signal?.aborted) {
+    return fetchAnthropicDirectSync(params);
+  }
+
+  return { text: fullText, toolCalls: [] };
 }
 
 /** Fallback para o Supabase Edge Function se nenhuma chave local foi encontrada */

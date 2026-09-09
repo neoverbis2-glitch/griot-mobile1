@@ -41,6 +41,7 @@ import {
 } from "@/lib/runtime";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
 import { getSavedApiKey, resolveProviderAndModel } from "@/lib/ai-client";
+import { chatExecutionManager } from "@/lib/chat-execution-manager";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
 import {
   DELIBERATION_MISSIONS,
@@ -751,6 +752,52 @@ export function ChatSurface({ userId }: { userId: string }) {
     };
   }, [conversationId]);
 
+  // Mantém sincronismo contínuo com o ChatExecutionManager mesmo se o utilizador trocar de ecrã ou voltar
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const unsubscribe = chatExecutionManager.subscribe(conversationId, (state) => {
+      if (state.busy) {
+        setBusy(true);
+        setStreaming(state.streaming);
+        setReasoning(state.reasoning);
+        setSteps(state.steps);
+      } else {
+        setBusy(false);
+        setStreaming("");
+        setReasoning("");
+        setSteps(0);
+        if (typeof window !== "undefined") {
+          try {
+            const rawStored = localStorage.getItem("griot_messages_" + conversationId);
+            if (rawStored) {
+              const parsed = JSON.parse(rawStored);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setMessages(parsed);
+              }
+            }
+          } catch {}
+        }
+      }
+    });
+
+    const handleSavedMsg = (ev: Event) => {
+      const customEv = ev as CustomEvent<{ conversationId: string; msg: Row }>;
+      if (customEv.detail?.conversationId === conversationId && customEv.detail?.msg) {
+        setMessages((curr) => {
+          if (curr.some((m) => m.id === customEv.detail.msg.id)) return curr;
+          return [...curr, customEv.detail.msg];
+        });
+      }
+    };
+    window.addEventListener("griot_message_saved", handleSavedMsg);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener("griot_message_saved", handleSavedMsg);
+    };
+  }, [conversationId]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, streaming, reasoning]);
@@ -827,6 +874,9 @@ export function ChatSurface({ userId }: { userId: string }) {
   }, [messages]);
 
   const handleStop = useCallback(() => {
+    if (conversationId) {
+      chatExecutionManager.stopExecution(conversationId);
+    }
     if (abortRef.current) {
       try {
         abortRef.current.abort();
@@ -837,7 +887,7 @@ export function ChatSurface({ userId }: { userId: string }) {
     setStreaming("");
     setReasoning("");
     setSteps(0);
-  }, []);
+  }, [conversationId]);
 
   async function run(
     base: { role: "user" | "assistant"; content: string }[],
@@ -887,10 +937,6 @@ export function ChatSurface({ userId }: { userId: string }) {
     setStreaming("");
     setReasoning("");
     setSteps(0);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let answer = "";
 
     // No modo rápido e em voz não há compilação de contexto: o objetivo é latência mínima.
     let context: string | undefined;
@@ -957,201 +1003,23 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       context = `Projeto: ${currentProject.name}\nDescrição: ${currentProject.description || "GRIOT Mobile"}\nProgresso: ${currentProject.progress}%\nEstado: ${currentProject.status || "ativo"}`;
     }
 
+    const lastUserPrompt = [...base].reverse().find((m) => m.role === "user")?.content || "";
+
     try {
-      const lastMsg = base[base.length - 1]?.content || "";
-      const mLabel = modelLabel(model);
-
-      let streamedAny = false;
-      try {
-        const loopResult = await executeReActLoop({
-          modelId: model,
-          messages: base,
-          systemInstruction: sysInstruction,
-          context,
-          maxIterations: targetScope === "quick" ? 1 : 2,
-          callbacks: {
-            onToken: (token) => {
-              if (conversationRef.current?.id !== targetConvId) return;
-              answer += token;
-              setStreaming(answer);
-              streamedAny = true;
-              if (voiceMode) sessionRef.current?.feed(token);
-            },
-            onReasoning: (r) => {
-              if (conversationRef.current?.id !== targetConvId) return;
-              setReasoning((current) => current + r);
-            },
-            onStepChange: (step) => {
-              if (conversationRef.current?.id !== targetConvId) return;
-              setSteps(step);
-            },
-          },
-          signal: controller.signal,
-        });
-
-        if (loopResult.finalAnswer) {
-          answer = loopResult.finalAnswer;
-          if (conversationRef.current?.id === targetConvId) {
-            setStreaming(answer);
-          }
-          streamedAny = true;
-        }
-      } catch (aiErr: any) {
-        console.warn("Execução de IA direta/orquestrada falhou:", aiErr);
-        toast.error(
-          aiErr?.message ||
-            `Sem ligação ao modelo ${mLabel}. Adiciona a tua chave de API em Definições → Chave Google Gemini para conversar.`,
-        );
-        if (!streamedAny || !answer.trim()) {
-          answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${aiErr?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Verifica a tua ligação à rede e a tua chave em **Definições → Chave Google Gemini**.`;
-          streamedAny = true;
-        }
-      }
-
-      if (!streamedAny || !answer.trim()) {
-        answer = `⚠️ **O modelo de IA não devolveu resposta.**\n\nPor favor verifica a tua ligação à Internet e a chave de API em **Definições**.`;
-        if (conversationRef.current?.id === targetConvId) {
-          setStreaming(answer);
-        }
-        streamedAny = true;
-      }
-
-      const parsed = parseProposals(answer);
-      const found = [...parsed.decisions, ...parsed.entities];
-      if (found.length > 0 && capsuleId) setProposals(found);
-      answer = parsed.clean || answer;
-
-      // Pedidos de plugin: barra de permissão (ou uso direto, se já estiver ligado).
-      const tools = parsePluginCalls(answer);
-      if (tools.calls.length > 0 && !voiceMode) {
-        answer = tools.clean || answer;
-        const call = tools.calls[0]!;
-        const connected = connectedPlugins().includes(call.id);
-        pluginBase.current = [...base, { role: "assistant", content: answer }];
-        const request: PluginRequest = {
-          ...call,
-          connected,
-          state: connected ? "running" : "asking",
-        };
-        setPlugin(request);
-        if (connected) void executePlugin(request);
-      }
-      // Process actions through GRIOT Observer & Command Engine
-      let appKey = "custom";
-      if (isModelOS(model)) {
-        appKey = "modelos";
-        // Dispara o workload cognitivo descentralizado no ModelGPU RAL (distribui por todas as IAs)
-        void modelGpuRalEngine.dispatchComputeWorkload({
-          prompt: base[base.length - 1]?.content || answer,
-          title: conversation?.title || "ModelOS Workload",
-          affinity: "code_generation",
-        });
-      } else {
-        appKey = model.toLowerCase().includes("claude")
-          ? "claude"
-          : model.toLowerCase().includes("gemini")
-            ? "gemini"
-            : model.toLowerCase().includes("gpt")
-              ? "chatgpt"
-              : model.toLowerCase().includes("deepseek")
-                ? "deepseek"
-                : model.toLowerCase().includes("kimi")
-                  ? "kimi"
-                  : model.toLowerCase().includes("grok")
-                    ? "grok"
-                    : model.toLowerCase().includes("perplexity") ||
-                        model.toLowerCase().includes("sonar")
-                      ? "perplexity"
-                      : model.toLowerCase().includes("mistral") ||
-                          model.toLowerCase().includes("codestral")
-                        ? "mistral"
-                        : "custom";
-      }
-
-      try {
-        void observerEngine.processIncomingAIMessage(
-          {
-            provider: appKey as any,
-            model,
-            sessionTitle:
-              conversation?.title ||
-              (isModelOS(model) ? "ModelOS Cluster" : "Sessão Ativa"),
-            appId: appKey,
-          },
-          answer,
-          conversationId || "main",
-        );
-      } catch (obsErr) {
-        console.warn("[GRIOT] Observer non-critical warning:", obsErr);
-      }
-
-      lastAnswerRef.current = answer;
-
-      if (answer.trim()) {
-        let row: Row | null = null;
-        try {
-          const workspaceId = await getPrimaryWorkspaceId(userId);
-          const { data: saved } = await (supabase as any)
-            .from("griot_messages")
-            .insert({
-              workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-              conversation_id: targetConvId,
-              actor_kind: "model",
-              content: answer,
-              status: "succeeded",
-              metadata: { model },
-            })
-            .select("id, actor_kind, content, created_at")
-            .single();
-          if (saved) {
-            row = {
-              id: saved.id,
-              role: "assistant",
-              content: saved.content,
-              created_at: saved.created_at,
-              feedback: null,
-            };
-          }
-        } catch {
-          // ignore
-        }
-        if (!row) {
-          row = {
-            id: `asst-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            role: "assistant",
-            content: answer,
-            created_at: new Date().toISOString(),
-            feedback: null,
-          };
-        }
-
-        // Guarda sempre localmente no cache da conversa de destino
-        if (typeof window !== "undefined" && targetConvId) {
-          try {
-            const rawStored = localStorage.getItem("griot_messages_" + targetConvId);
-            const currentList: Row[] = rawStored ? JSON.parse(rawStored) : [];
-            if (!currentList.some((m) => m.id === row!.id)) {
-              currentList.push(row!);
-              localStorage.setItem("griot_messages_" + targetConvId, JSON.stringify(currentList));
-            }
-          } catch {}
-        }
-
-        // Só atualiza o estado em memória se a conversa ativa no momento for a de destino
-        if (conversationRef.current?.id === targetConvId) {
-          setMessages((current) => {
-            return current.some((m) => m.id === row!.id) ? current : [...current, row!];
-          });
-        }
-      }
-    } catch (error) {
-      if ((error as Error).name !== "AbortError") toast.error((error as Error).message);
-    } finally {
-      setStreaming("");
-      setReasoning("");
-      setSteps(0);
-      setBusy(false);
-      abortRef.current = null;
+      await chatExecutionManager.startExecution({
+        conversationId: targetConvId,
+        scope: targetScope,
+        userId,
+        modelId: model,
+        messages: base,
+        userPrompt: lastUserPrompt,
+        effort: activeEffort,
+        systemInstruction: sysInstruction,
+        context,
+        currentProject,
+      });
+    } catch (err: any) {
+      toast.error(err?.message || "Erro na execução da resposta.");
     }
   }
 
@@ -1656,11 +1524,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
   async function switchScope(targetScope: "main" | "quick") {
     if (targetScope === scope) return;
 
-    // 1. Cancela imediatamente qualquer requisição ou streaming ativo
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
+    // 1. Limpa o estado transitório da interface local sem interromper gerações ativas em background
     setBusy(false);
     setStreaming("");
     setReasoning("");

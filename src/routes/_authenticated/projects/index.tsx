@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n";
 import { toast } from "sonner";
-import { ChevronRight, Plus, Check } from "lucide-react";
+import { ChevronRight, Plus, Check, FolderPlus, X } from "lucide-react";
 import {
   getUnifiedProjects,
   getActiveProjectSync,
@@ -93,13 +93,27 @@ function ProjectsPage() {
 
       {creating && (
         <div className="mb-6 rounded-[24px] border border-hairline bg-surface p-4 rise">
-          <input
-            value={newProjectName}
-            onChange={(e) => setNewProjectName(e.target.value)}
-            placeholder={t("Nome do Projeto")}
-            className="w-full rounded-xl border border-hairline bg-background px-4 py-2.5 text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
-            autoFocus
-          />
+          {/* Barra de entrada de texto com design nativo Android (Material Design 3 / Material You) */}
+          <div className="relative flex items-center gap-2.5 rounded-[18px] bg-secondary/50 dark:bg-white/[0.07] border border-border/40 px-3.5 py-1.5 focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/25 transition-all shadow-inner">
+            <FolderPlus className="size-5 text-muted-foreground/80 shrink-0" />
+            <input
+              value={newProjectName}
+              onChange={(e) => setNewProjectName(e.target.value)}
+              placeholder={t("Nome do Projeto")}
+              className="w-full bg-transparent py-1.5 text-[15px] font-normal text-foreground outline-none placeholder:text-muted-foreground/70"
+              autoFocus
+            />
+            {newProjectName && (
+              <button
+                type="button"
+                onClick={() => setNewProjectName("")}
+                className="grid size-6 place-items-center rounded-full bg-foreground/10 text-muted-foreground hover:text-foreground active:scale-90 transition-transform"
+                aria-label="Limpar texto"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => void handleCreateProject()}
