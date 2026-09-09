@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Brain, ChevronDown, Square } from "lucide-react";
+import { Brain, ChevronDown } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
 type Props = { text: string; active: boolean; steps: number; onStop?: () => void };
@@ -16,7 +16,7 @@ const PHASES = [
  * Painel de raciocínio: mostra em tempo real o que o GRIOT está a pensar
  * e as decisões que vai tomando. Fecha-se sozinho quando a resposta começa.
  */
-export function Thinking({ text, active, steps, onStop }: Props) {
+export function Thinking({ text, active, steps }: Props) {
   const t = useT();
   const [open, setOpen] = useState(true);
   const [phase, setPhase] = useState(0);
@@ -55,17 +55,6 @@ export function Thinking({ text, active, steps, onStop }: Props) {
             </span>
           </span>
         </button>
-
-        {active && onStop ? (
-          <button
-            type="button"
-            onClick={onStop}
-            className="flex items-center gap-1.5 rounded-full bg-secondary/90 px-3 py-1.5 text-[11.5px] font-medium text-foreground hover:bg-secondary active:scale-95 transition-all shadow-xs"
-          >
-            <Square className="size-2.5 fill-current" />
-            <span>{t("Parar")}</span>
-          </button>
-        ) : null}
 
         <button
           type="button"

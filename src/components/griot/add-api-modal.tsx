@@ -257,19 +257,16 @@ export function AddApiModal({ open, onClose, onSuccess }: AddApiModalProps) {
                     setSelectedProvider(pid);
                     setApiKeyInput("");
                   }}
-                  className={`flex flex-col items-start rounded-2xl border p-2.5 text-left transition-all ${
+                  className={`flex flex-col items-center justify-center rounded-2xl border p-2.5 text-center transition-all ${
                     selectedProvider === pid
                       ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/40"
                       : "border-hairline bg-secondary/30 text-muted-foreground hover:bg-secondary/60"
                   }`}
                 >
-                  <div className="flex items-center justify-between w-full">
-                    <Logo className="size-4.5" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider opacity-60">
-                      {p.short}
-                    </span>
+                  <div className="flex items-center justify-center w-full">
+                    <Logo className="size-5" />
                   </div>
-                  <span className="mt-1.5 text-[12px] font-medium text-foreground truncate w-full">
+                  <span className="mt-1.5 text-[12px] font-medium text-foreground truncate w-full text-center">
                     {p.label.split(" ")[0]}
                   </span>
                 </button>

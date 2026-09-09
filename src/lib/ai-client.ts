@@ -441,8 +441,19 @@ async function streamGeminiDirect(params: {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-  // Temporizador de conexão
-  const { signal: connectSignal, cleanup: cleanupConnect } = createSafeTimeoutSignal(12000, signal);
+  // Controlador de aborto local interligado ao sinal do utilizador
+  const streamAbortController = new AbortController();
+  const onParentAbort = () => {
+    try {
+      streamAbortController.abort();
+    } catch {}
+  };
+  if (signal) {
+    if (signal.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
+    }
+    signal.addEventListener("abort", onParentAbort, { once: true });
+  }
 
   let response: Response | null = null;
   try {
@@ -450,20 +461,19 @@ async function streamGeminiDirect(params: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: connectSignal,
+      signal: streamAbortController.signal,
     });
   } catch (fetchErr: any) {
-    cleanupConnect();
+    if (signal) signal.removeEventListener("abort", onParentAbort);
     if (signal?.aborted) {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
     console.warn("[GRIOT] Falha no streaming SSE do Gemini, tentando REST direto:", fetchErr);
     return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
-  } finally {
-    cleanupConnect();
   }
 
   if (!response.ok) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
     const errorText = await response.text().catch(() => "");
 
     // 1. Auto-recuperação inteligente se a Google sugerir um novo modelo no erro 404
@@ -527,42 +537,33 @@ async function streamGeminiDirect(params: {
 
   const reader = response.body?.getReader();
   if (!reader) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
     return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
-  }
-
-  // Interrompe imediatamente o leitor do stream quando o sinal de aborto for disparado
-  const onParentAbort = () => {
-    try {
-      void reader.cancel();
-    } catch {}
-  };
-  if (signal) {
-    signal.addEventListener("abort", onParentAbort, { once: true });
   }
 
   const decoder = new TextDecoder();
   let buffer = "";
   let receivedAnyToken = false;
 
-  try {
-    // Watchdog: se não receber tokens em 12 segundos, cancela o stream e usa o fallback síncrono
-    const watchdogTimer = setTimeout(() => {
-      if (!receivedAnyToken && !signal?.aborted) {
-        try {
-          void reader.cancel();
-        } catch {}
-      }
-    }, 12000);
+  // Watchdog de 4.5 segundos: se o WebView mobile sofrer de buffering SSE e não emitir tokens,
+  // aborta o stream ativo no socket e invoca imediatamente o endpoint REST direto (:generateContent)
+  let watchdogTimer: any = setTimeout(() => {
+    if (!receivedAnyToken && !signal?.aborted) {
+      console.warn("[GRIOT] Watchdog acionado: sem tokens SSE em 4.5s no WebView móvel. Abortando stream e recorrendo a REST...");
+      try {
+        streamAbortController.abort();
+      } catch {}
+    }
+  }, 4500);
 
+  try {
     while (true) {
       if (signal?.aborted) {
-        clearTimeout(watchdogTimer);
         throw new DOMException("Operação cancelada.", "AbortError");
       }
 
       const { done, value } = await reader.read();
       if (done) {
-        clearTimeout(watchdogTimer);
         break;
       }
 
@@ -583,8 +584,13 @@ async function streamGeminiDirect(params: {
             const parts = candidate.content?.parts || [];
             for (const part of parts) {
               if (part.text) {
-                receivedAnyToken = true;
-                clearTimeout(watchdogTimer);
+                if (!receivedAnyToken) {
+                  receivedAnyToken = true;
+                  if (watchdogTimer) {
+                    clearTimeout(watchdogTimer);
+                    watchdogTimer = null;
+                  }
+                }
                 if (part.thought) {
                   fullReasoning += part.text;
                   callbacks?.onReasoning?.(part.text);
@@ -593,12 +599,24 @@ async function streamGeminiDirect(params: {
                   callbacks?.onToken?.(part.text);
                 }
               } else if (typeof part.thought === "string") {
-                receivedAnyToken = true;
-                clearTimeout(watchdogTimer);
+                if (!receivedAnyToken) {
+                  receivedAnyToken = true;
+                  if (watchdogTimer) {
+                    clearTimeout(watchdogTimer);
+                    watchdogTimer = null;
+                  }
+                }
                 fullReasoning += part.thought;
                 callbacks?.onReasoning?.(part.thought);
               }
               if (part.functionCall) {
+                if (!receivedAnyToken) {
+                  receivedAnyToken = true;
+                  if (watchdogTimer) {
+                    clearTimeout(watchdogTimer);
+                    watchdogTimer = null;
+                  }
+                }
                 callbacks?.onStep?.();
                 const fn = part.functionCall;
                 const mappedType = mapFunctionNameToActionType(fn.name);
@@ -624,14 +642,115 @@ async function streamGeminiDirect(params: {
     if (signal?.aborted) {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
-    // Se o stream falhou a meio sem devolver resposta completa, tenta o fallback REST
+    // Se o stream falhou a meio ou foi abortado pelo watchdog sem devolver resposta, tenta o fallback REST
     if (!fullText.trim()) {
       console.warn("[GRIOT] Stream SSE interrompido, recorrendo ao endpoint REST padrão:", streamErr);
       return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
     }
   } finally {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
     if (signal) {
       signal.removeEventListener("abort", onParentAbort);
+    }
+    try {
+      void reader.cancel();
+    } catch {}
+  }
+
+  // Se o stream encerrou sem produzir nenhum texto nem tool calls, não deixar a IA muda:
+  if (!fullText.trim() && toolCalls.length === 0 && !signal?.aborted) {
+    console.warn("[GRIOT] Stream SSE terminou sem gerar texto, acionando REST direto (:generateContent)...");
+    return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
+  }
+
+  return { text: fullText, reasoning: fullReasoning, toolCalls };
+}
+
+/** Fallback não-streaming para OpenAI / Groq / DeepSeek */
+async function fetchOpenAIDirectSync(params: {
+  apiKey: string;
+  baseUrl: string;
+  modelName: string;
+  formattedMessages: any[];
+  callbacks?: StreamCallbacks;
+  signal?: AbortSignal;
+}): Promise<AIResponse> {
+  const { apiKey, baseUrl, modelName, formattedMessages, callbacks, signal } = params;
+
+  const endpoint = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages: formattedMessages,
+        stream: false,
+        tools: OPENAI_TOOLS,
+      }),
+      signal: safeSignal,
+    });
+  } finally {
+    cleanup();
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Provedor de IA erro ${res.status}: ${errText.slice(0, 180)}`);
+  }
+
+  const data = await res.json();
+  const choice = data.choices?.[0];
+  const message = choice?.message;
+  let fullText = message?.content || "";
+  let fullReasoning = message?.reasoning_content || "";
+  const toolCalls: GriotAction[] = [];
+
+  if (message?.tool_calls) {
+    callbacks?.onStep?.();
+    for (const tc of message.tool_calls) {
+      if (tc.function?.name) {
+        const mappedType = mapFunctionNameToActionType(tc.function.name);
+        let parsedArgs = {};
+        try {
+          parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+        } catch {
+          parsedArgs = { raw: tc.function.arguments };
+        }
+        toolCalls.push({
+          id: tc.id || `act_${Date.now()}`,
+          type: mappedType,
+          category: mappedType.split(".")[0] as any,
+          risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+          params: parsedArgs,
+          requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
+          status: "pending",
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  if (fullReasoning) {
+    callbacks?.onReasoning?.(fullReasoning);
+  }
+
+  if (fullText) {
+    const tokens = fullText.split(/(\s+)/);
+    for (const tok of tokens) {
+      if (signal?.aborted) break;
+      if (tok) {
+        callbacks?.onToken?.(tok);
+        await new Promise((r) => setTimeout(r, 6));
+      }
     }
   }
 
@@ -659,22 +778,47 @@ async function streamOpenAIDirect(params: {
   }
 
   const endpoint = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: modelName,
-      messages: formattedMessages,
-      stream: true,
-      tools: OPENAI_TOOLS,
-    }),
-    signal,
-  });
+
+  const streamAbortController = new AbortController();
+  const onParentAbort = () => {
+    try {
+      streamAbortController.abort();
+    } catch {}
+  };
+  if (signal) {
+    if (signal.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
+    }
+    signal.addEventListener("abort", onParentAbort, { once: true });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelName,
+        messages: formattedMessages,
+        stream: true,
+        tools: OPENAI_TOOLS,
+      }),
+      signal: streamAbortController.signal,
+    });
+  } catch (fetchErr: any) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+    if (signal?.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
+    }
+    console.warn("[GRIOT] Falha no streaming SSE de OpenAI/Groq, tentando REST direto:", fetchErr);
+    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+  }
 
   if (!response.ok) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
     const errorText = await response.text().catch(() => "");
     throw new Error(
       `Provedor de IA retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
@@ -686,19 +830,23 @@ async function streamOpenAIDirect(params: {
   const toolCalls: GriotAction[] = [];
 
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("Stream de resposta indisponível.");
-
-  const onParentAbort = () => {
-    try {
-      void reader.cancel();
-    } catch {}
-  };
-  if (signal) {
-    signal.addEventListener("abort", onParentAbort, { once: true });
+  if (!reader) {
+    if (signal) signal.removeEventListener("abort", onParentAbort);
+    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
   }
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let receivedAnyToken = false;
+
+  let watchdogTimer: any = setTimeout(() => {
+    if (!receivedAnyToken && !signal?.aborted) {
+      console.warn("[GRIOT] Watchdog acionado: sem tokens OpenAI em 4.5s. Abortando stream para fallback REST...");
+      try {
+        streamAbortController.abort();
+      } catch {}
+    }
+  }, 4500);
 
   try {
     while (true) {
@@ -723,14 +871,35 @@ async function streamOpenAIDirect(params: {
           const payload = JSON.parse(dataStr);
           const delta = payload.choices?.[0]?.delta;
           if (delta?.content) {
+            if (!receivedAnyToken) {
+              receivedAnyToken = true;
+              if (watchdogTimer) {
+                clearTimeout(watchdogTimer);
+                watchdogTimer = null;
+              }
+            }
             fullText += delta.content;
             callbacks?.onToken?.(delta.content);
           }
           if (delta?.reasoning_content) {
+            if (!receivedAnyToken) {
+              receivedAnyToken = true;
+              if (watchdogTimer) {
+                clearTimeout(watchdogTimer);
+                watchdogTimer = null;
+              }
+            }
             fullReasoning += delta.reasoning_content;
             callbacks?.onReasoning?.(delta.reasoning_content);
           }
           if (delta?.tool_calls) {
+            if (!receivedAnyToken) {
+              receivedAnyToken = true;
+              if (watchdogTimer) {
+                clearTimeout(watchdogTimer);
+                watchdogTimer = null;
+              }
+            }
             callbacks?.onStep?.();
             for (const tc of delta.tool_calls) {
               if (tc.function?.name) {
@@ -759,10 +928,30 @@ async function streamOpenAIDirect(params: {
         }
       }
     }
+  } catch (streamErr: any) {
+    if (signal?.aborted) {
+      throw new DOMException("Operação cancelada.", "AbortError");
+    }
+    if (!fullText.trim()) {
+      console.warn("[GRIOT] Stream OpenAI interrompido ou em buffer, recorrendo ao endpoint REST padrão:", streamErr);
+      return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+    }
   } finally {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
     if (signal) {
       signal.removeEventListener("abort", onParentAbort);
     }
+    try {
+      void reader.cancel();
+    } catch {}
+  }
+
+  if (!fullText.trim() && toolCalls.length === 0 && !signal?.aborted) {
+    console.warn("[GRIOT] Stream OpenAI terminou sem texto, recorrendo a REST direto...");
+    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
   }
 
   return { text: fullText, reasoning: fullReasoning, toolCalls };

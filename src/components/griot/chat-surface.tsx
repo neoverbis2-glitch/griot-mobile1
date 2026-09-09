@@ -1009,9 +1009,11 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       }
 
       if (!streamedAny || !answer.trim()) {
-        setBusy(false);
-        setStreaming("");
-        return;
+        answer = `⚠️ **O modelo de IA não devolveu resposta.**\n\nPor favor verifica a tua ligação à Internet e a chave de API em **Definições**.`;
+        if (conversationRef.current?.id === targetConvId) {
+          setStreaming(answer);
+        }
+        streamedAny = true;
       }
 
       const parsed = parseProposals(answer);
@@ -2112,7 +2114,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             />
           ))}
 
-          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} onStop={handleStop} /> : null}
+          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
 
           {streaming ? (
             scope === "quick" ? (
@@ -2949,7 +2951,13 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
       {/* Modal do Gestor de Plugins Reais */}
       {pluginsViewOpen && (
-        <div className="fixed inset-0 z-50 bg-background animate-in fade-in duration-200">
+        <div
+          className="fixed inset-0 z-50 bg-background overflow-y-auto overscroll-contain animate-in fade-in duration-200"
+          style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+        >
           <PluginsView onBack={() => setPluginsViewOpen(false)} />
         </div>
       )}

@@ -113,9 +113,9 @@ export function PluginsView({ onBack }: PluginsViewProps) {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-background text-foreground animate-fade-in pb-16">
+    <div className="flex flex-col min-h-screen bg-background text-foreground animate-fade-in pb-28">
       {/* Top Header */}
-      <div className="sticky top-0 z-30 border-b border-hairline/80 bg-background/95 backdrop-blur-md px-4 pt-3 pb-3">
+      <div className="sticky top-0 z-30 border-b border-hairline/80 bg-background/95 backdrop-blur-md px-4 pt-[calc(max(env(safe-area-inset-top,0px),24px)+0.5rem)] pb-3">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
