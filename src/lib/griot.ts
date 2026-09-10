@@ -14,8 +14,19 @@ export const MODEL_OS_ID = "modelos";
 export const BASE_CHAT_MODELS: ModelOption[] = [];
 export const QUICK_CHAT_MODELS: ModelOption[] = [];
 
-export const DEFAULT_MODEL = MODEL_OS_ID;
+// O GRIOT já não depende do ModelGPU RAL / Observer nativo — o modelo por defeito
+// passa a ser a primeira API real configurada pelo utilizador (ou vazio, se nenhuma
+// estiver configurada ainda, para forçar o ecrã de "adiciona a tua chave de API").
+export function getDefaultModel(): string {
+  const userApis = getUserSavedApis();
+  return userApis[0]?.id || "";
+}
 
+export const DEFAULT_MODEL = getDefaultModel();
+
+// Mantida por compatibilidade com a lógica de logo/etiqueta na UI (ex.: chat-surface.tsx),
+// que ainda distingue visualmente o antigo id "modelos" de outros. Já não é oferecida
+// como opção selecionável em getAvailableModels() nem ativa qualquer orquestração.
 export function isModelOS(id?: string): boolean {
   if (!id) return false;
   return (
@@ -27,15 +38,7 @@ export function isModelOS(id?: string): boolean {
 }
 
 export function getAvailableModels(_prefs?: Record<string, unknown>): ModelOption[] {
-  const options: ModelOption[] = [
-    {
-      id: MODEL_OS_ID,
-      label: "ModelOS",
-      hint: "Orquestrador Cognitivo · ModelGPU RAL",
-      isApp: true,
-      vendor: "modelos",
-    },
-  ];
+  const options: ModelOption[] = [];
 
   const userApis = getUserSavedApis();
   for (const api of userApis) {

@@ -15,7 +15,7 @@ import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
 import { streamDirectAI } from "@/lib/ai-client";
 import { modelLabel, isModelOS } from "@/lib/griot";
-import { observerEngine, modelGpuRalEngine } from "@/lib/runtime";
+import { observerEngine } from "@/lib/runtime";
 import { parseProposals } from "@/lib/capsule-proposals";
 import type { GriotProject } from "@/lib/project-service";
 
@@ -201,29 +201,7 @@ class ChatExecutionManager {
     let answer = "";
     let fullReasoning = "";
     let effectiveModelId = modelId;
-    let modelGpuWorkloadId: string | null = null;
     let effectiveSystemInstruction = systemInstruction;
-
-    if (isModelOS(modelId)) {
-      const allocated = modelGpuRalEngine.allocateCoreForModelOS({
-        prompt: userPrompt,
-        context,
-        title: `ModelOS · ${userPrompt.slice(0, 30) || "Cognitive Workload"}`,
-      });
-      effectiveModelId = allocated.targetModelId;
-      modelGpuWorkloadId = allocated.workload.id;
-
-      effectiveSystemInstruction += `\n\n[GRIOT ModelGPU RAL // ORQUESTRADOR COGNITIVO ATIVO]
-Núcleo Virtual Mobilizado: ${allocated.core.name} (${allocated.core.vendor})
-Identificador do Core: ${allocated.core.id}
-Afinidade da Tarefa: ${allocated.affinity}
-Status: Mobilizado no cluster descentralizado com sucesso.`;
-
-      const initialReasoning = `⚡ [ModelGPU RAL] Cluster mobilizou ${allocated.core.name} (${allocated.core.vendor}) · Afinidade: '${allocated.affinity}'.\n`;
-      fullReasoning = initialReasoning;
-      active.state.reasoning = fullReasoning;
-      this.notify(conversationId, { ...active.state });
-    }
 
     // Prepara mensagens garantindo que o prompt do utilizador está presente sem duplicar
     const effectiveMessages: ChatMessage[] = baseMessages.map((m) => ({
@@ -239,7 +217,7 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
 
     try {
       const isFastMode = effort === "low" || scope === "quick";
-      const mLabel = isModelOS(modelId) ? "ModelOS (ModelGPU RAL)" : modelLabel(modelId);
+      const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
 
       // Em modo rápido, executa chamada direta ultrarrápida sem passar pelo ReAct loop iterativo
       if (isFastMode) {
@@ -252,9 +230,6 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
               if (controller.signal.aborted) return;
               answer += tok;
               active.state.streaming = answer;
-              if (modelGpuWorkloadId) {
-                modelGpuRalEngine.updateWorkloadStreaming(modelGpuWorkloadId, tok);
-              }
               this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
@@ -285,9 +260,6 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
               if (controller.signal.aborted) return;
               answer += tok;
               active.state.streaming = answer;
-              if (modelGpuWorkloadId) {
-                modelGpuRalEngine.updateWorkloadStreaming(modelGpuWorkloadId, tok);
-              }
               this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
@@ -318,23 +290,14 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
       }
     } catch (err: any) {
       if (controller.signal.aborted) {
-        if (modelGpuWorkloadId) {
-          modelGpuRalEngine.failWorkload(modelGpuWorkloadId, "Execução interrompida pelo utilizador.");
-        }
         return;
       }
       console.warn("[ChatExecutionManager] Falha na execução da IA:", err);
-      if (modelGpuWorkloadId) {
-        modelGpuRalEngine.failWorkload(modelGpuWorkloadId, err?.message);
-      }
-      const mLabel = isModelOS(modelId) ? "ModelOS (ModelGPU RAL)" : modelLabel(modelId);
+      const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
       answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Verifica a tua ligação à rede e a tua chave em **Definições → Chave Google Gemini**.`;
     } finally {
       // 2. Finalizar e salvar a mensagem do assistente localmente e no Supabase
       if (!controller.signal.aborted && answer.trim()) {
-        if (modelGpuWorkloadId) {
-          modelGpuRalEngine.completeWorkload(modelGpuWorkloadId, answer);
-        }
 
         const cleaned = parseProposals(answer).clean || answer;
 

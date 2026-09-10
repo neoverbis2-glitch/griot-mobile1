@@ -37,7 +37,6 @@ import {
 import {
   observerEngine,
   stripActionBlocks,
-  modelGpuRalEngine,
 } from "@/lib/runtime";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
 import { getSavedApiKey, resolveProviderAndModel } from "@/lib/ai-client";
