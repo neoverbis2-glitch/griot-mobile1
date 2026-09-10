@@ -60,6 +60,7 @@ interface ActiveExecution {
 
 class ChatExecutionManager {
   private activeExecutions = new Map<string, ActiveExecution>();
+  private listeners = new Map<string, Set<ExecutionListener>>();
 
   /** Retorna o estado atual da execução de uma conversa se estiver a decorrer */
   public getExecutionState(conversationId: string): ExecutionState | null {
@@ -72,11 +73,19 @@ class ChatExecutionManager {
     return this.activeExecutions.has(conversationId);
   }
 
-  /** Subscreve a atualizações de uma conversa específica */
+  /** Subscreve a atualizações de uma conversa específica de forma persistente */
   public subscribe(conversationId: string, listener: ExecutionListener): () => void {
-    let active = this.activeExecutions.get(conversationId);
-    if (!active) {
-      // Notifica estado ocioso imediatamente
+    if (!this.listeners.has(conversationId)) {
+      this.listeners.set(conversationId, new Set());
+    }
+    const set = this.listeners.get(conversationId)!;
+    set.add(listener);
+
+    // Emite o estado atual imediatamente (seja ativo ou ocioso)
+    const active = this.activeExecutions.get(conversationId);
+    if (active) {
+      listener({ ...active.state });
+    } else {
       listener({
         conversationId,
         scope: "main",
@@ -85,15 +94,13 @@ class ChatExecutionManager {
         reasoning: "",
         steps: 0,
       });
-      return () => {};
     }
 
-    active.listeners.add(listener);
-    // Emite o estado atual imediatamente
-    listener({ ...active.state });
-
     return () => {
-      active?.listeners.delete(listener);
+      set.delete(listener);
+      if (set.size === 0) {
+        this.listeners.delete(conversationId);
+      }
     };
   }
 
@@ -117,7 +124,7 @@ class ChatExecutionManager {
     }
 
     this.activeExecutions.delete(conversationId);
-    this.notify(active, {
+    this.notify(conversationId, {
       ...active.state,
       busy: false,
       streaming: "",
@@ -161,33 +168,35 @@ class ChatExecutionManager {
     };
 
     this.activeExecutions.set(conversationId, active);
-    this.notify(active, { ...active.state });
+    this.notify(conversationId, { ...active.state });
 
-    // 1. Registar a mensagem do utilizador localmente de imediato
-    const userMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const userMsg: ChatMessageRow = {
-      id: userMsgId,
-      role: "user",
-      content: userPrompt,
-      created_at: new Date().toISOString(),
-      feedback: null,
-    };
-    this.appendMessageLocally(conversationId, userMsg);
+    // 1. Registar a mensagem do utilizador localmente apenas se ainda não existir
+    if (userPrompt && userPrompt.trim()) {
+      const userMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const userMsg: ChatMessageRow = {
+        id: userMsgId,
+        role: "user",
+        content: userPrompt,
+        created_at: new Date().toISOString(),
+        feedback: null,
+      };
+      this.appendMessageLocally(conversationId, userMsg);
 
-    // Salva a mensagem do utilizador no Supabase em segundo plano
-    void (async () => {
-      try {
-        const workspaceId = await getPrimaryWorkspaceId(userId);
-        await (supabase as any).from("griot_messages").insert({
-          id: userMsgId,
-          workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-          conversation_id: conversationId,
-          actor_kind: "human",
-          content: userPrompt,
-          status: "succeeded",
-        });
-      } catch {}
-    })();
+      // Salva a mensagem do utilizador no Supabase em segundo plano
+      void (async () => {
+        try {
+          const workspaceId = await getPrimaryWorkspaceId(userId);
+          await (supabase as any).from("griot_messages").insert({
+            id: userMsgId,
+            workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
+            conversation_id: conversationId,
+            actor_kind: "human",
+            content: userPrompt,
+            status: "succeeded",
+          });
+        } catch {}
+      })();
+    }
 
     let answer = "";
     let fullReasoning = "";
@@ -213,7 +222,19 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
       const initialReasoning = `⚡ [ModelGPU RAL] Cluster mobilizou ${allocated.core.name} (${allocated.core.vendor}) · Afinidade: '${allocated.affinity}'.\n`;
       fullReasoning = initialReasoning;
       active.state.reasoning = fullReasoning;
-      this.notify(active, { ...active.state });
+      this.notify(conversationId, { ...active.state });
+    }
+
+    // Prepara mensagens garantindo que o prompt do utilizador está presente sem duplicar
+    const effectiveMessages: ChatMessage[] = baseMessages.map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
+    const lastMsg = effectiveMessages[effectiveMessages.length - 1];
+    if (!lastMsg || lastMsg.role !== "user" || lastMsg.content.trim() !== userPrompt.trim()) {
+      if (userPrompt && userPrompt.trim()) {
+        effectiveMessages.push({ role: "user", content: userPrompt.trim() });
+      }
     }
 
     try {
@@ -224,7 +245,7 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
       if (isFastMode) {
         const directRes = await streamDirectAI({
           modelId: effectiveModelId,
-          messages: baseMessages.map((m) => ({ role: m.role as any, content: m.content })),
+          messages: effectiveMessages,
           systemInstruction: effectiveSystemInstruction,
           callbacks: {
             onToken: (tok) => {
@@ -234,13 +255,13 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
               if (modelGpuWorkloadId) {
                 modelGpuRalEngine.updateWorkloadStreaming(modelGpuWorkloadId, tok);
               }
-              this.notify(active, { ...active.state });
+              this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
               if (controller.signal.aborted) return;
               fullReasoning += r;
               active.state.reasoning = fullReasoning;
-              this.notify(active, { ...active.state });
+              this.notify(conversationId, { ...active.state });
             },
           },
           signal: controller.signal,
@@ -249,13 +270,13 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
         if (directRes.text && !answer.trim()) {
           answer = directRes.text;
           active.state.streaming = answer;
-          this.notify(active, { ...active.state });
+          this.notify(conversationId, { ...active.state });
         }
       } else {
         // Modo equilibrado / profundo: ReAct loop resiliente
         const loopResult = await executeReActLoop({
           modelId: effectiveModelId,
-          messages: baseMessages.map((m) => ({ role: m.role as any, content: m.content })),
+          messages: effectiveMessages,
           systemInstruction: effectiveSystemInstruction,
           context,
           maxIterations: 2,
@@ -267,18 +288,18 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
               if (modelGpuWorkloadId) {
                 modelGpuRalEngine.updateWorkloadStreaming(modelGpuWorkloadId, tok);
               }
-              this.notify(active, { ...active.state });
+              this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
               if (controller.signal.aborted) return;
               fullReasoning += r;
               active.state.reasoning = fullReasoning;
-              this.notify(active, { ...active.state });
+              this.notify(conversationId, { ...active.state });
             },
             onStepChange: (st) => {
               if (controller.signal.aborted) return;
               active.state.steps = st;
-              this.notify(active, { ...active.state });
+              this.notify(conversationId, { ...active.state });
             },
           },
           signal: controller.signal,
@@ -287,7 +308,7 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
         if (loopResult.finalAnswer) {
           answer = loopResult.finalAnswer;
           active.state.streaming = answer;
-          this.notify(active, { ...active.state });
+          this.notify(conversationId, { ...active.state });
         }
       }
 
@@ -355,8 +376,9 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
 
       // Desregistar execução ativa
       this.activeExecutions.delete(conversationId);
-      this.notify(active, {
-        ...active.state,
+      this.notify(conversationId, {
+        conversationId,
+        scope,
         busy: false,
         streaming: "",
         reasoning: "",
@@ -377,10 +399,18 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
       const storageKey = "griot_messages_" + conversationId;
       const raw = localStorage.getItem(storageKey);
       const list: ChatMessageRow[] = raw ? JSON.parse(raw) : [];
-      if (!list.some((m) => m.id === msg.id)) {
-        list.push(msg);
-        localStorage.setItem(storageKey, JSON.stringify(list));
+
+      // Evita duplicação por ID
+      if (list.some((m) => m.id === msg.id)) return;
+
+      // Evita duplicar se a última mensagem já tiver o mesmo papel e conteúdo idêntico
+      const last = list[list.length - 1];
+      if (last && last.role === msg.role && last.content.trim() === msg.content.trim()) {
+        return;
       }
+
+      list.push(msg);
+      localStorage.setItem(storageKey, JSON.stringify(list));
       window.dispatchEvent(new CustomEvent("griot_message_saved", { detail: { conversationId, msg } }));
     } catch (e) {
       console.warn("[ChatExecutionManager] Erro ao gravar localmente:", e);
@@ -429,12 +459,20 @@ Status: Mobilizado no cluster descentralizado com sucesso.`;
     }
   }
 
-  private notify(active: ActiveExecution, state: ExecutionState): void {
-    active.state = state;
-    for (const listener of active.listeners) {
-      try {
-        listener({ ...state });
-      } catch {}
+  private notify(conversationId: string, state: ExecutionState): void {
+    const active = this.activeExecutions.get(conversationId);
+    if (active) {
+      active.state = { ...state };
+    }
+    const set = this.listeners.get(conversationId);
+    if (set) {
+      for (const listener of set) {
+        try {
+          listener({ ...state });
+        } catch (e) {
+          console.warn("[ChatExecutionManager] Listener error:", e);
+        }
+      }
     }
   }
 }

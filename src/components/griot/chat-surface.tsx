@@ -616,11 +616,23 @@ export function ChatSurface({ userId }: { userId: string }) {
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
+      setBusy(false);
+      setStreaming("");
+      setReasoning("");
+      setSteps(0);
       return;
     }
     let cancelled = false;
 
-    // Cache local imediato para não piscar mensagens de outra conversa
+    // 1. Conecta o estado de execução em tempo real da conversa ativa
+    const unsub = chatExecutionManager.subscribe(conversationId, (execState) => {
+      setBusy(execState.busy);
+      setStreaming(execState.streaming);
+      setReasoning(execState.reasoning);
+      setSteps(execState.steps);
+    });
+
+    // 2. Cache local imediato para carregar mensagens instantaneamente
     if (typeof window !== "undefined") {
       try {
         const cached = localStorage.getItem("griot_messages_" + conversationId);
@@ -636,6 +648,25 @@ export function ChatSurface({ userId }: { userId: string }) {
       }
     }
 
+    // 3. Ouve eventos de mensagens salvas localmente para atualizar a lista instantaneamente
+    const handleMessageSaved = (e: any) => {
+      const detail = e.detail;
+      if (!detail || detail.conversationId === conversationId) {
+        try {
+          const raw = localStorage.getItem("griot_messages_" + conversationId);
+          if (raw) {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              setMessages(list);
+            }
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener("griot_message_saved", handleMessageSaved);
+
+    // 4. Sincronização remota via Supabase
     void (supabase as any)
       .from("griot_messages")
       .select("id, actor_kind, content, created_at, metadata")
@@ -660,8 +691,11 @@ export function ChatSurface({ userId }: { userId: string }) {
           }
         }
       });
+
     return () => {
       cancelled = true;
+      unsub();
+      window.removeEventListener("griot_message_saved", handleMessageSaved);
     };
   }, [conversationId]);
 
@@ -940,12 +974,21 @@ export function ChatSurface({ userId }: { userId: string }) {
 
     // No modo rápido e em voz não há compilação de contexto: o objetivo é latência mínima.
     let context: string | undefined;
-    if (capsuleId && !voiceMode && activeEffort !== "low") {
+    const isMobileNative =
+      typeof window !== "undefined" &&
+      (window.location.protocol === "capacitor:" ||
+        window.location.hostname === "localhost" ||
+        Boolean((window as any).Capacitor?.isNativePlatform?.()));
+
+    if (capsuleId && !voiceMode && activeEffort !== "low" && !isMobileNative) {
       try {
-        const compiled = await compileContext({
-          data: { capsuleId, query: base[base.length - 1]?.content?.slice(0, 500) ?? "" },
-        });
-        context = compiled?.text;
+        const compiled = await Promise.race([
+          compileContext({
+            data: { capsuleId, query: base[base.length - 1]?.content?.slice(0, 500) ?? "" },
+          }),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500)),
+        ]);
+        context = (compiled as any)?.text;
       } catch {
         context = undefined;
       }
@@ -1020,6 +1063,14 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       });
     } catch (err: any) {
       toast.error(err?.message || "Erro na execução da resposta.");
+    } finally {
+      const st = chatExecutionManager.getExecutionState(targetConvId);
+      if (!st || !st.busy) {
+        setBusy(false);
+        setStreaming("");
+        setReasoning("");
+        setSteps(0);
+      }
     }
   }
 
@@ -1132,8 +1183,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       role: m.role as "user" | "assistant",
       content: m.content,
     }));
-    const answer = run([...base, { role: "user", content: clean }], options);
-    await Promise.all([persist, answer]);
+    void run([...base, { role: "user", content: clean }], options);
   }
 
   useEffect(() => {
@@ -1142,15 +1192,21 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
   });
 
   async function regenerate(assistantId: string) {
-    if (busy) return;
+    if (busy || !conversationId) return;
     const index = messages.findIndex((m) => m.id === assistantId);
     if (index < 0) return;
     const base = messages
       .slice(0, index)
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
     await (supabase as any).from("griot_messages").delete().eq("id", assistantId).catch(() => null);
-    setMessages((current) => current.filter((m) => m.id !== assistantId));
-    await run(base);
+    const updated = messages.filter((m) => m.id !== assistantId);
+    setMessages(updated);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(updated));
+      } catch {}
+    }
+    void run(base);
   }
 
   async function editMessage(id: string) {

@@ -65,7 +65,7 @@ const INITIAL_CORES: Record<VirtualGpuCoreId, VirtualGpuCore> = {
     vramMb: 1000000,
     contextTokens: 1000000,
     virtualClockMhz: 4100,
-    affinities: ["multimodal_vision", "deep_research", "rapid_chat"],
+    affinities: ["rapid_chat", "multimodal_vision", "deep_research", "code_generation", "deep_reasoning", "math_logic", "architecture"],
     metrics: { totalWorkloads: 0, tokensScraped: 0, actionsExecuted: 0, avgLatencyMs: 310 },
   },
   core_3_deepseek: {
@@ -583,18 +583,24 @@ export class ModelGpuRalEngine {
    * Seleciona o Virtual Core ótimo para a afinidade pretendida
    */
   public selectOptimalCore(affinity: GpuTaskAffinity): VirtualGpuCoreId {
-    // 1. Procurar cores com afinidade prioritária que estejam ativos
+    // 1. Procurar cores com afinidade prioritária que estejam ativos e configurados
     const candidates = Object.values(this.state.cores).filter(
       (c) => c.enabled && c.affinities.includes(affinity),
     );
 
     if (candidates.length > 0) {
-      // Retorna o que tiver menor carga
       candidates.sort((a, b) => a.metrics.totalWorkloads - b.metrics.totalWorkloads);
       return candidates[0].id;
     }
 
-    // 2. Fallbacks padrão
+    // 2. Se nenhum core com a afinidade exata estiver ativo, selecionar QUALQUER core ativo configurado
+    const anyEnabled = Object.values(this.state.cores).filter((c) => c.enabled);
+    if (anyEnabled.length > 0) {
+      anyEnabled.sort((a, b) => a.metrics.totalWorkloads - b.metrics.totalWorkloads);
+      return anyEnabled[0].id;
+    }
+
+    // 3. Fallbacks padrão se nenhum core estiver configurado
     switch (affinity) {
       case "code_generation":
       case "architecture":
@@ -607,7 +613,7 @@ export class ModelGpuRalEngine {
       case "deep_research":
         return "core_6_perplexity";
       default:
-        return "core_0_chatgpt";
+        return "core_2_gemini";
     }
   }
 }

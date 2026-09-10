@@ -110,7 +110,7 @@ export const OPENAI_TOOLS = GEMINI_TOOL_DECLARATIONS.map((t) => ({
 
 import { findApiByIdOrProvider, getUserSavedApis } from "@/lib/user-apis";
 
-/** Procura chave guardada localmente */
+/** Procura chave guardada localmente exclusivamente para o provedor solicitado */
 export function getSavedApiKey(provider: string): string | null {
   if (typeof window === "undefined") return null;
 
@@ -118,22 +118,60 @@ export function getSavedApiKey(provider: string): string | null {
   const saved = findApiByIdOrProvider(provider);
   if (saved?.apiKey) return saved.apiKey;
 
-  // 2. Chaves legadas
+  // 2. Chaves específicas do provedor
+  const prov = provider.toLowerCase();
   const keysToTry = [
-    `griot_api_key_${provider}`,
-    `griot_${provider}_api_key`,
+    `griot_api_key_${prov}`,
+    `griot_${prov}_api_key`,
   ];
+  if (prov === "claude" || prov === "anthropic") {
+    keysToTry.push("griot_api_key_anthropic", "griot_anthropic_api_key", "griot_api_key_claude", "griot_claude_api_key");
+  } else if (prov === "grok" || prov === "xai") {
+    keysToTry.push("griot_api_key_grok", "griot_grok_api_key", "griot_api_key_xai", "griot_xai_api_key");
+  }
 
   for (const k of keysToTry) {
     const val = localStorage.getItem(k)?.trim();
     if (val && val.length > 5) return val;
   }
 
-  // Fallback: se o utilizador tem alguma chave guardada, tenta Gemini como default
-  const geminiAny =
+  return null;
+}
+
+/** Retorna a primeira chave de API configurada no sistema (para fallback seguro se o modelo escolhido não tiver chave própria) */
+export function getAnyConfiguredApiKey(): { provider: string; apiKey: string; modelName?: string } | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const savedApis = getUserSavedApis();
+    const active = savedApis.find((a) => a.status === "active" && a.apiKey);
+    if (active) return { provider: active.providerId, apiKey: active.apiKey, modelName: active.model };
+  } catch {}
+
+  const gemini =
     localStorage.getItem("griot_api_key_gemini")?.trim() ||
     localStorage.getItem("griot_gemini_api_key")?.trim();
-  if (geminiAny && geminiAny.length > 5) return geminiAny;
+  if (gemini && gemini.length > 5) return { provider: "gemini", apiKey: gemini, modelName: "gemini-2.0-flash" };
+
+  const openAi =
+    localStorage.getItem("griot_api_key_openai")?.trim() ||
+    localStorage.getItem("griot_openai_api_key")?.trim();
+  if (openAi && openAi.length > 5) return { provider: "openai", apiKey: openAi, modelName: "gpt-4o" };
+
+  const anthropic =
+    localStorage.getItem("griot_api_key_anthropic")?.trim() ||
+    localStorage.getItem("griot_api_key_claude")?.trim();
+  if (anthropic && anthropic.length > 5) return { provider: "anthropic", apiKey: anthropic, modelName: "claude-3-5-sonnet-latest" };
+
+  const groq =
+    localStorage.getItem("griot_api_key_groq")?.trim() ||
+    localStorage.getItem("griot_groq_api_key")?.trim();
+  if (groq && groq.length > 5) return { provider: "groq", apiKey: groq, modelName: "llama-3.3-70b-versatile" };
+
+  const deepseek =
+    localStorage.getItem("griot_api_key_deepseek")?.trim() ||
+    localStorage.getItem("griot_deepseek_api_key")?.trim();
+  if (deepseek && deepseek.length > 5) return { provider: "deepseek", apiKey: deepseek, modelName: "deepseek-chat" };
 
   return null;
 }
@@ -149,6 +187,10 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
     else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
     else if (prov === "deepseek") mName = "deepseek-chat";
     else if (prov === "groq") mName = "llama-3.3-70b-versatile";
+    else if (prov === "openrouter") mName = userApi.model || "google/gemini-2.0-flash-exp:free";
+    else if (prov === "mistral") mName = "mistral-large-latest";
+    else if (prov === "perplexity") mName = "sonar-pro";
+    else if (prov === "grok" || prov === "xai") mName = "grok-2-latest";
     else if (prov === "gemini") {
       const declared = (userApi.model || "").toLowerCase();
       if (declared.includes("1.5-pro")) mName = "gemini-1.5-pro";
@@ -160,22 +202,13 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
 
   const m = modelId.toLowerCase();
   if (m === "modelos" || m === "model-os" || m.includes("modelos")) {
-    const savedApis = getUserSavedApis();
-    const activeApi = savedApis.find((a) => a.status === "active") || savedApis[0];
-    if (activeApi) {
-      const prov = activeApi.providerId;
-      let mName = "gemini-2.0-flash";
-      if (prov === "openai") mName = "gpt-4o";
-      else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
-      else if (prov === "deepseek") mName = "deepseek-chat";
-      else if (prov === "groq") mName = "llama-3.3-70b-versatile";
-      else if (prov === "gemini") {
-        const declared = (activeApi.model || "").toLowerCase();
-        if (declared.includes("1.5-pro")) mName = "gemini-1.5-pro";
-        else if (declared.includes("1.5-flash")) mName = "gemini-1.5-flash";
-        else mName = "gemini-2.0-flash";
-      }
-      return { provider: prov, modelName: mName, specificApiKey: activeApi.apiKey };
+    const anyKey = getAnyConfiguredApiKey();
+    if (anyKey) {
+      return {
+        provider: anyKey.provider,
+        modelName: anyKey.modelName || (anyKey.provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o"),
+        specificApiKey: anyKey.apiKey,
+      };
     }
     return { provider: "gemini", modelName: "gemini-2.0-flash" };
   }
@@ -208,6 +241,18 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
   if (m.includes("groq") || m.includes("llama")) {
     return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
   }
+  if (m.includes("openrouter")) {
+    return { provider: "openrouter", modelName: "google/gemini-2.0-flash-exp:free" };
+  }
+  if (m.includes("grok") || m.includes("xai")) {
+    return { provider: "xai", modelName: "grok-2-latest" };
+  }
+  if (m.includes("mistral")) {
+    return { provider: "mistral", modelName: "mistral-large-latest" };
+  }
+  if (m.includes("perplexity")) {
+    return { provider: "perplexity", modelName: "sonar-pro" };
+  }
   return { provider: "gemini", modelName: "gemini-2.0-flash" };
 }
 
@@ -223,14 +268,46 @@ export async function streamDirectAI(params: {
   signal?: AbortSignal;
 }): Promise<AIResponse> {
   const { modelId, messages, systemInstruction, callbacks, signal } = params;
-  const { provider, modelName, specificApiKey } = resolveProviderAndModel(modelId);
-  const directKey = specificApiKey || getSavedApiKey(provider);
+  const resolved = resolveProviderAndModel(modelId);
+  let activeProvider = resolved.provider;
+  let activeModelName = resolved.modelName;
+  let effectiveKey = resolved.specificApiKey || getSavedApiKey(activeProvider);
+
+  // Se o utilizador pediu um provedor sem chave direta, verifica se existe qualquer outra chave configurada no app
+  if (!effectiveKey) {
+    const anyKey = getAnyConfiguredApiKey();
+    if (anyKey && anyKey.apiKey) {
+      activeProvider = anyKey.provider;
+      effectiveKey = anyKey.apiKey;
+      if (activeProvider === "gemini") {
+        activeModelName = anyKey.modelName || "gemini-2.0-flash";
+      } else if (activeProvider === "openai") {
+        activeModelName = anyKey.modelName || "gpt-4o";
+      } else if (activeProvider === "claude" || activeProvider === "anthropic") {
+        activeModelName = anyKey.modelName || "claude-3-5-sonnet-latest";
+      } else if (activeProvider === "groq") {
+        activeModelName = anyKey.modelName || "llama-3.3-70b-versatile";
+      } else if (activeProvider === "deepseek") {
+        activeModelName = anyKey.modelName || "deepseek-chat";
+      }
+      callbacks?.onReasoning?.(
+        `⚡ [Roteador GRIOT] A mobilizar ${activeProvider.toUpperCase()} (${activeModelName}) com base na tua chave de API ativa.\n`,
+      );
+    }
+  }
+
+  // Se ainda assim não há nenhuma chave configurada no dispositivo
+  if (!effectiveKey) {
+    throw new Error(
+      `Nenhuma chave de API configurada para ${resolved.provider.toUpperCase()}. Configura a tua chave gratuita da Google Gemini em Definições → Chave Google Gemini para conversar em tempo real.`,
+    );
+  }
 
   // 1. Chamada direta ao Google Gemini
-  if (provider === "gemini" && directKey) {
+  if (activeProvider === "gemini") {
     return streamGeminiDirect({
-      apiKey: directKey,
-      modelName,
+      apiKey: effectiveKey,
+      modelName: activeModelName,
       messages,
       systemInstruction,
       callbacks,
@@ -239,11 +316,11 @@ export async function streamDirectAI(params: {
   }
 
   // 2. Chamada direta ao OpenAI
-  if (provider === "openai" && directKey) {
+  if (activeProvider === "openai") {
     return streamOpenAIDirect({
-      apiKey: directKey,
+      apiKey: effectiveKey,
       baseUrl: "https://api.openai.com/v1",
-      modelName,
+      modelName: activeModelName,
       messages,
       systemInstruction,
       callbacks,
@@ -252,11 +329,11 @@ export async function streamDirectAI(params: {
   }
 
   // 3. Chamada direta ao Groq
-  if (provider === "groq" && directKey) {
+  if (activeProvider === "groq") {
     return streamOpenAIDirect({
-      apiKey: directKey,
+      apiKey: effectiveKey,
       baseUrl: "https://api.groq.com/openai/v1",
-      modelName,
+      modelName: activeModelName,
       messages,
       systemInstruction,
       callbacks,
@@ -265,11 +342,11 @@ export async function streamDirectAI(params: {
   }
 
   // 4. Chamada direta ao DeepSeek
-  if (provider === "deepseek" && directKey) {
+  if (activeProvider === "deepseek") {
     return streamOpenAIDirect({
-      apiKey: directKey,
+      apiKey: effectiveKey,
       baseUrl: "https://api.deepseek.com",
-      modelName,
+      modelName: activeModelName,
       messages,
       systemInstruction,
       callbacks,
@@ -277,11 +354,63 @@ export async function streamDirectAI(params: {
     });
   }
 
-  // 5. Chamada direta ao Anthropic Claude
-  if ((provider === "claude" || provider === "anthropic") && directKey) {
+  // 5. Chamada direta ao OpenRouter
+  if (activeProvider === "openrouter") {
+    return streamOpenAIDirect({
+      apiKey: effectiveKey,
+      baseUrl: "https://openrouter.ai/api/v1",
+      modelName: activeModelName,
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 6. Chamada direta ao Grok / xAI
+  if (activeProvider === "grok" || activeProvider === "xai") {
+    return streamOpenAIDirect({
+      apiKey: effectiveKey,
+      baseUrl: "https://api.x.ai/v1",
+      modelName: activeModelName,
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 7. Chamada direta ao Mistral
+  if (activeProvider === "mistral") {
+    return streamOpenAIDirect({
+      apiKey: effectiveKey,
+      baseUrl: "https://api.mistral.ai/v1",
+      modelName: activeModelName,
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 8. Chamada direta ao Perplexity
+  if (activeProvider === "perplexity") {
+    return streamOpenAIDirect({
+      apiKey: effectiveKey,
+      baseUrl: "https://api.perplexity.ai",
+      modelName: activeModelName,
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 9. Chamada direta ao Anthropic Claude
+  if (activeProvider === "claude" || activeProvider === "anthropic") {
     return streamAnthropicDirect({
-      apiKey: directKey,
-      modelName,
+      apiKey: effectiveKey,
+      modelName: activeModelName,
       messages,
       systemInstruction,
       callbacks,
@@ -289,10 +418,10 @@ export async function streamDirectAI(params: {
     });
   }
 
-  // 6. Fallback para Supabase Edge Function se autenticado
+  // 10. Fallback para Supabase Edge Function se autenticado
   return streamSupabaseOrchestratorFallback({
-    provider,
-    modelName,
+    provider: activeProvider,
+    modelName: activeModelName,
     messages,
     callbacks,
     signal,
@@ -328,6 +457,78 @@ function createSafeTimeoutSignal(ms: number, parentSignal?: AbortSignal): { sign
       }
     },
   };
+}
+
+/** Sanitiza e coalesça mensagens para a API Gemini (garantindo alternância estrita user -> model -> user) */
+export function sanitizeGeminiContents(
+  messages: ChatMessage[],
+): Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> {
+  const filtered = messages
+    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
+    .map((m) => ({
+      role: (m.role === "assistant" ? "model" : "user") as "user" | "model",
+      text: m.content.trim(),
+    }));
+
+  if (filtered.length === 0) {
+    return [{ role: "user", parts: [{ text: "Olá" }] }];
+  }
+
+  const result: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+
+  for (const item of filtered) {
+    const last = result[result.length - 1];
+    if (last && last.role === item.role) {
+      last.parts[0].text += "\n\n" + item.text;
+    } else {
+      result.push({
+        role: item.role,
+        parts: [{ text: item.text }],
+      });
+    }
+  }
+
+  if (result.length > 0 && result[0].role !== "user") {
+    result.unshift({ role: "user", parts: [{ text: "Iniciar conversa." }] });
+  }
+
+  return result;
+}
+
+/** Sanitiza e coalesça mensagens para a API Anthropic Claude (garantindo alternância estrita user -> assistant -> user) */
+export function sanitizeAnthropicMessages(
+  messages: ChatMessage[],
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const filtered = messages
+    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
+    .map((m) => ({
+      role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+      content: m.content.trim(),
+    }));
+
+  if (filtered.length === 0) {
+    return [{ role: "user", content: "Olá" }];
+  }
+
+  const result: Array<{ role: "user" | "assistant"; content: string }> = [];
+
+  for (const item of filtered) {
+    const last = result[result.length - 1];
+    if (last && last.role === item.role) {
+      last.content += "\n\n" + item.content;
+    } else {
+      result.push({
+        role: item.role,
+        content: item.content,
+      });
+    }
+  }
+
+  if (result.length > 0 && result[0].role !== "user") {
+    result.unshift({ role: "user", content: "Iniciar conversa." });
+  }
+
+  return result;
 }
 
 /** Chamada síncrona / REST de fallback para Gemini quando streaming SSE é bloqueado ou falha no WebView */
@@ -426,17 +627,8 @@ async function streamGeminiDirect(params: {
     throw new DOMException("Operação cancelada pelo utilizador.", "AbortError");
   }
 
-  // Converte mensagens para o formato do Gemini, filtrando mensagens vazias
-  const contents = messages
-    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
-    .map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
-  if (contents.length === 0) {
-    contents.push({ role: "user", parts: [{ text: "Olá" }] });
-  }
+  // Converte mensagens para o formato do Gemini com alternância estrita garantida
+  const contents = sanitizeGeminiContents(messages);
 
   // Ferramentas só são ativadas se o utilizador solicitar explicitamente operações de ficheiro/shell
   const needsTools = messages.some((m) => {
@@ -723,12 +915,26 @@ async function fetchOpenAIDirectSync(params: {
     modelName.includes("o1") ||
     modelName.includes("o3");
 
+  const needsTools = formattedMessages.some((m) => {
+    const c = (m.content || "").toLowerCase();
+    return (
+      c.includes("ficheiro") ||
+      c.includes("arquivo") ||
+      c.includes("terminal") ||
+      c.includes("comando") ||
+      c.includes("shell") ||
+      c.includes("executa") ||
+      c.includes("npm ") ||
+      c.includes("git ")
+    );
+  });
+
   const reqBody: Record<string, unknown> = {
     model: modelName,
     messages: formattedMessages,
     stream: false,
   };
-  if (!withoutTools && !isReasoning) {
+  if (needsTools && !withoutTools && !isReasoning) {
     reqBody.tools = OPENAI_TOOLS;
   }
 
@@ -847,12 +1053,26 @@ async function streamOpenAIDirect(params: {
     signal.addEventListener("abort", onParentAbort, { once: true });
   }
 
+  const needsTools = formattedMessages.some((m) => {
+    const c = (m.content || "").toLowerCase();
+    return (
+      c.includes("ficheiro") ||
+      c.includes("arquivo") ||
+      c.includes("terminal") ||
+      c.includes("comando") ||
+      c.includes("shell") ||
+      c.includes("executa") ||
+      c.includes("npm ") ||
+      c.includes("git ")
+    );
+  });
+
   const streamBody: Record<string, unknown> = {
     model: modelName,
     messages: formattedMessages,
     stream: true,
   };
-  if (!isReasoning) {
+  if (needsTools && !isReasoning) {
     streamBody.tools = OPENAI_TOOLS;
   }
 
@@ -1035,16 +1255,7 @@ async function fetchAnthropicDirectSync(params: {
   const { apiKey, modelName, messages, systemInstruction, callbacks, signal } = params;
   const endpoint = "https://api.anthropic.com/v1/messages";
 
-  const anthropicMessages = messages
-    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
-    .map((m) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content,
-    }));
-
-  if (anthropicMessages.length === 0) {
-    anthropicMessages.push({ role: "user", content: "Olá" });
-  }
+  const anthropicMessages = sanitizeAnthropicMessages(messages);
 
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
   let res: Response;
@@ -1109,16 +1320,7 @@ async function streamAnthropicDirect(params: {
     throw new DOMException("Operação cancelada pelo utilizador.", "AbortError");
   }
 
-  const anthropicMessages = messages
-    .filter((m) => m.role !== "system" && m.content && m.content.trim().length > 0)
-    .map((m) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content,
-    }));
-
-  if (anthropicMessages.length === 0) {
-    anthropicMessages.push({ role: "user", content: "Olá" });
-  }
+  const anthropicMessages = sanitizeAnthropicMessages(messages);
 
   const endpoint = "https://api.anthropic.com/v1/messages";
   const streamAbortController = new AbortController();
