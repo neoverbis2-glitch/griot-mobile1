@@ -16,9 +16,25 @@ dist-ssr
 .nitro
 *.local
 
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
+
+# Supabase local state / secrets
+supabase/.temp/
+supabase/.branches/
+supabase/.env.local
+supabase/.env.*
+!supabase/.env.example
 
 # Editor directories and files
 .vscode/*
@@ -31,6 +47,5 @@ dist-ssr
 *.sln
 *.sw?
 
-supabase/.temp/
 *.apk
 *-apk/
