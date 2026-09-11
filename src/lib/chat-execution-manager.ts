@@ -56,6 +56,7 @@ interface ActiveExecution {
   controller: AbortController;
   state: ExecutionState;
   listeners: Set<ExecutionListener>;
+  startedAt: number;
 }
 
 class ChatExecutionManager {
@@ -148,9 +149,19 @@ class ChatExecutionManager {
       currentProject,
     } = params;
 
-    // Se já houver execução ativa para esta conversa, não duplica
-    if (this.activeExecutions.has(conversationId)) {
-      return;
+    // Se já houver execução ativa para esta conversa
+    const existing = this.activeExecutions.get(conversationId);
+    if (existing) {
+      // Se ainda está a decorrer dentro do prazo máximo razoável (40s), preserva a resposta legítima
+      const elapsed = Date.now() - (existing.startedAt || 0);
+      if (elapsed < 40000) {
+        return;
+      }
+      // Se já ultrapassou 40s (travada por erro de rede não recuperado), cancela a anterior e liberta o chat
+      try {
+        existing.controller.abort();
+      } catch {}
+      this.activeExecutions.delete(conversationId);
     }
 
     const controller = new AbortController();
@@ -165,6 +176,7 @@ class ChatExecutionManager {
         steps: 0,
       },
       listeners: new Set(),
+      startedAt: Date.now(),
     };
 
     this.activeExecutions.set(conversationId, active);
@@ -399,27 +411,29 @@ class ChatExecutionManager {
     // 1. Gravação local imediata (disponível instantaneamente mesmo offline ou ao navegar)
     this.appendMessageLocally(conversationId, asstMsg);
 
-    // 2. Gravação no Supabase em segundo plano
-    try {
-      const workspaceId = await getPrimaryWorkspaceId(userId);
-      await (supabase as any).from("griot_messages").insert({
-        id: asstId,
-        workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-        conversation_id: conversationId,
-        actor_kind: "model",
-        content,
-        status: "succeeded",
-        metadata: { model: modelId },
-      });
+    // 2. Gravação no Supabase desacoplada em segundo plano (fire-and-forget sem reter o ciclo de vida)
+    void (async () => {
+      try {
+        const workspaceId = await getPrimaryWorkspaceId(userId);
+        await (supabase as any).from("griot_messages").insert({
+          id: asstId,
+          workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
+          conversation_id: conversationId,
+          actor_kind: "model",
+          content,
+          status: "succeeded",
+          metadata: { model: modelId },
+        });
 
-      // Atualiza timestamp da conversa
-      await (supabase as any)
-        .from("griot_conversations")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", conversationId);
-    } catch (supabaseErr) {
-      console.warn("[ChatExecutionManager] Sincronização Supabase em background:", supabaseErr);
-    }
+        // Atualiza timestamp da conversa
+        await (supabase as any)
+          .from("griot_conversations")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", conversationId);
+      } catch (supabaseErr) {
+        console.warn("[ChatExecutionManager] Sincronização Supabase em background:", supabaseErr);
+      }
+    })();
   }
 
   private notify(conversationId: string, state: ExecutionState): void {

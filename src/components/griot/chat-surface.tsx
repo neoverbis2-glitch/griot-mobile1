@@ -298,7 +298,7 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [model, setModel] = useState<string>(() => {
     if (typeof window !== "undefined") {
       const stored = window.localStorage.getItem("griot-default-model");
-      if (stored) return stored;
+      if (stored && stored !== "modelos" && stored !== "model-os") return stored;
     }
     return DEFAULT_MODEL;
   });
@@ -407,7 +407,7 @@ export function ChatSurface({ userId }: { userId: string }) {
   // Seleciona a primeira API adicionada se o modelo selecionado não for válido
   useEffect(() => {
     if (availableModels.length > 0) {
-      if (!model || !availableModels.some((m) => m.id === model)) {
+      if (!model || model === "modelos" || model === "model-os" || !availableModels.some((m) => m.id === model)) {
         setModel(availableModels[0].id);
       }
     }
@@ -629,6 +629,17 @@ export function ChatSurface({ userId }: { userId: string }) {
       setStreaming(execState.streaming);
       setReasoning(execState.reasoning);
       setSteps(execState.steps);
+      if (!execState.busy && typeof window !== "undefined") {
+        try {
+          const rawStored = localStorage.getItem("griot_messages_" + conversationId);
+          if (rawStored) {
+            const parsed = JSON.parse(rawStored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setMessages(parsed);
+            }
+          }
+        } catch {}
+      }
     });
 
     // 2. Cache local imediato para carregar mensagens instantaneamente
@@ -665,29 +676,82 @@ export function ChatSurface({ userId }: { userId: string }) {
 
     window.addEventListener("griot_message_saved", handleMessageSaved);
 
-    // 4. Sincronização remota via Supabase
+    // 4. Sincronização remota via Supabase com merge não-destrutivo e deduplicação semântica
     void (supabase as any)
       .from("griot_messages")
       .select("id, actor_kind, content, created_at, metadata")
       .eq("conversation_id", conversationId)
       .order("created_at")
       .then(({ data }: any) => {
-        if (!cancelled && data) {
-          const mapped: Row[] = data.map((m: any) => ({
+        if (!cancelled && data && Array.isArray(data)) {
+          const remoteRows: Row[] = data.map((m: any) => ({
             id: m.id,
             role: m.actor_kind === "human" ? "user" : m.actor_kind === "model" ? "assistant" : "system",
             content: m.content,
             created_at: m.created_at,
             feedback: null,
+            metadata: m.metadata,
           }));
-          if (mapped.length > 0) {
-            setMessages(mapped);
+
+          setMessages((currentList) => {
+            let diskList: Row[] = [];
             if (typeof window !== "undefined") {
               try {
-                localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(mapped));
+                const rawStorage = localStorage.getItem("griot_messages_" + conversationId);
+                if (rawStorage) diskList = JSON.parse(rawStorage);
               } catch {}
             }
-          }
+            const localBase = diskList.length >= currentList.length ? diskList : currentList;
+
+            // Merge inteligente: indexação por ID + reconciliação semântica temporal
+            const mergedMap = new Map<string, Row>();
+            for (const item of localBase) {
+              mergedMap.set(item.id, item);
+            }
+
+            for (const remote of remoteRows) {
+              if (mergedMap.has(remote.id)) {
+                // Mensagem já existe por ID exato: preserva feedback local se houver
+                const existing = mergedMap.get(remote.id)!;
+                mergedMap.set(remote.id, { ...remote, feedback: existing.feedback ?? remote.feedback });
+                continue;
+              }
+
+              // Deduplicação por fingerprint: verifica se já existe mensagem local com mesmo papel, conteúdo idêntico e timestamp próximo (< 60s)
+              let matchedLocalId: string | null = null;
+              const remoteTime = new Date(remote.created_at).getTime();
+              for (const [id, localItem] of mergedMap.entries()) {
+                if (localItem.role === remote.role && localItem.content.trim() === remote.content.trim()) {
+                  const localTime = new Date(localItem.created_at).getTime();
+                  if (Math.abs(localTime - remoteTime) < 60000) {
+                    matchedLocalId = id;
+                    break;
+                  }
+                }
+              }
+
+              if (matchedLocalId) {
+                // Reconcilia o ID local com o ID do Supabase sem duplicar
+                const existing = mergedMap.get(matchedLocalId)!;
+                mergedMap.delete(matchedLocalId);
+                mergedMap.set(remote.id, { ...existing, id: remote.id });
+              } else {
+                mergedMap.set(remote.id, remote);
+              }
+            }
+
+            const finalList = Array.from(mergedMap.values()).sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            );
+
+            if (typeof window !== "undefined" && finalList.length > 0) {
+              try {
+                localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(finalList));
+              } catch {}
+            }
+
+            return finalList;
+          });
         }
       });
 
@@ -785,51 +849,6 @@ export function ChatSurface({ userId }: { userId: string }) {
     };
   }, [conversationId]);
 
-  // Mantém sincronismo contínuo com o ChatExecutionManager mesmo se o utilizador trocar de ecrã ou voltar
-  useEffect(() => {
-    if (!conversationId) return;
-
-    const unsubscribe = chatExecutionManager.subscribe(conversationId, (state) => {
-      if (state.busy) {
-        setBusy(true);
-        setStreaming(state.streaming);
-        setReasoning(state.reasoning);
-        setSteps(state.steps);
-      } else {
-        setBusy(false);
-        setStreaming("");
-        setReasoning("");
-        setSteps(0);
-        if (typeof window !== "undefined") {
-          try {
-            const rawStored = localStorage.getItem("griot_messages_" + conversationId);
-            if (rawStored) {
-              const parsed = JSON.parse(rawStored);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setMessages(parsed);
-              }
-            }
-          } catch {}
-        }
-      }
-    });
-
-    const handleSavedMsg = (ev: Event) => {
-      const customEv = ev as CustomEvent<{ conversationId: string; msg: Row }>;
-      if (customEv.detail?.conversationId === conversationId && customEv.detail?.msg) {
-        setMessages((curr) => {
-          if (curr.some((m) => m.id === customEv.detail.msg.id)) return curr;
-          return [...curr, customEv.detail.msg];
-        });
-      }
-    };
-    window.addEventListener("griot_message_saved", handleSavedMsg);
-
-    return () => {
-      unsubscribe();
-      window.removeEventListener("griot_message_saved", handleSavedMsg);
-    };
-  }, [conversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });

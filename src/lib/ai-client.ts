@@ -217,12 +217,6 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
       ? "gemini-1.5-pro"
       : m.includes("1.5-flash")
       ? "gemini-1.5-flash"
-      : m.includes("2.5-pro")
-      ? "gemini-2.0-flash"
-      : m.includes("2.5-flash")
-      ? "gemini-2.0-flash"
-      : m.includes("3.6-flash")
-      ? "gemini-2.0-flash"
       : "gemini-2.0-flash";
     return { provider: "gemini", modelName: name };
   }
@@ -542,7 +536,7 @@ async function fetchGeminiDirectSync(params: {
   const { apiKey, modelName, body, callbacks, signal } = params;
   const syncEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(20000, signal);
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
   let res: Response;
   try {
     res = await fetch(syncEndpoint, {
@@ -556,6 +550,10 @@ async function fetchGeminiDirectSync(params: {
   }
 
   if (!res.ok) {
+    if (res.status === 404 && modelName !== "gemini-1.5-flash") {
+      console.warn(`[GRIOT] REST direct 404 em ${modelName}. Tentando gemini-1.5-flash...`);
+      return fetchGeminiDirectSync({ ...params, modelName: "gemini-1.5-flash" });
+    }
     const errText = await res.text().catch(() => "");
     throw new Error(`Google Gemini erro ${res.status}: ${errText.slice(0, 180)}`);
   }
@@ -663,6 +661,18 @@ async function streamGeminiDirect(params: {
     };
   }
 
+  // No WebView móvel nativo (Capacitor/Android), streams SSE por chunked transfer sofrem buffering agressivo no Chromium.
+  // Recorrer a REST direto (:generateContent) com token synthesis garante resposta imediata (< 1s) sem travamento de socket.
+  const isCapacitorOrMobile =
+    typeof window !== "undefined" &&
+    (window.location.protocol === "capacitor:" ||
+      window.location.protocol === "ionic:" ||
+      /android|iphone|ipad/i.test(navigator.userAgent));
+
+  if (isCapacitorOrMobile) {
+    return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
+  }
+
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
   // Controlador de aborto local interligado ao sinal do utilizador
@@ -719,28 +729,19 @@ async function streamGeminiDirect(params: {
 
     if (response.status === 404 && suggestedModel && suggestedModel !== modelName) {
       console.warn(`[GRIOT] Google recomendou o modelo ${suggestedModel}. A auto-recuperar...`);
-      return streamGeminiDirect({
+      return fetchGeminiDirectSync({
         ...params,
         modelName: suggestedModel,
       });
     }
 
-    // 2. Fallbacks em cadeia se for 404
-    if (response.status === 404) {
-      const fallbacks = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.6-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
-      for (const candidate of fallbacks) {
-        if (candidate !== modelName && candidate !== suggestedModel) {
-          try {
-            console.warn(`[GRIOT] Tentando modelo alternativo: ${candidate}...`);
-            return await streamGeminiDirect({
-              ...params,
-              modelName: candidate,
-            });
-          } catch {
-            // continua para o próximo fallback
-          }
-        }
-      }
+    // 2. Fallback de passo único sem recursão se for 404
+    if (response.status === 404 && modelName !== "gemini-1.5-flash") {
+      console.warn(`[GRIOT] Gemini 404 em ${modelName}. Tentando gemini-1.5-flash via REST direto...`);
+      return fetchGeminiDirectSync({
+        ...params,
+        modelName: "gemini-1.5-flash",
+      });
     }
 
     // 3. Se deu erro 400 por ferramentas, tenta síncrono sem tools
