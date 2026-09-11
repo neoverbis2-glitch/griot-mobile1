@@ -6,6 +6,26 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
+/**
+ * Compatibility transform for provider model IDs that were removed by Google.
+ * Keep the source/API surface stable while ensuring both browser and SSR builds
+ * never emit retired Gemini 2.0/1.5 model identifiers.
+ */
+const geminiModelCompat = {
+  name: "griot-gemini-model-compat",
+  enforce: "pre" as const,
+  transform(code: string, id: string) {
+    if (!/[\\/]src[\\/].*\\.(?:ts|tsx|js|jsx)$/.test(id)) return null;
+    if (!code.includes("gemini-2.0-flash") && !code.includes("gemini-1.5-flash")) return null;
+
+    const transformed = code
+      .replaceAll("gemini-2.0-flash", "gemini-3.7-flash")
+      .replaceAll("gemini-1.5-flash", "gemini-3.1-flash-lite");
+
+    return transformed === code ? null : { code: transformed, map: null };
+  },
+};
+
 export default defineConfig({
   server: {
     host: "0.0.0.0",
@@ -13,6 +33,7 @@ export default defineConfig({
     strictPort: true,
   },
   vite: {
+    plugins: [geminiModelCompat],
     server: {
       host: "0.0.0.0",
       port: 3000,
