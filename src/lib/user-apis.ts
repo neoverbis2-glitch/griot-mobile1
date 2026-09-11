@@ -7,7 +7,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { saveGriotCredential, deleteGriotCredential } from "@/lib/griot-api";
+import { saveGriotCredential, verifyGriotCredential, deleteGriotCredential } from "@/lib/griot-api";
 
 export interface UserSavedApi {
   id: string;
@@ -99,7 +99,7 @@ export async function saveUserApi(input: {
     apiKey: trimmedKey,
     model: input.model,
     secretHint: `••••${trimmedKey.slice(-4)}`,
-    status: "active",
+    status: "error",
     createdAt: new Date().toISOString(),
   };
 
@@ -113,25 +113,42 @@ export async function saveUserApi(input: {
     window.dispatchEvent(new Event("griot-apis-updated"));
   }
 
-  // Tenta guardar no Supabase em background
+  // Persiste e VERIFICA no backend antes de marcar a API como ativa.
   try {
+    const backendProvider = provider === "claude" ? "anthropic" : provider;
     const res = await saveGriotCredential({
-      providerId: provider === "claude" ? "anthropic" : (provider as any),
+      providerId: backendProvider as any,
       secret: trimmedKey,
       label: finalLabel,
       model: input.model,
     });
-    if (res.data?.credential) {
-      newApi.remoteId = res.data.credential.id;
-      // atualiza o array com o remoteId
+
+    const remoteId = res.data?.credential?.id;
+    if (!remoteId) throw new Error(res.error || "O backend não criou a credencial.");
+
+    const verification = await verifyGriotCredential(remoteId);
+    newApi.remoteId = remoteId;
+    newApi.status = verification.data?.valid === true ? "active" : "error";
+
+    if (typeof window !== "undefined") {
       const idx = apis.findIndex((a) => a.id === newApi.id);
       if (idx !== -1) {
         apis[idx] = newApi;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(apis));
       }
+      window.dispatchEvent(new Event("griot-apis-updated"));
     }
-  } catch {
-    // continua normalmente com persistência local
+  } catch (err) {
+    console.warn("[GRIOT] Falha a sincronizar/verificar credencial no backend:", err);
+    newApi.status = "error";
+    if (typeof window !== "undefined") {
+      const idx = apis.findIndex((a) => a.id === newApi.id);
+      if (idx !== -1) {
+        apis[idx] = newApi;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(apis));
+      }
+      window.dispatchEvent(new Event("griot-apis-updated"));
+    }
   }
 
   return newApi;
@@ -207,4 +224,3 @@ export function findApiByIdOrProvider(idOrProvider: string): UserSavedApi | null
 
   return null;
 }
-
