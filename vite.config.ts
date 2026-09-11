@@ -40,7 +40,7 @@ export default defineConfig({
     resolve: {
       alias: [
         {
-          find: /^@\\/lib\\/ai-client$/,
+          find: /^@\/lib\/ai-client$/,
           replacement: mobileAiEntry,
         },
       ],
