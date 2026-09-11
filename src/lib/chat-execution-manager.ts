@@ -159,15 +159,17 @@ class ChatExecutionManager {
       this.activeExecutions.delete(conversationId);
     }
 
+    const isFastMode = effort === "low" || scope === "quick";
+    const executionTimeoutMs = isFastMode ? 60000 : 120000;
     const controller = new AbortController();
     const hardTimeoutTimer = setTimeout(() => {
       if (!controller.signal.aborted) {
-        console.warn("[ChatExecutionManager] Watchdog de execução atingiu 20s. Abortando execução travada...");
+        console.warn(`[ChatExecutionManager] Watchdog de execução atingiu ${executionTimeoutMs / 1000}s. Abortando execução travada...`);
         try {
-          controller.abort(new Error("Tempo limite de execução atingido (20s)."));
+          controller.abort(new Error(`Tempo limite de execução atingido (${executionTimeoutMs / 1000}s).`));
         } catch {}
       }
-    }, 20000);
+    }, executionTimeoutMs);
 
     const active: ActiveExecution = {
       controller,
@@ -231,19 +233,18 @@ class ChatExecutionManager {
       }
     }
 
-    console.log("[GRIOT_DEBUG] startExecution: antes do try, isFastMode=", effort === "low" || scope === "quick");
+    console.log("[GRIOT_DEBUG] startExecution: antes do try, isFastMode=", isFastMode);
     try {
-      const isFastMode = effort === "low" || scope === "quick";
       const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
 
       console.log("[GRIOT_DEBUG] chamando streamDirectAI ou executeReActLoop", { isFastMode });
 
-      // Em modo rápido, executa chamada direta ultrarrápida sem passar pelo ReAct loop iterativo
+      // Em modo rápido, o cliente móvel marca explicitamente o Fast Path do Orchestrator.
       if (isFastMode) {
         const directRes = await streamDirectAI({
           modelId: effectiveModelId,
           messages: effectiveMessages,
-          systemInstruction: effectiveSystemInstruction,
+          systemInstruction: `[GRIOT_FAST_PATH]\n${effectiveSystemInstruction}`,
           callbacks: {
             onToken: (tok) => {
               if (controller.signal.aborted) return;
@@ -318,8 +319,8 @@ class ChatExecutionManager {
     } catch (err: any) {
       console.error("[GRIOT_DEBUG] startExecution catch:", err?.message, err);
       const isTimeout =
-        (controller.signal.aborted && String(controller.signal.reason).includes("20s")) ||
-        String(err?.message).includes("20s") ||
+        (controller.signal.aborted && String(controller.signal.reason).includes("Tempo limite")) ||
+        String(err?.message).includes("Tempo limite") ||
         String(err?.message).includes("Timeout");
 
       if (controller.signal.aborted && !isTimeout) {
@@ -327,7 +328,7 @@ class ChatExecutionManager {
       }
       console.warn("[ChatExecutionManager] Falha na execução da IA:", err);
       const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
-      answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${isTimeout ? "A ligação excedeu o limite de segurança de 20s para proteger os teus créditos de IA." : (err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA.")}\n\n👉 Tenta novamente ou verifica a tua chave em **Definições → Chave Google Gemini**.`;
+      answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${isTimeout ? `A execução excedeu o limite de segurança de ${executionTimeoutMs / 1000}s.` : (err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA.")}\n\n👉 Tenta novamente ou verifica a tua chave em **Definições → Chave Google Gemini**.`;
     } finally {
       clearTimeout(hardTimeoutTimer);
       console.log("[GRIOT_DEBUG] startExecution: entrou no finally", {
