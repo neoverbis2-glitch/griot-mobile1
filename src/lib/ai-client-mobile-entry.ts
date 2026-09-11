@@ -10,7 +10,6 @@ import {
   isMobileOrCapacitor,
   sanitizeGeminiContents,
   sanitizeAnthropicMessages,
-  streamDirectAI as streamCoreDirectAI,
 } from "./ai-client";
 
 export type { ChatMessage, StreamCallbacks, AIResponse };
@@ -73,23 +72,12 @@ async function streamMobileOrchestrator(params: {
     executionMode = "orchestrated",
   } = params;
 
-  // Quick must be a real fast path. The Quick surface already marks its
-  // system prompt explicitly, so this works without changing the backend or
-  // the existing ChatExecutionManager API.
+  // Quick is marked by ChatExecutionManager for both the Quick scope and
+  // the "Rápido" effort. It must use the dedicated low-latency backend path.
   const isQuickPath =
     executionMode === "quick" ||
+    systemInstruction.includes("[GRIOT_FAST_PATH]") ||
     systemInstruction.includes("[MODO QUICK DELIBERATION ROOM]");
-
-  if (isQuickPath) {
-    console.log("[GRIOT_DEBUG] MOBILE_QUICK_DIRECT_PATH", { modelId });
-    return streamCoreDirectAI({
-      modelId,
-      messages,
-      systemInstruction,
-      callbacks,
-      signal,
-    });
-  }
 
   const modelOs = /^(modelos|model-os)$/i.test(modelId.trim()) || modelId.toLowerCase().includes("modelos");
   const resolved = resolveProviderAndModel(modelId);
@@ -111,8 +99,12 @@ async function streamMobileOrchestrator(params: {
 
   const payloadMessages = messages
     .filter((m) => m.role !== "tool" && m.content?.trim())
-    .slice(-24)
+    .slice(-(isQuickPath ? 8 : 24))
     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+
+  const effectiveSystemInstruction = systemInstruction
+    .replace(/^\[GRIOT_FAST_PATH\]\s*/i, "")
+    .trim();
 
   const body = {
     prompt,
@@ -120,21 +112,25 @@ async function streamMobileOrchestrator(params: {
     provider,
     model: modelName,
     temperature: 0.2,
-    maxOutputTokens: 4096,
+    maxOutputTokens: isQuickPath ? 1024 : 4096,
     autoFabric: false,
+    systemInstruction: effectiveSystemInstruction,
   };
 
-  console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_ORCHESTRATOR_START", {
+  console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_AI_START", {
+    path: isQuickPath ? "quick" : "orchestrator",
     provider,
     model: modelName,
     promptChars: prompt.length,
   });
 
-  const { signal: safeSignal, cleanup } = createTimeoutSignal(20000, signal);
+  const endpoint = isQuickPath ? "griot-quick/ask" : "griot-orchestrator/ask";
+  const timeoutMs = isQuickPath ? 60000 : 120000;
+  const { signal: safeSignal, cleanup } = createTimeoutSignal(timeoutMs, signal);
   let response: Response;
   const startedAt = Date.now();
   try {
-    response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`, {
+    response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -145,40 +141,42 @@ async function streamMobileOrchestrator(params: {
       signal: safeSignal,
     });
 
-    console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_ORCHESTRATOR_RESPONSE", {
+    console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_AI_RESPONSE", {
+      path: isQuickPath ? "quick" : "orchestrator",
       status: response.status,
       elapsedMs: Date.now() - startedAt,
     });
 
+    // O timeout mantém-se ativo durante toda a leitura do body.
     const rawText = await response.text();
 
     let payload: any = {};
     try {
       payload = rawText ? JSON.parse(rawText) : {};
     } catch {
-      throw new Error(`Orquestrador devolveu resposta inválida (HTTP ${response.status}).`);
+      throw new Error(`Endpoint GRIOT devolveu resposta inválida (HTTP ${response.status}).`);
     }
 
     if (!response.ok) {
-      throw new Error(String(payload.error || `Orquestrador GRIOT devolveu HTTP ${response.status}.`));
+      throw new Error(String(payload.error || `Endpoint GRIOT devolveu HTTP ${response.status}.`));
     }
 
     const text = String(payload.result?.content || payload.message?.content || "").trim();
     if (!text) {
-      throw new Error("Orquestrador GRIOT terminou sem devolver conteúdo.");
+      throw new Error(`${isQuickPath ? "Quick" : "Orquestrador"} GRIOT terminou sem devolver conteúdo.`);
     }
 
-    console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_ORCHESTRATOR_DONE", {
+    console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_AI_DONE", {
+      path: isQuickPath ? "quick" : "orchestrator",
       chars: text.length,
       requestId: payload.requestId || null,
       elapsedMs: Date.now() - startedAt,
     });
 
     for (const tokenText of text.split(/(\s+)/)) {
-      if (!tokenText) continue;
       if (signal?.aborted || safeSignal.aborted) throw new DOMException("Operação cancelada.", "AbortError");
       callbacks?.onToken?.(tokenText);
-      await new Promise((resolve) => setTimeout(resolve, 6));
+      await new Promise((resolve) => setTimeout(resolve, isQuickPath ? 3 : 6));
     }
 
     if (payload.result?.usage) {
@@ -191,7 +189,7 @@ async function streamMobileOrchestrator(params: {
     return { text, reasoning: "", toolCalls: [] };
   } catch (error) {
     if (safeSignal.aborted && !signal?.aborted) {
-      throw new Error("O orquestrador GRIOT excedeu o limite de 20s durante a resposta.");
+      throw new Error(`${isQuickPath ? "Quick" : "Orquestrador"} GRIOT excedeu o limite de ${Math.round(timeoutMs / 1000)}s durante a resposta.`);
     }
     throw error;
   } finally {
