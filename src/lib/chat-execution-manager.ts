@@ -13,7 +13,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
-import { streamDirectAI } from "@/lib/ai-client";
+import { streamDirectAI } from "@/lib/ai-client-mobile-entry";
 import { modelLabel, isModelOS } from "@/lib/griot";
 import { observerEngine } from "@/lib/runtime";
 import { parseProposals } from "@/lib/capsule-proposals";
