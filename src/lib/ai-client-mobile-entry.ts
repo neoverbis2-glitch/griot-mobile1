@@ -10,6 +10,7 @@ import {
   isMobileOrCapacitor,
   sanitizeGeminiContents,
   sanitizeAnthropicMessages,
+  streamDirectAI as streamCoreDirectAI,
 } from "./ai-client";
 
 export type { ChatMessage, StreamCallbacks, AIResponse };
@@ -61,8 +62,29 @@ async function streamMobileOrchestrator(params: {
   systemInstruction?: string;
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
+  executionMode?: "quick" | "orchestrated";
 }): Promise<AIResponse> {
-  const { modelId, messages, systemInstruction = "", callbacks, signal } = params;
+  const {
+    modelId,
+    messages,
+    systemInstruction = "",
+    callbacks,
+    signal,
+    executionMode = "orchestrated",
+  } = params;
+
+  // Quick must be a real fast path. It uses the existing direct provider client
+  // and intentionally bypasses the full Supabase Orchestrator/OPB/GCU pipeline.
+  if (executionMode === "quick") {
+    console.log("[GRIOT_DEBUG] MOBILE_QUICK_DIRECT_PATH", { modelId });
+    return streamCoreDirectAI({
+      modelId,
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
 
   const modelOs = /^(modelos|model-os)$/i.test(modelId.trim()) || modelId.toLowerCase().includes("modelos");
   const resolved = resolveProviderAndModel(modelId);
@@ -123,9 +145,6 @@ async function streamMobileOrchestrator(params: {
       elapsedMs: Date.now() - startedAt,
     });
 
-    // IMPORTANTE: o timeout tem de continuar ativo durante a leitura do body.
-    // Antes, cleanup() era chamado logo após fetch(), deixando response.text()
-    // sem qualquer limite caso o body nunca terminasse.
     const rawText = await response.text();
 
     let payload: any = {};
@@ -171,7 +190,6 @@ async function streamMobileOrchestrator(params: {
     }
     throw error;
   } finally {
-    // Só desativa o timeout depois de TODA a resposta ter sido consumida.
     cleanup();
   }
 }
@@ -182,6 +200,7 @@ export async function streamDirectAI(params: {
   systemInstruction?: string;
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
+  executionMode?: "quick" | "orchestrated";
 }): Promise<AIResponse> {
   if (isMobileOrCapacitor()) {
     return streamMobileOrchestrator(params);
