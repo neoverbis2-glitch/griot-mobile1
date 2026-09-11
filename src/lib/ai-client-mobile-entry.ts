@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { GRIOT_SUPABASE_ANON_KEY, GRIOT_SUPABASE_URL, ensureGriotWorkspace } from "@/lib/griot-api";
+import { GRIOT_SUPABASE_ANON_KEY, GRIOT_SUPABASE_URL, ensureGriotWorkspace, listGriotCredentials, saveGriotCredential, verifyGriotCredential } from "@/lib/griot-api";
 import type { ChatMessage, StreamCallbacks, AIResponse } from "./ai-client";
 import {
   GEMINI_TOOL_DECLARATIONS,
@@ -56,6 +56,40 @@ function normalizeBackendModel(provider: string, modelName: string): string {
   return modelName;
 }
 
+const BACKEND_QUICK_PROVIDERS = new Set(["gemini", "openai", "anthropic", "groq", "openrouter"]);
+
+async function ensureQuickBackendCredential(provider: string, modelName: string): Promise<void> {
+  if (!BACKEND_QUICK_PROVIDERS.has(provider)) {
+    throw new Error(`O BANCKED Quick ainda não suporta o provedor ${provider}.`);
+  }
+
+  const credentials = await listGriotCredentials("provider");
+  if (credentials.data?.credentials?.some((credential) => credential.providerId === provider && credential.status === "active")) {
+    return;
+  }
+
+  const localKey = getSavedApiKey(provider);
+  if (!localKey) {
+    throw new Error(`Nenhuma credencial ${provider} verificada está disponível no BANCKED. Configura a API em Definições.`);
+  }
+
+  console.log("[GRIOT_DEBUG] QUICK_CREDENTIAL_AUTO_SYNC", { provider, model: modelName });
+
+  const saved = await saveGriotCredential({
+    providerId: provider as "gemini" | "openai" | "anthropic" | "groq" | "openrouter",
+    secret: localKey,
+    label: `GRIOT Quick ${provider}`,
+    model: modelName,
+  });
+  const remoteId = saved.data?.credential?.id;
+  if (!remoteId) throw new Error(saved.error || `BANCKED não conseguiu guardar a credencial ${provider}.`);
+
+  const verification = await verifyGriotCredential(remoteId);
+  if (verification.data?.valid !== true) {
+    throw new Error(verification.data?.message || `A credencial ${provider} foi rejeitada pelo fornecedor.`);
+  }
+}
+
 async function streamMobileQuickBackend(params: {
   modelId: string;
   messages: ChatMessage[];
@@ -71,7 +105,7 @@ async function streamMobileQuickBackend(params: {
 
   const { error: workspaceError } = await ensureGriotWorkspace();
   if (workspaceError) {
-    console.warn("[GRIOT_DEBUG] QUICK_WORKSPACE_PROVISION_WARNING", workspaceError);
+    throw new Error(`BANCKED não conseguiu preparar o workspace: ${workspaceError}`);
   }
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -87,6 +121,8 @@ async function streamMobileQuickBackend(params: {
     .filter((m) => m.role !== "tool" && m.content?.trim())
     .slice(-8)
     .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+
+  await ensureQuickBackendCredential(provider, modelName);
 
   const body = {
     prompt,
