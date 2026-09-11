@@ -117,56 +117,63 @@ async function streamMobileOrchestrator(params: {
       body: JSON.stringify(body),
       signal: safeSignal,
     });
+
+    console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_ORCHESTRATOR_RESPONSE", {
+      status: response.status,
+      elapsedMs: Date.now() - startedAt,
+    });
+
+    // IMPORTANTE: o timeout tem de continuar ativo durante a leitura do body.
+    // Antes, cleanup() era chamado logo após fetch(), deixando response.text()
+    // sem qualquer limite caso o body nunca terminasse.
+    const rawText = await response.text();
+
+    let payload: any = {};
+    try {
+      payload = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      throw new Error(`Orquestrador devolveu resposta inválida (HTTP ${response.status}).`);
+    }
+
+    if (!response.ok) {
+      throw new Error(String(payload.error || `Orquestrador GRIOT devolveu HTTP ${response.status}.`));
+    }
+
+    const text = String(payload.result?.content || payload.message?.content || "").trim();
+    if (!text) {
+      throw new Error("Orquestrador GRIOT terminou sem devolver conteúdo.");
+    }
+
+    console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_ORCHESTRATOR_DONE", {
+      chars: text.length,
+      requestId: payload.requestId || null,
+      elapsedMs: Date.now() - startedAt,
+    });
+
+    for (const tokenText of text.split(/(\s+)/)) {
+      if (!tokenText) continue;
+      if (signal?.aborted || safeSignal.aborted) throw new DOMException("Operação cancelada.", "AbortError");
+      callbacks?.onToken?.(tokenText);
+      await new Promise((resolve) => setTimeout(resolve, 6));
+    }
+
+    if (payload.result?.usage) {
+      const usage = payload.result.usage;
+      callbacks?.onReasoning?.(
+        usage.totalTokens ? `\n[GRIOT] ${usage.totalTokens} tokens processados.` : "",
+      );
+    }
+
+    return { text, reasoning: "", toolCalls: [] };
   } catch (error) {
-    if (signal?.aborted) throw error;
-    throw new Error(`GRIOT não conseguiu contactar o orquestrador: ${error instanceof Error ? error.message : String(error)}`);
+    if (safeSignal.aborted && !signal?.aborted) {
+      throw new Error("O orquestrador GRIOT excedeu o limite de 20s durante a resposta.");
+    }
+    throw error;
   } finally {
+    // Só desativa o timeout depois de TODA a resposta ter sido consumida.
     cleanup();
   }
-
-  console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_ORCHESTRATOR_RESPONSE", {
-    status: response.status,
-    elapsedMs: Date.now() - startedAt,
-  });
-
-  const rawText = await response.text();
-  let payload: any = {};
-  try {
-    payload = rawText ? JSON.parse(rawText) : {};
-  } catch {
-    throw new Error(`Orquestrador devolveu resposta inválida (HTTP ${response.status}).`);
-  }
-
-  if (!response.ok) {
-    throw new Error(String(payload.error || `Orquestrador GRIOT devolveu HTTP ${response.status}.`));
-  }
-
-  const text = String(payload.result?.content || payload.message?.content || "").trim();
-  if (!text) {
-    throw new Error("Orquestrador GRIOT terminou sem devolver conteúdo.");
-  }
-
-  console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_ORCHESTRATOR_DONE", {
-    chars: text.length,
-    requestId: payload.requestId || null,
-    elapsedMs: Date.now() - startedAt,
-  });
-
-  for (const tokenText of text.split(/(\s+)/)) {
-    if (!tokenText) continue;
-    if (signal?.aborted) throw new DOMException("Operação cancelada.", "AbortError");
-    callbacks?.onToken?.(tokenText);
-    await new Promise((resolve) => setTimeout(resolve, 6));
-  }
-
-  if (payload.result?.usage) {
-    const usage = payload.result.usage;
-    callbacks?.onReasoning?.(
-      usage.totalTokens ? `\n[GRIOT] ${usage.totalTokens} tokens processados.` : "",
-    );
-  }
-
-  return { text, reasoning: "", toolCalls: [] };
 }
 
 export async function streamDirectAI(params: {
