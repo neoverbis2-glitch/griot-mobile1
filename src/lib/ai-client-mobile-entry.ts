@@ -10,7 +10,6 @@ import {
   isMobileOrCapacitor,
   sanitizeGeminiContents,
   sanitizeAnthropicMessages,
-  streamDirectAI as streamCoreDirectAI,
 } from "./ai-client";
 
 export type { ChatMessage, StreamCallbacks, AIResponse };
@@ -56,6 +55,113 @@ function normalizeBackendModel(provider: string, modelName: string): string {
   return modelName;
 }
 
+async function streamMobileQuickBackend(params: {
+  modelId: string;
+  messages: ChatMessage[];
+  systemInstruction?: string;
+  callbacks?: StreamCallbacks;
+  signal?: AbortSignal;
+}): Promise<AIResponse> {
+  const { modelId, messages, systemInstruction = "", callbacks, signal } = params;
+  const modelOs = /^(modelos|model-os)$/i.test(modelId.trim()) || modelId.toLowerCase().includes("modelos");
+  const resolved = resolveProviderAndModel(modelId);
+  const provider = modelOs ? "gemini" : resolved.provider;
+  const modelName = normalizeBackendModel(provider, modelOs ? "gemini-3.6-flash" : resolved.modelName);
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw new Error(`Sessão GRIOT indisponível: ${sessionError.message}`);
+  const token = sessionData.session?.access_token;
+  if (!token) throw new Error("Sessão GRIOT expirada. Inicia sessão novamente para usar o Quick.");
+
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const prompt = lastUser?.content?.trim() || "";
+  if (!prompt) throw new Error("Mensagem do utilizador vazia.");
+
+  const payloadMessages = messages
+    .filter((m) => m.role !== "tool" && m.content?.trim())
+    .slice(-8)
+    .map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content }));
+
+  const body = {
+    prompt,
+    messages: payloadMessages,
+    provider,
+    model: modelName,
+    temperature: 0.2,
+    maxOutputTokens: 1024,
+    autoFabric: false,
+    systemInstruction: systemInstruction.replace(/^\[GRIOT_FAST_PATH\]\s*/i, "").trim(),
+  };
+
+  const timeoutMs = 60000;
+  const { signal: safeSignal, cleanup } = createTimeoutSignal(timeoutMs, signal);
+  const startedAt = Date.now();
+
+  console.log("[GRIOT_DEBUG] MOBILE_BANCKED_QUICK_START", {
+    endpoint: `${GRIOT_SUPABASE_URL}/functions/v1/griot-quick/ask`,
+    provider,
+    model: modelName,
+    promptChars: prompt.length,
+  });
+
+  try {
+    const response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-quick/ask`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: GRIOT_SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify(body),
+      signal: safeSignal,
+    });
+
+    const rawText = await response.text();
+    let payload: any = {};
+    try {
+      payload = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      throw new Error(`BANCKED Quick devolveu resposta inválida (HTTP ${response.status}).`);
+    }
+
+    if (!response.ok) {
+      throw new Error(String(payload.error || `BANCKED Quick devolveu HTTP ${response.status}.`));
+    }
+
+    const text = String(payload.result?.content || payload.message?.content || "").trim();
+    if (!text) throw new Error("BANCKED Quick terminou sem devolver conteúdo.");
+
+    console.log("[GRIOT_DEBUG] MOBILE_BANCKED_QUICK_DONE", {
+      chars: text.length,
+      requestId: payload.requestId || null,
+      elapsedMs: Date.now() - startedAt,
+    });
+
+    for (const tokenText of text.split(/(\s+)/)) {
+      if (signal?.aborted || safeSignal.aborted) {
+        throw new DOMException("Operação cancelada.", "AbortError");
+      }
+      if (tokenText) {
+        callbacks?.onToken?.(tokenText);
+        await new Promise((resolve) => setTimeout(resolve, 3));
+      }
+    }
+
+    if (payload.result?.usage?.totalTokens) {
+      callbacks?.onReasoning?.(`\n[GRIOT] ${payload.result.usage.totalTokens} tokens processados.`);
+    }
+
+    return { text, reasoning: "", toolCalls: [] };
+  } catch (error) {
+    if (safeSignal.aborted && !signal?.aborted) {
+      throw new Error(`BANCKED Quick excedeu o limite de ${Math.round(timeoutMs / 1000)}s.`);
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
+}
+
 async function streamMobileOrchestrator(params: {
   modelId: string;
   messages: ChatMessage[];
@@ -78,17 +184,14 @@ async function streamMobileOrchestrator(params: {
     systemInstruction.includes("[GRIOT_FAST_PATH]") ||
     systemInstruction.includes("[MODO QUICK DELIBERATION ROOM]");
 
+  if (isQuickPath) {
+    return streamMobileQuickBackend({ modelId, messages, systemInstruction, callbacks, signal });
+  }
+
   const modelOs = /^(modelos|model-os)$/i.test(modelId.trim()) || modelId.toLowerCase().includes("modelos");
   const resolved = resolveProviderAndModel(modelId);
   const provider = modelOs ? "gemini" : resolved.provider;
   const modelName = normalizeBackendModel(provider, modelOs ? "gemini-3.6-flash" : resolved.modelName);
-
-  // Quick é deliberadamente local/BYOK: não depende de OPB, GCU, workspace,
-  // credenciais server-side ou do ciclo pesado do Orchestrator.
-  if (isQuickPath) {
-    console.log("[GRIOT_DEBUG] MOBILE_QUICK_LOCAL_PATH", { provider, model: modelName });
-    return streamCoreDirectAI({ modelId, messages, systemInstruction, callbacks, signal });
-  }
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -172,7 +275,7 @@ async function streamMobileOrchestrator(params: {
           provider,
           model: modelName,
         });
-        return streamCoreDirectAI({ modelId, messages, systemInstruction, callbacks, signal });
+        return streamMobileQuickBackend({ modelId, messages, systemInstruction, callbacks, signal });
       }
 
       throw new Error(backendError);
