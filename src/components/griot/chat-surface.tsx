@@ -949,6 +949,16 @@ export function ChatSurface({ userId }: { userId: string }) {
     const activeEffort = options?.effort ?? effort;
     const voiceMode = options?.voice === true;
 
+    // Identificar o projeto associado à conversa ou o projeto ativo global
+    const currentProject =
+      projects.find((p) => p.id === conversation?.project_id) || activeProject;
+
+    console.log("[GRIOT_DEBUG] handleSend iniciado", {
+      conversationId,
+      hasProject: !!currentProject,
+      isFast: activeEffort === "low",
+    });
+
     // 1. Verificação prévia de chave no ambiente móvel para evitar congelamentos
     const activeModel = model;
     const { provider, specificApiKey } = resolveProviderAndModel(activeModel);
@@ -999,6 +1009,7 @@ export function ChatSurface({ userId }: { userId: string }) {
         Boolean((window as any).Capacitor?.isNativePlatform?.()));
 
     if (capsuleId && !voiceMode && activeEffort !== "low" && !isMobileNative) {
+      console.log("[GRIOT_DEBUG] antes de Kt (capsule search)");
       try {
         const compiled = await Promise.race([
           compileContext({
@@ -1007,14 +1018,12 @@ export function ChatSurface({ userId }: { userId: string }) {
           new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500)),
         ]);
         context = (compiled as any)?.text;
-      } catch {
+        console.log("[GRIOT_DEBUG] depois de Kt", { sucesso: true, resultado: context });
+      } catch (ktErr) {
         context = undefined;
+        console.log("[GRIOT_DEBUG] depois de Kt", { sucesso: false, resultado: undefined });
       }
     }
-
-    // Identificar o projeto associado à conversa ou o projeto ativo global
-    const currentProject =
-      projects.find((p) => p.id === conversation?.project_id) || activeProject;
 
     let sysInstruction =
       "És o GRIOT, o assistente de engenharia de software e inteligência artificial de elite. Quando precisares de inspecionar ou modificar ficheiros ou executar comandos, utiliza as ferramentas disponíveis.";
@@ -1066,6 +1075,12 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
     const lastUserPrompt = [...base].reverse().find((m) => m.role === "user")?.content || "";
 
+    console.log("[GRIOT_DEBUG] chamando startExecution", {
+      conversationId: targetConvId,
+      modelId: model,
+      effort: activeEffort,
+    });
+
     try {
       await chatExecutionManager.startExecution({
         conversationId: targetConvId,
@@ -1079,9 +1094,14 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         context,
         currentProject,
       });
+      console.log("[GRIOT_DEBUG] startExecution terminou sem lançar erro");
     } catch (err: any) {
+      console.error("[GRIOT_DEBUG] startExecution lançou erro:", err);
       toast.error(err?.message || "Erro na execução da resposta.");
     } finally {
+      console.log("[GRIOT_DEBUG] finally do handleSend", {
+        busyState: chatExecutionManager.getExecutionState(targetConvId),
+      });
       const st = chatExecutionManager.getExecutionState(targetConvId);
       if (!st || !st.busy) {
         setBusy(false);

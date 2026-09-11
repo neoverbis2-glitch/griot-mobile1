@@ -136,6 +136,7 @@ class ChatExecutionManager {
 
   /** Inicia a geração de mensagem em background */
   public async startExecution(params: StartExecutionParams): Promise<void> {
+    console.log("[GRIOT_DEBUG] startExecution: entrou", { conversationId: params.conversationId });
     const {
       conversationId,
       scope,
@@ -227,9 +228,12 @@ class ChatExecutionManager {
       }
     }
 
+    console.log("[GRIOT_DEBUG] startExecution: antes do try, isFastMode=", effort === "low" || scope === "quick");
     try {
       const isFastMode = effort === "low" || scope === "quick";
       const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
+
+      console.log("[GRIOT_DEBUG] chamando streamDirectAI ou executeReActLoop", { isFastMode });
 
       // Em modo rápido, executa chamada direta ultrarrápida sem passar pelo ReAct loop iterativo
       if (isFastMode) {
@@ -252,6 +256,10 @@ class ChatExecutionManager {
             },
           },
           signal: controller.signal,
+        });
+
+        console.log("[GRIOT_DEBUG] streamDirectAI/executeReActLoop retornou", {
+          textoRecebido: directRes.text?.length || answer?.length || 0,
         });
 
         if (directRes.text && !answer.trim()) {
@@ -289,6 +297,10 @@ class ChatExecutionManager {
           signal: controller.signal,
         });
 
+        console.log("[GRIOT_DEBUG] streamDirectAI/executeReActLoop retornou", {
+          textoRecebido: loopResult.finalAnswer?.length || answer?.length || 0,
+        });
+
         if (loopResult.finalAnswer) {
           answer = loopResult.finalAnswer;
           active.state.streaming = answer;
@@ -301,6 +313,7 @@ class ChatExecutionManager {
         answer = `⚠️ **O modelo de IA não devolveu resposta.**\n\nPor favor verifica a tua ligação à Internet e a chave de API em **Definições**.`;
       }
     } catch (err: any) {
+      console.error("[GRIOT_DEBUG] startExecution catch:", err?.message, err);
       if (controller.signal.aborted) {
         return;
       }
@@ -308,6 +321,11 @@ class ChatExecutionManager {
       const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
       answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Verifica a tua ligação à rede e a tua chave em **Definições → Chave Google Gemini**.`;
     } finally {
+      console.log("[GRIOT_DEBUG] startExecution: entrou no finally", {
+        aborted: controller.signal.aborted,
+        respostaVazia: !answer.trim(),
+      });
+
       // 2. Finalizar e salvar a mensagem do assistente localmente e no Supabase
       if (!controller.signal.aborted && answer.trim()) {
 
@@ -351,6 +369,7 @@ class ChatExecutionManager {
 
       // Desregistar execução ativa
       this.activeExecutions.delete(conversationId);
+      console.log("[GRIOT_DEBUG] startExecution: prestes a notificar busy=false");
       this.notify(conversationId, {
         conversationId,
         scope,
@@ -359,6 +378,7 @@ class ChatExecutionManager {
         reasoning: "",
         steps: 0,
       });
+      console.log("[GRIOT_DEBUG] startExecution: notify enviado");
 
       // Disparar evento para a UI atualizar lista de conversas
       if (typeof window !== "undefined") {

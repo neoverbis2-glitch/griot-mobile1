@@ -261,6 +261,13 @@ export async function streamDirectAI(params: {
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
 }): Promise<AIResponse> {
+  const isCapacitorOrMobileEnv =
+    typeof window !== "undefined" &&
+    (window.location.protocol === "capacitor:" ||
+      window.location.protocol === "ionic:" ||
+      /android|iphone|ipad/i.test(navigator.userAgent));
+  console.log("[GRIOT_DEBUG] streamDirectAI: entrou", { modelId: params.modelId, isMobile: isCapacitorOrMobileEnv });
+
   const { modelId, messages, systemInstruction, callbacks, signal } = params;
   const resolved = resolveProviderAndModel(modelId);
   let activeProvider = resolved.provider;
@@ -536,6 +543,8 @@ async function fetchGeminiDirectSync(params: {
   const { apiKey, modelName, body, callbacks, signal } = params;
   const syncEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
+  console.log("[GRIOT_DEBUG] fetch REST iniciado", { url: syncEndpoint.replace(apiKey, "[REDACTED]") });
+
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
   let res: Response;
   try {
@@ -549,9 +558,11 @@ async function fetchGeminiDirectSync(params: {
     cleanup();
   }
 
+  console.log("[GRIOT_DEBUG] fetch REST respondeu", { status: res.status });
+
   if (!res.ok) {
     if (res.status === 404 && modelName !== "gemini-1.5-flash") {
-      console.warn(`[GRIOT] REST direct 404 em ${modelName}. Tentando gemini-1.5-flash...`);
+      console.warn(`[GRIOT_DEBUG] REST direct 404 em ${modelName}. Tentando gemini-1.5-flash...`);
       return fetchGeminiDirectSync({ ...params, modelName: "gemini-1.5-flash" });
     }
     const errText = await res.text().catch(() => "");
@@ -702,7 +713,7 @@ async function streamGeminiDirect(params: {
     if (signal?.aborted) {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
-    console.warn("[GRIOT] Falha no streaming SSE do Gemini, tentando REST direto:", fetchErr);
+    console.warn("[GRIOT_DEBUG] Falha no streaming SSE do Gemini, tentando REST direto:", fetchErr);
     return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
   }
 
@@ -728,7 +739,7 @@ async function streamGeminiDirect(params: {
     }
 
     if (response.status === 404 && suggestedModel && suggestedModel !== modelName) {
-      console.warn(`[GRIOT] Google recomendou o modelo ${suggestedModel}. A auto-recuperar...`);
+      console.warn(`[GRIOT_DEBUG] Google recomendou o modelo ${suggestedModel}. A auto-recuperar...`);
       return fetchGeminiDirectSync({
         ...params,
         modelName: suggestedModel,
@@ -737,7 +748,7 @@ async function streamGeminiDirect(params: {
 
     // 2. Fallback de passo único sem recursão se for 404
     if (response.status === 404 && modelName !== "gemini-1.5-flash") {
-      console.warn(`[GRIOT] Gemini 404 em ${modelName}. Tentando gemini-1.5-flash via REST direto...`);
+      console.warn(`[GRIOT_DEBUG] Gemini 404 em ${modelName}. Tentando gemini-1.5-flash via REST direto...`);
       return fetchGeminiDirectSync({
         ...params,
         modelName: "gemini-1.5-flash",
@@ -774,7 +785,7 @@ async function streamGeminiDirect(params: {
   // cancela o leitor e aborta o stream ativo no socket e invoca imediatamente o endpoint REST direto (:generateContent)
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT] Watchdog acionado: sem tokens SSE em 4.5s no WebView móvel. Cancelando reader e recorrendo a REST...");
+      console.warn("[GRIOT_DEBUG] Watchdog acionado: sem tokens SSE em 4.5s no WebView móvel. Cancelando reader e recorrendo a REST...");
       try {
         void reader.cancel();
       } catch {}
@@ -872,7 +883,7 @@ async function streamGeminiDirect(params: {
     }
     // Se o stream falhou a meio ou foi abortado pelo watchdog sem devolver resposta, tenta o fallback REST
     if (!fullText.trim()) {
-      console.warn("[GRIOT] Stream SSE interrompido, recorrendo ao endpoint REST padrão:", streamErr);
+      console.warn("[GRIOT_DEBUG] Stream SSE interrompido, recorrendo ao endpoint REST padrão:", streamErr);
       return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
     }
   } finally {
@@ -890,7 +901,7 @@ async function streamGeminiDirect(params: {
 
   // Se o stream encerrou sem produzir nenhum texto nem tool calls, não deixar a IA muda:
   if (!fullText.trim() && toolCalls.length === 0 && !signal?.aborted) {
-    console.warn("[GRIOT] Stream SSE terminou sem gerar texto, acionando REST direto (:generateContent)...");
+    console.warn("[GRIOT_DEBUG] Stream SSE terminou sem gerar texto, acionando REST direto (:generateContent)...");
     return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
   }
 
@@ -1093,7 +1104,7 @@ async function streamOpenAIDirect(params: {
     if (signal?.aborted) {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
-    console.warn("[GRIOT] Falha no streaming SSE de OpenAI/Groq, tentando REST direto:", fetchErr);
+    console.warn("[GRIOT_DEBUG] Falha no streaming SSE de OpenAI/Groq, tentando REST direto:", fetchErr);
     return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
   }
 
@@ -1101,7 +1112,7 @@ async function streamOpenAIDirect(params: {
     if (signal) signal.removeEventListener("abort", onParentAbort);
     const errorText = await response.text().catch(() => "");
     if (response.status === 400 && (errorText.includes("tool") || errorText.includes("function") || isReasoning)) {
-      console.warn("[GRIOT] Provedor OpenAI rejeitou tools (400), recorrendo a REST sem tools:", errorText);
+      console.warn("[GRIOT_DEBUG] Provedor OpenAI rejeitou tools (400), recorrendo a REST sem tools:", errorText);
       return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal, withoutTools: true });
     }
     throw new Error(
@@ -1125,7 +1136,7 @@ async function streamOpenAIDirect(params: {
 
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT] Watchdog acionado: sem tokens OpenAI em 4.5s. Cancelando leitor e abortando stream...");
+      console.warn("[GRIOT_DEBUG] Watchdog acionado: sem tokens OpenAI em 4.5s. Cancelando leitor e abortando stream...");
       try {
         void reader.cancel();
       } catch {}
@@ -1220,7 +1231,7 @@ async function streamOpenAIDirect(params: {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
     if (!fullText.trim()) {
-      console.warn("[GRIOT] Stream OpenAI interrompido ou em buffer, recorrendo ao endpoint REST padrão:", streamErr);
+      console.warn("[GRIOT_DEBUG] Stream OpenAI interrompido ou em buffer, recorrendo ao endpoint REST padrão:", streamErr);
       return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
     }
   } finally {
@@ -1237,7 +1248,7 @@ async function streamOpenAIDirect(params: {
   }
 
   if (!fullText.trim() && toolCalls.length === 0 && !signal?.aborted) {
-    console.warn("[GRIOT] Stream OpenAI terminou sem texto, recorrendo a REST direto...");
+    console.warn("[GRIOT_DEBUG] Stream OpenAI terminou sem texto, recorrendo a REST direto...");
     return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
   }
 
@@ -1358,7 +1369,7 @@ async function streamAnthropicDirect(params: {
     if (signal?.aborted) {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
-    console.warn("[GRIOT] Falha no streaming SSE de Anthropic, recorrendo a REST direto:", fetchErr);
+    console.warn("[GRIOT_DEBUG] Falha no streaming SSE de Anthropic, recorrendo a REST direto:", fetchErr);
     return fetchAnthropicDirectSync(params);
   }
 
@@ -1383,7 +1394,7 @@ async function streamAnthropicDirect(params: {
 
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT] Watchdog acionado: sem tokens Anthropic em 4.5s. Cancelando leitor e recorrendo a REST...");
+      console.warn("[GRIOT_DEBUG] Watchdog acionado: sem tokens Anthropic em 4.5s. Cancelando leitor e recorrendo a REST...");
       try {
         void reader.cancel();
       } catch {}
@@ -1436,7 +1447,7 @@ async function streamAnthropicDirect(params: {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
     if (!fullText.trim()) {
-      console.warn("[GRIOT] Stream SSE Anthropic interrompido, recorrendo ao endpoint REST padrão:", streamErr);
+      console.warn("[GRIOT_DEBUG] Stream SSE Anthropic interrompido, recorrendo ao endpoint REST padrão:", streamErr);
       return fetchAnthropicDirectSync(params);
     }
   } finally {
