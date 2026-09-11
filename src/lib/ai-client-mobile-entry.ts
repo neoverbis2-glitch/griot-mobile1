@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { GRIOT_SUPABASE_ANON_KEY, GRIOT_SUPABASE_URL } from "@/lib/griot-api";
+import { GRIOT_SUPABASE_ANON_KEY, GRIOT_SUPABASE_URL, ensureGriotWorkspace } from "@/lib/griot-api";
 import type { ChatMessage, StreamCallbacks, AIResponse } from "./ai-client";
 import {
   GEMINI_TOOL_DECLARATIONS,
@@ -10,6 +10,7 @@ import {
   isMobileOrCapacitor,
   sanitizeGeminiContents,
   sanitizeAnthropicMessages,
+  streamDirectAI as streamCoreDirectAI,
 } from "./ai-client";
 
 export type { ChatMessage, StreamCallbacks, AIResponse };
@@ -67,6 +68,11 @@ async function streamMobileQuickBackend(params: {
   const resolved = resolveProviderAndModel(modelId);
   const provider = modelOs ? "gemini" : resolved.provider;
   const modelName = normalizeBackendModel(provider, modelOs ? "gemini-3.6-flash" : resolved.modelName);
+
+  const { error: workspaceError } = await ensureGriotWorkspace();
+  if (workspaceError) {
+    console.warn("[GRIOT_DEBUG] QUICK_WORKSPACE_PROVISION_WARNING", workspaceError);
+  }
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) throw new Error(`Sessão GRIOT indisponível: ${sessionError.message}`);
@@ -275,7 +281,7 @@ async function streamMobileOrchestrator(params: {
           provider,
           model: modelName,
         });
-        return streamMobileQuickBackend({ modelId, messages, systemInstruction, callbacks, signal });
+        return streamCoreDirectAI({ modelId, messages, systemInstruction, callbacks, signal });
       }
 
       throw new Error(backendError);
