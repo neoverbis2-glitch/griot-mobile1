@@ -73,9 +73,14 @@ async function streamMobileOrchestrator(params: {
     executionMode = "orchestrated",
   } = params;
 
-  // Quick must be a real fast path. It uses the existing direct provider client
-  // and intentionally bypasses the full Supabase Orchestrator/OPB/GCU pipeline.
-  if (executionMode === "quick") {
+  // Quick must be a real fast path. The Quick surface already marks its
+  // system prompt explicitly, so this works without changing the backend or
+  // the existing ChatExecutionManager API.
+  const isQuickPath =
+    executionMode === "quick" ||
+    systemInstruction.includes("[MODO QUICK DELIBERATION ROOM]");
+
+  if (isQuickPath) {
     console.log("[GRIOT_DEBUG] MOBILE_QUICK_DIRECT_PATH", { modelId });
     return streamCoreDirectAI({
       modelId,
