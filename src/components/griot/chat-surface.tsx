@@ -518,6 +518,19 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   useEffect(() => () => stopMeter(), []);
 
+  // Watchdog de segurança estrito para garantir que o chat nunca fica bloqueado > 22s em "A processar"
+  useEffect(() => {
+    if (!busy) return;
+    const safetyTimer = setTimeout(() => {
+      console.warn("[ChatSurface] Emergency UI watchdog: busy permaneceu ativo por 22s. Forçando desbloqueio da interface.");
+      setBusy(false);
+      setStreaming("");
+      setReasoning("");
+      setSteps(0);
+    }, 22000);
+    return () => clearTimeout(safetyTimer);
+  }, [busy]);
+
   const conversationId = conversation?.id ?? null;
 
   useEffect(() => {
@@ -1102,13 +1115,10 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       console.log("[GRIOT_DEBUG] finally do handleSend", {
         busyState: chatExecutionManager.getExecutionState(targetConvId),
       });
-      const st = chatExecutionManager.getExecutionState(targetConvId);
-      if (!st || !st.busy) {
-        setBusy(false);
-        setStreaming("");
-        setReasoning("");
-        setSteps(0);
-      }
+      setBusy(false);
+      setStreaming("");
+      setReasoning("");
+      setSteps(0);
     }
   }
 

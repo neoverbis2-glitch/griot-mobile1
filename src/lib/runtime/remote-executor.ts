@@ -34,7 +34,7 @@ export async function executeRemoteAction(
         action,
         workspaceId: options.workspaceId || undefined,
       }),
-      signal: timeoutSignal(options.timeoutMs ?? 60_000),
+      signal: timeoutSignal(options.timeoutMs ?? 12_000),
     });
 
     const text = await response.text();

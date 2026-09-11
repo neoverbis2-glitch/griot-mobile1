@@ -150,22 +150,25 @@ class ChatExecutionManager {
       currentProject,
     } = params;
 
-    // Se já houver execução ativa para esta conversa
+    // Se já houver execução ativa para esta conversa, aborta-a de imediato para dar prioridade à nova ação
     const existing = this.activeExecutions.get(conversationId);
     if (existing) {
-      // Se ainda está a decorrer dentro do prazo máximo razoável (40s), preserva a resposta legítima
-      const elapsed = Date.now() - (existing.startedAt || 0);
-      if (elapsed < 40000) {
-        return;
-      }
-      // Se já ultrapassou 40s (travada por erro de rede não recuperado), cancela a anterior e liberta o chat
       try {
-        existing.controller.abort();
+        existing.controller.abort(new Error("Substituída por nova execução"));
       } catch {}
       this.activeExecutions.delete(conversationId);
     }
 
     const controller = new AbortController();
+    const hardTimeoutTimer = setTimeout(() => {
+      if (!controller.signal.aborted) {
+        console.warn("[ChatExecutionManager] Watchdog de execução atingiu 20s. Abortando execução travada...");
+        try {
+          controller.abort(new Error("Tempo limite de execução atingido (20s)."));
+        } catch {}
+      }
+    }, 20000);
+
     const active: ActiveExecution = {
       controller,
       state: {
@@ -314,20 +317,26 @@ class ChatExecutionManager {
       }
     } catch (err: any) {
       console.error("[GRIOT_DEBUG] startExecution catch:", err?.message, err);
-      if (controller.signal.aborted) {
+      const isTimeout =
+        (controller.signal.aborted && String(controller.signal.reason).includes("20s")) ||
+        String(err?.message).includes("20s") ||
+        String(err?.message).includes("Timeout");
+
+      if (controller.signal.aborted && !isTimeout) {
         return;
       }
       console.warn("[ChatExecutionManager] Falha na execução da IA:", err);
       const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
-      answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Verifica a tua ligação à rede e a tua chave em **Definições → Chave Google Gemini**.`;
+      answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${isTimeout ? "A ligação excedeu o limite de segurança de 20s para proteger os teus créditos de IA." : (err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA.")}\n\n👉 Tenta novamente ou verifica a tua chave em **Definições → Chave Google Gemini**.`;
     } finally {
+      clearTimeout(hardTimeoutTimer);
       console.log("[GRIOT_DEBUG] startExecution: entrou no finally", {
         aborted: controller.signal.aborted,
         respostaVazia: !answer.trim(),
       });
 
       // 2. Finalizar e salvar a mensagem do assistente localmente e no Supabase
-      if (!controller.signal.aborted && answer.trim()) {
+      if (answer.trim()) {
 
         const cleaned = parseProposals(answer).clean || answer;
 

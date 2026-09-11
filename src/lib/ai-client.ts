@@ -251,6 +251,20 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
 }
 
 /**
+ * Deteta com precisão se a execução decorre em ambiente móvel nativo (Android Capacitor, iOS ou WebView móvel).
+ */
+export function isMobileOrCapacitor(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.location.protocol === "capacitor:" ||
+    window.location.protocol === "ionic:" ||
+    window.location.hostname === "localhost" ||
+    Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
+    /android|iphone|ipad|mobile/i.test(navigator.userAgent)
+  );
+}
+
+/**
  * Envia um prompt com histórico diretamente para a API de IA configurada pelo utilizador.
  * Suporta streaming de texto, raciocínio e chamada de ferramentas nativas.
  */
@@ -261,12 +275,8 @@ export async function streamDirectAI(params: {
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
 }): Promise<AIResponse> {
-  const isCapacitorOrMobileEnv =
-    typeof window !== "undefined" &&
-    (window.location.protocol === "capacitor:" ||
-      window.location.protocol === "ionic:" ||
-      /android|iphone|ipad/i.test(navigator.userAgent));
-  console.log("[GRIOT_DEBUG] streamDirectAI: entrou", { modelId: params.modelId, isMobile: isCapacitorOrMobileEnv });
+  const isMobile = isMobileOrCapacitor();
+  console.log("[GRIOT_DEBUG] streamDirectAI: entrou", { modelId: params.modelId, isMobile });
 
   const { modelId, messages, systemInstruction, callbacks, signal } = params;
   const resolved = resolveProviderAndModel(modelId);
@@ -545,7 +555,7 @@ async function fetchGeminiDirectSync(params: {
 
   console.log("[GRIOT_DEBUG] fetch REST iniciado", { url: syncEndpoint.replace(apiKey, "[REDACTED]") });
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
   let res: Response;
   try {
     res = await fetch(syncEndpoint, {
@@ -674,13 +684,7 @@ async function streamGeminiDirect(params: {
 
   // No WebView móvel nativo (Capacitor/Android), streams SSE por chunked transfer sofrem buffering agressivo no Chromium.
   // Recorrer a REST direto (:generateContent) com token synthesis garante resposta imediata (< 1s) sem travamento de socket.
-  const isCapacitorOrMobile =
-    typeof window !== "undefined" &&
-    (window.location.protocol === "capacitor:" ||
-      window.location.protocol === "ionic:" ||
-      /android|iphone|ipad/i.test(navigator.userAgent));
-
-  if (isCapacitorOrMobile) {
+  if (isMobileOrCapacitor()) {
     return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
   }
 
@@ -950,7 +954,7 @@ async function fetchOpenAIDirectSync(params: {
     reqBody.tools = OPENAI_TOOLS;
   }
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -1046,6 +1050,13 @@ async function streamOpenAIDirect(params: {
   }
 
   const endpoint = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  // No WebView móvel nativo (Android Capacitor/iOS), streams SSE por chunked transfer sofrem buffering agressivo no Chromium.
+  // Recorrer a REST direto (/v1/chat/completions) com síntese de streaming de tokens a 6ms garante resposta imediata sem travamentos e poupa créditos.
+  if (isMobileOrCapacitor()) {
+    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+  }
+
   const isReasoning =
     modelName.includes("reasoner") ||
     modelName.includes("r1") ||
@@ -1053,6 +1064,11 @@ async function streamOpenAIDirect(params: {
     modelName.includes("o3");
 
   const streamAbortController = new AbortController();
+  const overallTimeoutTimer = setTimeout(() => {
+    try {
+      streamAbortController.abort(new Error("Timeout após 12s"));
+    } catch {}
+  }, 12000);
   const onParentAbort = () => {
     try {
       streamAbortController.abort();
@@ -1235,6 +1251,7 @@ async function streamOpenAIDirect(params: {
       return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
     }
   } finally {
+    clearTimeout(overallTimeoutTimer);
     if (watchdogTimer) {
       clearTimeout(watchdogTimer);
       watchdogTimer = null;
@@ -1269,7 +1286,7 @@ async function fetchAnthropicDirectSync(params: {
 
   const anthropicMessages = sanitizeAnthropicMessages(messages);
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(25000, signal);
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -1334,8 +1351,19 @@ async function streamAnthropicDirect(params: {
 
   const anthropicMessages = sanitizeAnthropicMessages(messages);
 
+  // No WebView móvel nativo (Android Capacitor/iOS), streams SSE por chunked transfer sofrem buffering agressivo no Chromium.
+  // Recorrer a REST direto (/v1/messages) com síntese de streaming de tokens a 6ms garante resposta imediata sem travamentos e poupa créditos.
+  if (isMobileOrCapacitor()) {
+    return fetchAnthropicDirectSync(params);
+  }
+
   const endpoint = "https://api.anthropic.com/v1/messages";
   const streamAbortController = new AbortController();
+  const overallTimeoutTimer = setTimeout(() => {
+    try {
+      streamAbortController.abort(new Error("Timeout após 12s"));
+    } catch {}
+  }, 12000);
   const onParentAbort = () => {
     try {
       streamAbortController.abort();
@@ -1451,6 +1479,7 @@ async function streamAnthropicDirect(params: {
       return fetchAnthropicDirectSync(params);
     }
   } finally {
+    clearTimeout(overallTimeoutTimer);
     if (watchdogTimer) {
       clearTimeout(watchdogTimer);
       watchdogTimer = null;
@@ -1555,8 +1584,8 @@ async function streamSupabaseOrchestratorFallback(params: {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
   const prompt = lastUserMsg?.content || "";
 
-  // Timeout de 15 segundos para chamada remota
-  const { signal: edgeSignal, cleanup: cleanupEdge } = createSafeTimeoutSignal(15000, signal);
+  // Timeout estrito de 12 segundos para chamada remota
+  const { signal: edgeSignal, cleanup: cleanupEdge } = createSafeTimeoutSignal(12000, signal);
 
   let response: Response;
   try {
