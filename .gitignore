@@ -35,6 +35,7 @@ supabase/.branches/
 supabase/.env.local
 supabase/.env.*
 !supabase/.env.example
+.supabase-backups/
 
 # Editor directories and files
 .vscode/*
