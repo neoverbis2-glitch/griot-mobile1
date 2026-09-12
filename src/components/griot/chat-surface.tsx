@@ -2101,7 +2101,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             />
           ))}
 
-          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
+          {busy && scope !== "quick" ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
 
           {streaming ? (
             scope === "quick" ? (
