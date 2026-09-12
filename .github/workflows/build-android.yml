@@ -17,6 +17,81 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Apply mobile response delivery hotfix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          chat = Path("src/components/griot/chat-surface.tsx")
+          text = chat.read_text()
+          anchor = '''      await chatExecutionManager.startExecution({
+        conversationId: targetConvId,
+        scope: targetScope,
+        userId,
+        modelId: model,
+        messages: base,
+        userPrompt: lastUserPrompt,
+        effort: activeEffort,
+        systemInstruction: sysInstruction,
+        context,
+        currentProject,
+      });
+      console.log("[GRIOT_DEBUG] startExecution terminou sem lançar erro");'''
+          replacement = '''      await chatExecutionManager.startExecution({
+        conversationId: targetConvId,
+        scope: targetScope,
+        userId,
+        modelId: model,
+        messages: base,
+        userPrompt: lastUserPrompt,
+        effort: activeEffort,
+        systemInstruction: sysInstruction,
+        context,
+        currentProject,
+      });
+
+      // Reconciliação pós-execução: garante que a resposta final persistida
+      // pelo execution manager entra no estado React depois do fim da animação.
+      if (typeof window !== "undefined" && targetConvId) {
+        try {
+          const rawFinal = localStorage.getItem("griot_messages_" + targetConvId);
+          if (rawFinal) {
+            const finalMessages = JSON.parse(rawFinal);
+            if (Array.isArray(finalMessages)) {
+              setMessages(finalMessages);
+            }
+          }
+        } catch (reconcileErr) {
+          console.warn("[GRIOT_DEBUG] reconciliação final de mensagens falhou:", reconcileErr);
+        }
+      }
+
+      console.log("[GRIOT_DEBUG] startExecution terminou sem lançar erro");'''
+          if anchor in text and "Reconciliação pós-execução" not in text:
+              chat.write_text(text.replace(anchor, replacement, 1))
+
+          pkg = Path("package.json")
+          pkg_text = pkg.read_text()
+          pkg_text = re.sub(r'("version"\s*:\s*")1\.0\.39(\\")', r'\g<1>1.0.40\2', pkg_text, count=1)
+          pkg.write_text(pkg_text)
+
+          gradle = Path("android/app/build.gradle")
+          gradle_text = gradle.read_text()
+          gradle_text = re.sub(r'(versionName\s+")1\.0\.39(\\")', r'\g<1>1.0.40\2', gradle_text, count=1)
+          gradle.write_text(gradle_text)
+          PY
+
+          git diff --check
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/components/griot/chat-surface.tsx package.json android/app/build.gradle
+            git commit -m "fix(chat): reconcile completed assistant response"
+            git push
+          fi
+
       - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
