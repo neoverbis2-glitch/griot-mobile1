@@ -1107,6 +1107,25 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         context,
         currentProject,
       });
+
+      // Reconciliação pós-execução: a resposta já foi persistida pelo
+      // execution manager; injeta-a explicitamente no estado React após
+      // a conclusão da execução para evitar que o cleanup da animação
+      // deixe o chat visualmente sem a resposta.
+      if (typeof window !== "undefined" && targetConvId) {
+        try {
+          const rawFinal = localStorage.getItem("griot_messages_" + targetConvId);
+          if (rawFinal) {
+            const finalMessages = JSON.parse(rawFinal);
+            if (Array.isArray(finalMessages)) {
+              setMessages(finalMessages);
+            }
+          }
+        } catch (reconcileErr) {
+          console.warn("[GRIOT_DEBUG] reconciliação final de mensagens falhou:", reconcileErr);
+        }
+      }
+
       console.log("[GRIOT_DEBUG] startExecution terminou sem lançar erro");
     } catch (err: any) {
       console.error("[GRIOT_DEBUG] startExecution lançou erro:", err);
