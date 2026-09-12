@@ -3,12 +3,7 @@
  * Local-first persistence and state management for 30 integrated external services.
  */
 
-export type PluginCategory =
-  | "all"
-  | "dev_cloud"
-  | "database"
-  | "productivity"
-  | "ai_tools";
+export type PluginCategory = "all" | "dev_cloud" | "database" | "productivity" | "ai_tools";
 
 export interface PluginDefinition {
   id: string;
@@ -396,7 +391,7 @@ export function isPluginConnected(pluginId: string): boolean {
 /** Conecta e guarda a configuração de um plugin */
 export function connectPlugin(
   pluginId: string,
-  data?: { apiKey?: string; accountName?: string; customEndpoint?: string }
+  data?: { apiKey?: string; accountName?: string; customEndpoint?: string },
 ): void {
   if (typeof window === "undefined") return;
   const map = getConnectedPlugins();
@@ -414,7 +409,9 @@ export function connectPlugin(
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-    window.dispatchEvent(new CustomEvent("griot-plugins-updated", { detail: { pluginId, connected: true } }));
+    window.dispatchEvent(
+      new CustomEvent("griot-plugins-updated", { detail: { pluginId, connected: true } }),
+    );
   } catch (err) {
     console.error("Falha ao guardar plugin:", err);
   }
@@ -428,7 +425,9 @@ export function disconnectPlugin(pluginId: string): void {
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-    window.dispatchEvent(new CustomEvent("griot-plugins-updated", { detail: { pluginId, connected: false } }));
+    window.dispatchEvent(
+      new CustomEvent("griot-plugins-updated", { detail: { pluginId, connected: false } }),
+    );
   } catch (err) {
     console.error("Falha ao remover plugin:", err);
   }

@@ -79,11 +79,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({
 
   // Se for mensagem do utilizador, renderiza simples com quebra preservada
   if (isUser) {
-    return (
-      <div className={`whitespace-pre-wrap break-words ${className}`}>
-        {content}
-      </div>
-    );
+    return <div className={`whitespace-pre-wrap break-words ${className}`}>{content}</div>;
   }
 
   // Decomposição de blocos de código markdown (```lang ... ```)
@@ -100,9 +96,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({
 
     const language = match[1] || "";
     const code = match[2]?.replace(/\n$/, "") || "";
-    segments.push(
-      <CodeBlock key={`code-${match.index}`} language={language} code={code} />,
-    );
+    segments.push(<CodeBlock key={`code-${match.index}`} language={language} code={code} />);
 
     lastIndex = match.index + match[0].length;
   }
@@ -129,13 +123,19 @@ function renderFormattedText(text: string, keyPrefix: string): React.ReactNode {
     if (!currentList) return;
     if (currentList.type === "ul") {
       elements.push(
-        <ul key={`ul-${keyPrefix}-${idx}`} className="my-2 space-y-1 pl-4 list-disc text-foreground/90">
+        <ul
+          key={`ul-${keyPrefix}-${idx}`}
+          className="my-2 space-y-1 pl-4 list-disc text-foreground/90"
+        >
           {currentList.items}
         </ul>,
       );
     } else {
       elements.push(
-        <ol key={`ol-${keyPrefix}-${idx}`} className="my-2 space-y-1 pl-5 list-decimal text-foreground/90">
+        <ol
+          key={`ol-${keyPrefix}-${idx}`}
+          className="my-2 space-y-1 pl-5 list-decimal text-foreground/90"
+        >
           {currentList.items}
         </ol>,
       );
@@ -151,7 +151,10 @@ function renderFormattedText(text: string, keyPrefix: string): React.ReactNode {
     if (trimmed.startsWith("### ")) {
       flushList(i);
       elements.push(
-        <h4 key={`${keyPrefix}-${i}`} className="mt-3.5 mb-1.5 text-[16px] font-semibold text-foreground tracking-tight">
+        <h4
+          key={`${keyPrefix}-${i}`}
+          className="mt-3.5 mb-1.5 text-[16px] font-semibold text-foreground tracking-tight"
+        >
           {renderInlineFormatting(trimmed.slice(4))}
         </h4>,
       );
@@ -160,7 +163,10 @@ function renderFormattedText(text: string, keyPrefix: string): React.ReactNode {
     if (trimmed.startsWith("## ")) {
       flushList(i);
       elements.push(
-        <h3 key={`${keyPrefix}-${i}`} className="mt-4 mb-2 text-[17.5px] font-bold text-foreground tracking-tight">
+        <h3
+          key={`${keyPrefix}-${i}`}
+          className="mt-4 mb-2 text-[17.5px] font-bold text-foreground tracking-tight"
+        >
           {renderInlineFormatting(trimmed.slice(3))}
         </h3>,
       );
@@ -169,7 +175,10 @@ function renderFormattedText(text: string, keyPrefix: string): React.ReactNode {
     if (trimmed.startsWith("# ")) {
       flushList(i);
       elements.push(
-        <h2 key={`${keyPrefix}-${i}`} className="mt-4 mb-2 text-[19px] font-bold text-foreground tracking-tight">
+        <h2
+          key={`${keyPrefix}-${i}`}
+          className="mt-4 mb-2 text-[19px] font-bold text-foreground tracking-tight"
+        >
           {renderInlineFormatting(trimmed.slice(2))}
         </h2>,
       );

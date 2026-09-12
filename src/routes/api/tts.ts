@@ -60,7 +60,11 @@ function fetchGoogleTtsChunk(text: string, lang = "pt-PT"): Promise<Buffer> {
   });
 }
 
-async function synthesizeWithOpenAI(text: string, voice = "alloy", speed = 1.0): Promise<Buffer | null> {
+async function synthesizeWithOpenAI(
+  text: string,
+  voice = "alloy",
+  speed = 1.0,
+): Promise<Buffer | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   try {
@@ -89,7 +93,10 @@ async function synthesizeWithOpenAI(text: string, voice = "alloy", speed = 1.0):
   return null;
 }
 
-async function synthesizeWithElevenLabs(text: string, voiceId = "21m00Tcm4TlvDq8ikWAM"): Promise<Buffer | null> {
+async function synthesizeWithElevenLabs(
+  text: string,
+  voiceId = "21m00Tcm4TlvDq8ikWAM",
+): Promise<Buffer | null> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) return null;
   try {
@@ -116,7 +123,12 @@ async function synthesizeWithElevenLabs(text: string, voiceId = "21m00Tcm4TlvDq8
   return null;
 }
 
-async function synthesizeNeuralSpeech(text: string, lang = "pt-PT", voice = "alloy", speed = 1.0): Promise<Buffer> {
+async function synthesizeNeuralSpeech(
+  text: string,
+  lang = "pt-PT",
+  voice = "alloy",
+  speed = 1.0,
+): Promise<Buffer> {
   // 1. Tenta OpenAI TTS se configurado no servidor
   const openaiAudio = await synthesizeWithOpenAI(text, voice, speed);
   if (openaiAudio && openaiAudio.length > 0) return openaiAudio;

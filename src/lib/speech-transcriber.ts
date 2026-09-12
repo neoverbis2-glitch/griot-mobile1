@@ -121,7 +121,13 @@ export async function transcribeAudioElite(
   const groqApi = userApis.find((a) => a.providerId === "groq" && a.apiKey);
   if (groqApi && options.preferredProvider !== "gemini") {
     try {
-      const result = await transcribeWithGroq(audioBlob, groqApi.apiKey, lang, context, options.signal);
+      const result = await transcribeWithGroq(
+        audioBlob,
+        groqApi.apiKey,
+        lang,
+        context,
+        options.signal,
+      );
       if (result) return sanitizeTranscription(result);
     } catch (err) {
       console.warn("[GRIOT STT] Groq Whisper falhou, tentando fallback:", err);
@@ -132,7 +138,13 @@ export async function transcribeAudioElite(
   const geminiApi = userApis.find((a) => a.providerId === "gemini" && a.apiKey);
   if (geminiApi) {
     try {
-      const result = await transcribeWithGemini(audioBlob, geminiApi.apiKey, lang, context, options.signal);
+      const result = await transcribeWithGemini(
+        audioBlob,
+        geminiApi.apiKey,
+        lang,
+        context,
+        options.signal,
+      );
       if (result) return sanitizeTranscription(result);
     } catch (err) {
       console.warn("[GRIOT STT] Gemini Multimodal falhou, tentando fallback:", err);
@@ -143,7 +155,13 @@ export async function transcribeAudioElite(
   const openaiApi = userApis.find((a) => a.providerId === "openai" && a.apiKey);
   if (openaiApi) {
     try {
-      const result = await transcribeWithOpenAI(audioBlob, openaiApi.apiKey, lang, context, options.signal);
+      const result = await transcribeWithOpenAI(
+        audioBlob,
+        openaiApi.apiKey,
+        lang,
+        context,
+        options.signal,
+      );
       if (result) return sanitizeTranscription(result);
     } catch (err) {
       console.warn("[GRIOT STT] OpenAI Whisper falhou, tentando fallback:", err);
@@ -226,7 +244,7 @@ async function transcribeWithGemini(
     mimeType = "audio/wav";
   }
 
-  const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash-preview", "gemini-2.5-flash"];
+  const candidateModels = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-flash-latest"];
 
   for (const model of candidateModels) {
     try {

@@ -16,7 +16,12 @@ export interface ChatMessageItemProps {
   onRegenerate: (id: string) => void;
   t: (key: string) => string;
   parseQuickSegments: (content: string) => Array<{ roleRaw: string; content: string }>;
-  getPersonaConfig: (roleRaw: string) => { name: string; badge: string; avatarBg: string; icon: React.ReactNode };
+  getPersonaConfig: (roleRaw: string) => {
+    name: string;
+    badge: string;
+    avatarBg: string;
+    icon: React.ReactNode;
+  };
   modelLabel: (model?: string) => string;
 }
 
@@ -38,10 +43,7 @@ export const ChatMessageItem = React.memo(
           <div className="max-w-[85%] rounded-3xl bg-primary px-4 py-2.5 text-[15.5px] leading-relaxed text-primary-foreground shadow-xs">
             <MarkdownContent content={message.content} isUser />
           </div>
-          <UserActions
-            content={message.content}
-            onEdit={() => onEdit(message.id)}
-          />
+          <UserActions content={message.content} onEdit={() => onEdit(message.id)} />
         </div>
       );
     }
@@ -95,9 +97,7 @@ export const ChatMessageItem = React.memo(
           <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
             <span className="size-1.5 rounded-full bg-emerald-500" />
             <span>{modelLabel(message.model)}</span>
-            <span className="text-muted-foreground/60 text-[10.5px]">
-              · {t("Chat Fixo")}
-            </span>
+            <span className="text-muted-foreground/60 text-[10.5px]">· {t("Chat Fixo")}</span>
           </div>
         ) : null}
         <MarkdownContent content={message.content} />

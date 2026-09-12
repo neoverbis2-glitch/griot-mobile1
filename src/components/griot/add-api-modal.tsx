@@ -1,26 +1,21 @@
 import { useState } from "react";
 import { useT } from "@/lib/i18n";
-import {
-  Sparkles,
-  ExternalLink,
-  X,
-  Loader2,
-  Check,
-} from "lucide-react";
-import {
-  saveGriotCredential,
-  verifyGriotCredential,
-} from "@/lib/griot-api";
-import {
-  saveUserApi,
-  type UserSavedApi,
-} from "@/lib/user-apis";
+import { Sparkles, ExternalLink, X, Loader2, Check } from "lucide-react";
+import { saveGriotCredential, verifyGriotCredential } from "@/lib/griot-api";
+import { saveUserApi, type UserSavedApi } from "@/lib/user-apis";
 import { toast } from "sonner";
 import { getAiLogo } from "@/components/griot/brand-icons";
 
 export const PROVIDER_INFO: Record<
   string,
-  { label: string; short: string; vendor: string; hint: string; docUrl: string; placeholder: string }
+  {
+    label: string;
+    short: string;
+    vendor: string;
+    hint: string;
+    docUrl: string;
+    placeholder: string;
+  }
 > = {
   gemini: {
     label: "Google Gemini",

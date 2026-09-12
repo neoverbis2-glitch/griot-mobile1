@@ -35,7 +35,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<PluginCategory>("all");
   const [connectedMap, setConnectedMap] = useState<Record<string, ConnectedPluginData>>(() =>
-    getConnectedPlugins()
+    getConnectedPlugins(),
   );
   const [configuringPlugin, setConfiguringPlugin] = useState<PluginDefinition | null>(null);
   const [inputKey, setInputKey] = useState("");
@@ -61,8 +61,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
 
   const filteredPlugins = useMemo(() => {
     return PLUGINS_LIST.filter((plugin) => {
-      const matchCategory =
-        selectedCategory === "all" || plugin.category === selectedCategory;
+      const matchCategory = selectedCategory === "all" || plugin.category === selectedCategory;
       const matchSearch =
         search.trim() === "" ||
         plugin.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -246,9 +245,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                           </span>
                         )}
                         {connData?.accountName && (
-                          <span className="text-muted-foreground/70">
-                            · {connData.accountName}
-                          </span>
+                          <span className="text-muted-foreground/70">· {connData.accountName}</span>
                         )}
                       </div>
                     )}
@@ -356,7 +353,9 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                   className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground underline underline-offset-4"
                 >
                   <ExternalLink className="size-3" />
-                  <span>{t("Onde obter credenciais do")} {configuringPlugin.name}</span>
+                  <span>
+                    {t("Onde obter credenciais do")} {configuringPlugin.name}
+                  </span>
                 </a>
               )}
             </div>

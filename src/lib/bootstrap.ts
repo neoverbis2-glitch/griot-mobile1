@@ -7,4 +7,3 @@ export async function bootstrapWorkspace(_userId: string) {
   // Initial seed is handled natively by the backend Edge Functions.
   return;
 }
-

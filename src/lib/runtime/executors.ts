@@ -6,11 +6,11 @@
  * real failure instead of returning fabricated git/npm/test output.
  */
 
-import { executeRemoteAction } from './remote-executor';
-import { executeLocalAction } from './local-harness';
-import type { GriotAction, GriotExecutionResult } from './protocol';
-import { getPrimaryWorkspaceId } from '@/lib/griot-api';
-import { supabase } from '@/integrations/supabase/client';
+import { executeRemoteAction } from "./remote-executor";
+import { executeLocalAction } from "./local-harness";
+import type { GriotAction, GriotExecutionResult } from "./protocol";
+import { getPrimaryWorkspaceId } from "@/lib/griot-api";
+import { supabase } from "@/integrations/supabase/client";
 
 export class GriotActionExecutor {
   async execute(action: GriotAction): Promise<GriotExecutionResult> {
@@ -22,15 +22,18 @@ export class GriotActionExecutor {
       // Falhas de autenticação são tratadas localmente
     }
 
-    const effectiveWsId = workspaceId || 'local-default';
+    const effectiveWsId = workspaceId || "local-default";
 
     // 1. Operações de sistema de ficheiros (fs.*) e git.* são geridas no workspace local
-    if (action.category === 'fs' || action.category === 'git') {
+    if (action.category === "fs" || action.category === "git") {
       return executeLocalAction(action, effectiveWsId);
     }
 
     // 2. Operações de terminal/shell/testes: verificar se há runner remoto configurado
-    const customRunnerUrl = typeof window !== 'undefined' ? window.localStorage.getItem('griot_gcp_runner_url') || '' : '';
+    const customRunnerUrl =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("griot_gcp_runner_url") || ""
+        : "";
     const configuredEndpoint = import.meta.env.VITE_GRIOT_RUNTIME_EXECUTOR_URL || customRunnerUrl;
 
     if (configuredEndpoint) {
@@ -41,15 +44,15 @@ export class GriotActionExecutor {
         });
 
         if (
-          remoteRes.status === 'success' ||
-          (remoteRes.status === 'failed' &&
-            !remoteRes.stderr.includes('Runtime unavailable') &&
-            !remoteRes.stderr.includes('invalid result'))
+          remoteRes.status === "success" ||
+          (remoteRes.status === "failed" &&
+            !remoteRes.stderr.includes("Runtime unavailable") &&
+            !remoteRes.stderr.includes("invalid result"))
         ) {
           return remoteRes;
         }
       } catch (err) {
-        console.warn('[GRIOT] Remote runner falhou, caindo para Local/Cloud Shell Harness:', err);
+        console.warn("[GRIOT] Remote runner falhou, caindo para Local/Cloud Shell Harness:", err);
       }
     }
 
@@ -59,16 +62,16 @@ export class GriotActionExecutor {
 
   formatFeedbackForAI(result: GriotExecutionResult): string {
     return [
-      '[GRIOT Action Execution Result]',
+      "[GRIOT Action Execution Result]",
       `Action: ${result.actionType}`,
       `Status: ${result.status.toUpperCase()} (Exit Code: ${result.exitCode})`,
       `Duration: ${result.durationMs}ms`,
-      result.stdout ? `--- STDOUT ---\n${result.stdout}` : '',
-      result.stderr ? `--- STDERR ---\n${result.stderr}` : '',
-      '[End of Execution Result]',
+      result.stdout ? `--- STDOUT ---\n${result.stdout}` : "",
+      result.stderr ? `--- STDERR ---\n${result.stderr}` : "",
+      "[End of Execution Result]",
     ]
       .filter(Boolean)
-      .join('\n');
+      .join("\n");
   }
 }
 

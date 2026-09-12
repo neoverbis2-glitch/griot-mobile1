@@ -65,7 +65,15 @@ const INITIAL_CORES: Record<VirtualGpuCoreId, VirtualGpuCore> = {
     vramMb: 1000000,
     contextTokens: 1000000,
     virtualClockMhz: 4100,
-    affinities: ["rapid_chat", "multimodal_vision", "deep_research", "code_generation", "deep_reasoning", "math_logic", "architecture"],
+    affinities: [
+      "rapid_chat",
+      "multimodal_vision",
+      "deep_research",
+      "code_generation",
+      "deep_reasoning",
+      "math_logic",
+      "architecture",
+    ],
     metrics: { totalWorkloads: 0, tokensScraped: 0, actionsExecuted: 0, avgLatencyMs: 310 },
   },
   core_3_deepseek: {
@@ -236,8 +244,8 @@ export class ModelGpuRalEngine {
         typeof window !== "undefined" &&
         Boolean(
           localStorage.getItem(`griot_api_key_${p}`) ||
-            localStorage.getItem(`griot_${p}_api_key`) ||
-            (p === "claude" && localStorage.getItem("griot_api_key_anthropic")),
+          localStorage.getItem(`griot_${p}_api_key`) ||
+          (p === "claude" && localStorage.getItem("griot_api_key_anthropic")),
         );
 
       const hasSavedApi = userApis.some(
@@ -374,11 +382,7 @@ export class ModelGpuRalEngine {
    * Aloca um núcleo no cluster ModelGPU RAL especificamente para o ModelOS
    * e resolve o modelo / rota de inferência real.
    */
-  public allocateCoreForModelOS(params: {
-    prompt: string;
-    context?: string;
-    title?: string;
-  }): {
+  public allocateCoreForModelOS(params: { prompt: string; context?: string; title?: string }): {
     core: VirtualGpuCore;
     workload: GpuComputeWorkload;
     targetModelId: string;
@@ -450,14 +454,14 @@ export class ModelGpuRalEngine {
     if (match) return match.id;
 
     // Se o core for Gemini, usa o modelo Gemini direto
-    if (p === "gemini") return "gemini-2.0-flash";
+    if (p === "gemini") return "gemini-2.5-flash";
 
     // Se o utilizador tiver qualquer outra chave ativa, usa-a
     const anyActive = userApis.find((a) => a.status === "active");
     if (anyActive) return anyActive.id;
 
     // Fallback padrão do sistema
-    return "gemini-2.0-flash";
+    return "gemini-2.5-flash";
   }
 
   /**
@@ -564,7 +568,7 @@ export class ModelGpuRalEngine {
         core.metrics.lastActiveTimestamp = new Date().toISOString();
         if (durationMs > 0) {
           core.metrics.avgLatencyMs = Math.round(
-            (core.metrics.avgLatencyMs * 0.7) + (durationMs * 0.3),
+            core.metrics.avgLatencyMs * 0.7 + durationMs * 0.3,
           );
         }
         setTimeout(() => {

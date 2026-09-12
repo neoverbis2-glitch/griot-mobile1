@@ -209,14 +209,20 @@ export function findApiByIdOrProvider(idOrProvider: string): UserSavedApi | null
       (normalized.includes("gemini") && a.providerId === "gemini") ||
       (normalized.includes("gpt") && a.providerId === "openai") ||
       (normalized.includes("openai") && a.providerId === "openai") ||
-      ((normalized.includes("claude") || normalized.includes("anthropic")) && (a.providerId === "claude" || a.providerId === "anthropic")) ||
+      ((normalized.includes("claude") || normalized.includes("anthropic")) &&
+        (a.providerId === "claude" || a.providerId === "anthropic")) ||
       (normalized.includes("deepseek") && a.providerId === "deepseek") ||
       (normalized.includes("groq") && a.providerId === "groq"),
   );
   if (byProvider) return byProvider;
 
   // 4. Se for ModelOS ou genérico, usa a melhor API disponível (prioridade Gemini)
-  if (normalized === "modelos" || normalized === "model-os" || normalized === "default" || !idOrProvider) {
+  if (
+    normalized === "modelos" ||
+    normalized === "model-os" ||
+    normalized === "default" ||
+    !idOrProvider
+  ) {
     const geminiApi = apis.find((a) => a.providerId === "gemini" && a.status === "active");
     if (geminiApi) return geminiApi;
     return apis.find((a) => a.status === "active") || apis[0] || null;

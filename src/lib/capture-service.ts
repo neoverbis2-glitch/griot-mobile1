@@ -10,14 +10,7 @@ import { getActiveProjectSync } from "@/lib/project-service";
 import { supabase } from "@/integrations/supabase/client";
 
 export type CaptureKind =
-  | "photo"
-  | "video"
-  | "gallery"
-  | "document"
-  | "audio"
-  | "screen"
-  | "text"
-  | "location";
+  "photo" | "video" | "gallery" | "document" | "audio" | "screen" | "text" | "location";
 
 export type StoredCapture = {
   id: string;
@@ -289,7 +282,9 @@ export async function deleteStoredCapture(id: string): Promise<void> {
   }
 
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("griot-captures-changed", { detail: { id, deleted: true } }));
+    window.dispatchEvent(
+      new CustomEvent("griot-captures-changed", { detail: { id, deleted: true } }),
+    );
   }
 }
 

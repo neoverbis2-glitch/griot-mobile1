@@ -1,10 +1,10 @@
-import type { GriotAction, GriotExecutionResult } from './protocol';
+import type { GriotAction, GriotExecutionResult } from "./protocol";
 
-const DEFAULT_ENDPOINT = '/api/runtime/execute';
+const DEFAULT_ENDPOINT = "/api/runtime/execute";
 const MAX_RESPONSE_BYTES = 2_000_000;
 
 function timeoutSignal(ms: number): AbortSignal {
-  if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal) {
+  if (typeof AbortSignal !== "undefined" && "timeout" in AbortSignal) {
     return AbortSignal.timeout(ms);
   }
   const controller = new AbortController();
@@ -17,19 +17,23 @@ export async function executeRemoteAction(
   options: { endpoint?: string; timeoutMs?: number; workspaceId?: string | null } = {},
 ): Promise<GriotExecutionResult> {
   const start = Date.now();
-  const customRunnerUrl = typeof window !== 'undefined' ? window.localStorage.getItem('griot_gcp_runner_url') || '' : '';
-  const customRunnerSecret = typeof window !== 'undefined' ? window.localStorage.getItem('griot_gcp_runner_secret') || '' : '';
+  const customRunnerUrl =
+    typeof window !== "undefined" ? window.localStorage.getItem("griot_gcp_runner_url") || "" : "";
+  const customRunnerSecret =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("griot_gcp_runner_secret") || ""
+      : "";
 
   const endpoint = options.endpoint || DEFAULT_ENDPOINT;
   try {
     const response = await fetch(endpoint, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'content-type': 'application/json',
-        ...(customRunnerUrl ? { 'x-griot-custom-runner': customRunnerUrl } : {}),
-        ...(customRunnerSecret ? { 'x-griot-custom-secret': customRunnerSecret } : {}),
+        "content-type": "application/json",
+        ...(customRunnerUrl ? { "x-griot-custom-runner": customRunnerUrl } : {}),
+        ...(customRunnerSecret ? { "x-griot-custom-secret": customRunnerSecret } : {}),
       },
-      credentials: 'include',
+      credentials: "include",
       body: JSON.stringify({
         action,
         workspaceId: options.workspaceId || undefined,
@@ -39,7 +43,7 @@ export async function executeRemoteAction(
 
     const text = await response.text();
     if (text.length > MAX_RESPONSE_BYTES) {
-      throw new Error('Runtime response exceeds the safety limit.');
+      throw new Error("Runtime response exceeds the safety limit.");
     }
 
     let payload: unknown = null;
@@ -51,17 +55,26 @@ export async function executeRemoteAction(
 
     if (!response.ok) {
       const message =
-        payload && typeof payload === 'object' && 'error' in payload
+        payload && typeof payload === "object" && "error" in payload
           ? String((payload as Record<string, unknown>).error)
           : `Remote runtime returned HTTP ${response.status}.`;
       return failedResult(action, message, Date.now() - start, response.status);
     }
 
-    if (!payload || typeof payload !== 'object' || !('result' in payload)) {
-      return failedResult(action, 'Remote runtime returned an invalid result.', Date.now() - start, 1);
+    if (!payload || typeof payload !== "object" || !("result" in payload)) {
+      return failedResult(
+        action,
+        "Remote runtime returned an invalid result.",
+        Date.now() - start,
+        1,
+      );
     }
 
-    return normalizeRemoteResult(action, (payload as { result: unknown }).result, Date.now() - start);
+    return normalizeRemoteResult(
+      action,
+      (payload as { result: unknown }).result,
+      Date.now() - start,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return failedResult(action, `Runtime unavailable: ${message}`, Date.now() - start, 1);
@@ -73,21 +86,27 @@ function normalizeRemoteResult(
   value: unknown,
   fallbackDurationMs: number,
 ): GriotExecutionResult {
-  if (!value || typeof value !== 'object') {
-    return failedResult(action, 'Remote runtime returned a malformed execution object.', fallbackDurationMs, 1);
+  if (!value || typeof value !== "object") {
+    return failedResult(
+      action,
+      "Remote runtime returned a malformed execution object.",
+      fallbackDurationMs,
+      1,
+    );
   }
   const raw = value as Partial<GriotExecutionResult>;
   return {
     actionId: String(raw.actionId || action.id),
     actionType: action.type,
-    status: raw.status === 'success' || raw.status === 'rejected' ? raw.status : 'failed',
+    status: raw.status === "success" || raw.status === "rejected" ? raw.status : "failed",
     exitCode: Number.isFinite(raw.exitCode) ? Number(raw.exitCode) : 1,
-    stdout: typeof raw.stdout === 'string' ? raw.stdout : '',
-    stderr: typeof raw.stderr === 'string' ? raw.stderr : '',
+    stdout: typeof raw.stdout === "string" ? raw.stdout : "",
+    stderr: typeof raw.stderr === "string" ? raw.stderr : "",
     durationMs: Number.isFinite(raw.durationMs) ? Number(raw.durationMs) : fallbackDurationMs,
-    data: raw.data && typeof raw.data === 'object' ? (raw.data as Record<string, unknown>) : undefined,
-    diff: typeof raw.diff === 'string' ? raw.diff : undefined,
-    timestamp: typeof raw.timestamp === 'string' ? raw.timestamp : new Date().toISOString(),
+    data:
+      raw.data && typeof raw.data === "object" ? (raw.data as Record<string, unknown>) : undefined,
+    diff: typeof raw.diff === "string" ? raw.diff : undefined,
+    timestamp: typeof raw.timestamp === "string" ? raw.timestamp : new Date().toISOString(),
   };
 }
 
@@ -100,9 +119,9 @@ function failedResult(
   return {
     actionId: action.id,
     actionType: action.type,
-    status: 'failed',
+    status: "failed",
     exitCode,
-    stdout: '',
+    stdout: "",
     stderr,
     durationMs,
     timestamp: new Date().toISOString(),

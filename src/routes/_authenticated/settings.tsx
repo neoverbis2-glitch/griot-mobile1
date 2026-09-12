@@ -117,7 +117,9 @@ function SettingsPage() {
     typeof window !== "undefined" ? window.localStorage.getItem("griot_gcp_runner_url") || "" : "",
   );
   const [gcpSecretInput, setGcpSecretInput] = useState(() =>
-    typeof window !== "undefined" ? window.localStorage.getItem("griot_gcp_runner_secret") || "" : "",
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("griot_gcp_runner_secret") || ""
+      : "",
   );
   const [gcpTokenInput, setGcpTokenInput] = useState(() =>
     typeof window !== "undefined" ? window.localStorage.getItem("griot_gcp_token") || "" : "",
@@ -148,7 +150,10 @@ function SettingsPage() {
     if (displayName) setName(displayName);
   }, [displayName]);
 
-  const currentAppLang = (prefs.appLanguage || prefs.voiceLanguage || labelFromLocale(locale) || "Português") as string;
+  const currentAppLang = (prefs.appLanguage ||
+    prefs.voiceLanguage ||
+    labelFromLocale(locale) ||
+    "Português") as string;
   const langInfo = useMemo(() => resolveSpeechLanguage(currentAppLang), [currentAppLang]);
   const [deviceVoices, setDeviceVoices] = useState<string[]>([]);
 
@@ -177,15 +182,15 @@ function SettingsPage() {
       langInfo.code === "pt"
         ? ["GRIOT Nativa (Português)", "Serena (pt)", "Grave (pt)", "Neutra (pt)"]
         : langInfo.code === "en"
-        ? ["GRIOT Native (English)", "Serene (en)", "Deep (en)", "Neutral (en)"]
-        : langInfo.code === "es"
-        ? ["GRIOT Nativo (Español)", "Serena (es)", "Grave (es)", "Neutra (es)"]
-        : [
-            `GRIOT Nativa (${langInfo.name})`,
-            `Serena (${langInfo.code})`,
-            `Grave (${langInfo.code})`,
-            `Neutra (${langInfo.code})`,
-          ];
+          ? ["GRIOT Native (English)", "Serene (en)", "Deep (en)", "Neutral (en)"]
+          : langInfo.code === "es"
+            ? ["GRIOT Nativo (Español)", "Serena (es)", "Grave (es)", "Neutra (es)"]
+            : [
+                `GRIOT Nativa (${langInfo.name})`,
+                `Serena (${langInfo.code})`,
+                `Grave (${langInfo.code})`,
+                `Neutra (${langInfo.code})`,
+              ];
 
     const filteredDevice = deviceVoices.filter((v) => !baseTones.includes(v));
     return [...baseTones, ...filteredDevice];
@@ -274,7 +279,10 @@ function SettingsPage() {
           return;
         }
       } catch (netErr: any) {
-        console.warn("Verificação direta de rede falhou, a continuar com persistência local:", netErr);
+        console.warn(
+          "Verificação direta de rede falhou, a continuar com persistência local:",
+          netErr,
+        );
       }
 
       if (typeof window !== "undefined") {
@@ -312,8 +320,16 @@ function SettingsPage() {
 
     setVerifyingGcpToken(true);
     try {
-      const res = await fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`);
-      const data = (await res.json().catch(() => ({}))) as { email?: string; sub?: string; exp?: string; error?: string; error_description?: string };
+      const res = await fetch(
+        `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`,
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        email?: string;
+        sub?: string;
+        exp?: string;
+        error?: string;
+        error_description?: string;
+      };
 
       if (res.ok && data.exp) {
         window.localStorage.setItem("griot_gcp_token", token);
@@ -324,7 +340,9 @@ function SettingsPage() {
         const expiresMin = Math.max(1, Math.round((Number(data.exp) - Date.now() / 1000) / 60));
         toast.success(`${t("Token verificado para")} ${email}! (${expiresMin} min restantes)`);
       } else {
-        toast.error(data.error_description || data.error || t("Token do Google Cloud inválido ou expirado."));
+        toast.error(
+          data.error_description || data.error || t("Token do Google Cloud inválido ou expirado."),
+        );
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -549,12 +567,15 @@ function SettingsPage() {
       <Section
         title={t("Chave de IA")}
         note={
-          (geminiCredential?.status === "active" || Boolean(typeof window !== "undefined" && getSavedApiKey("gemini")))
+          geminiCredential?.status === "active" ||
+          Boolean(typeof window !== "undefined" && getSavedApiKey("gemini"))
             ? t("Gemini ligado")
             : t("Necessária para conversar")
         }
         Icon={Sparkle}
-        defaultOpen={!geminiCredential && !(typeof window !== "undefined" && getSavedApiKey("gemini"))}
+        defaultOpen={
+          !geminiCredential && !(typeof window !== "undefined" && getSavedApiKey("gemini"))
+        }
       >
         <div className="border-b border-hairline px-5 py-3.5">
           <p className="text-[12px] font-medium tracking-wide text-muted-foreground uppercase">
@@ -570,7 +591,9 @@ function SettingsPage() {
               <span>●</span>
               <span>
                 {t("Chave ligada e pronta")}: ••••
-                {(geminiCredential?.secretHint?.replace("••••", "") || getSavedApiKey("gemini")?.slice(-4) || "")}
+                {geminiCredential?.secretHint?.replace("••••", "") ||
+                  getSavedApiKey("gemini")?.slice(-4) ||
+                  ""}
               </span>
             </p>
           )}
@@ -603,7 +626,11 @@ function SettingsPage() {
 
       <Section
         title={t("Google Cloud Execution Gateway")}
-        note={activeUser?.app_metadata?.provider === "google" || activeUser?.email ? t("Ligado") : t("Pendente")}
+        note={
+          activeUser?.app_metadata?.provider === "google" || activeUser?.email
+            ? t("Ligado")
+            : t("Pendente")
+        }
         Icon={Cpu}
       >
         <div className="border-b border-hairline px-5 py-3.5">
@@ -621,12 +648,25 @@ function SettingsPage() {
             className="mt-3 flex items-center justify-center gap-2.5 w-full rounded-2xl border border-hairline bg-surface py-3 text-[14.5px] font-medium text-foreground transition-transform duration-200 active:scale-[0.98]"
           >
             <svg className="size-4" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+              />
             </svg>
-            {activeUser?.app_metadata?.provider === "google" || activeUser?.email?.endsWith("@gmail.com")
+            {activeUser?.app_metadata?.provider === "google" ||
+            activeUser?.email?.endsWith("@gmail.com")
               ? `${t("Sessão Google Ativa")}: ${activeUser.email}`
               : t("Autenticar com Google OAuth")}
           </button>
@@ -1468,9 +1508,7 @@ function SettingsPage() {
         onClose={() => setTestModalOpen(false)}
         mode={testModalMode}
       />
-      {showTerms && (
-        <TermsDialog forceOpen onClose={() => setShowTerms(false)} />
-      )}
+      {showTerms && <TermsDialog forceOpen onClose={() => setShowTerms(false)} />}
     </Screen>
   );
 }

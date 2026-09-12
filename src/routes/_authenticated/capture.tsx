@@ -8,11 +8,7 @@ import { Camera } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { CaptureDetail } from "@/components/griot/capture-detail";
 import { useCurrentUser } from "@/hooks/use-user";
-import {
-  saveCapture,
-  getStoredCaptures,
-  type StoredCapture,
-} from "@/lib/capture-service";
+import { saveCapture, getStoredCaptures, type StoredCapture } from "@/lib/capture-service";
 import { getActiveProjectSync, getUnifiedProjects } from "@/lib/project-service";
 import type { CaptureRow } from "@/lib/capture-share";
 
@@ -49,10 +45,7 @@ function CapturePage() {
   const { data, refetch } = useQuery({
     queryKey: ["captures"],
     queryFn: async () => {
-      const [captures, projects] = await Promise.all([
-        getStoredCaptures(),
-        getUnifiedProjects(),
-      ]);
+      const [captures, projects] = await Promise.all([getStoredCaptures(), getUnifiedProjects()]);
       return { captures, projects };
     },
   });
@@ -189,7 +182,9 @@ function CapturePage() {
         try {
           const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
           const track = stream.getVideoTracks()[0];
-          const imageCapture = (window as any).ImageCapture ? new (window as any).ImageCapture(track) : null;
+          const imageCapture = (window as any).ImageCapture
+            ? new (window as any).ImageCapture(track)
+            : null;
           if (imageCapture) {
             const blob = await imageCapture.takePhoto();
             track.stop();
@@ -262,7 +257,9 @@ function CapturePage() {
             >
               <div className="min-w-0">
                 <p className="truncate text-[15px] font-medium">
-                  {capture.note ?? capture.file_name ?? t(CAPTURE_KINDS.find((k) => k.id === capture.kind)?.label ?? "")}
+                  {capture.note ??
+                    capture.file_name ??
+                    t(CAPTURE_KINDS.find((k) => k.id === capture.kind)?.label ?? "")}
                 </p>
                 <p className="text-[12.5px] text-muted-foreground">
                   {relativeTime(capture.created_at)}

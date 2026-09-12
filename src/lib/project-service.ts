@@ -1,6 +1,6 @@
 /**
  * GRIOT Unified Project Service
- * 
+ *
  * Fonte da verdade única para projetos no GRIOT Mobile.
  * Lê e sincroniza entre localStorage ('griot_local_projects') e Supabase ('griot_studio_projects').
  * Mantém o projeto ativo em 'griot_active_project_id' e emite eventos de atualização.
@@ -113,7 +113,9 @@ export function setActiveProject(projectId: string): void {
 /**
  * Guarda ou adiciona um novo projeto, definindo-o automaticamente como ativo.
  */
-export async function saveProject(project: Partial<GriotProject> & { name: string }): Promise<GriotProject> {
+export async function saveProject(
+  project: Partial<GriotProject> & { name: string },
+): Promise<GriotProject> {
   const newProj: GriotProject = {
     id: project.id || `proj_${Date.now()}`,
     name: project.name.trim(),
@@ -146,7 +148,12 @@ export async function saveProject(project: Partial<GriotProject> & { name: strin
         name: newProj.name,
         description: newProj.description,
         owner_id: userAuth.user.id,
-        brief: { goal: newProj.name, stack: "REACT", progress: newProj.progress, build_status: newProj.status },
+        brief: {
+          goal: newProj.name,
+          stack: "REACT",
+          progress: newProj.progress,
+          build_status: newProj.status,
+        },
         archived: false,
       });
     }

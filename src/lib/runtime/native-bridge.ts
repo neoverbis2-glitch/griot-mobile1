@@ -43,7 +43,9 @@ export class GriotNativeObserverBridge {
       (window as any).Capacitor?.Plugins?.GriotObserverPlugin?.addListener(
         "onObserverEvent",
         (data: { package: string; content: string; appName: string }) => {
-          window.dispatchEvent(new CustomEvent("griot:native-accessibility-event", { detail: data }));
+          window.dispatchEvent(
+            new CustomEvent("griot:native-accessibility-event", { detail: data }),
+          );
         },
       );
 
@@ -175,7 +177,8 @@ export class GriotNativeObserverBridge {
     threadTitle: string,
     message: string,
   ): Promise<{ success: boolean; injected: boolean; error?: string }> {
-    if (typeof window === "undefined") return { success: false, injected: false, error: "Ambiente não suportado" };
+    if (typeof window === "undefined")
+      return { success: false, injected: false, error: "Ambiente não suportado" };
 
     if ((window as any).Capacitor?.isNativePlatform?.()) {
       try {
@@ -242,7 +245,10 @@ export class GriotNativeObserverBridge {
       let lastStreamChunk = "";
 
       const cleanup = () => {
-        window.removeEventListener("griot:native-accessibility-event", onAccessibilityEvent as EventListener);
+        window.removeEventListener(
+          "griot:native-accessibility-event",
+          onAccessibilityEvent as EventListener,
+        );
         window.removeEventListener("griot:app-stream-chunk", onStreamChunk as EventListener);
         window.clearTimeout(timeout);
       };
@@ -258,7 +264,11 @@ export class GriotNativeObserverBridge {
 
       // 1. Escuta chunks de streaming diretos do GriotObserverService
       const onStreamChunk = (event: Event) => {
-        const detail = (event as CustomEvent).detail as { threadTitle?: string; text?: string; isDone?: boolean };
+        const detail = (event as CustomEvent).detail as {
+          threadTitle?: string;
+          text?: string;
+          isDone?: boolean;
+        };
         if (!detail?.text) return;
         if (threadTitle && detail.threadTitle && detail.threadTitle !== threadTitle) return;
 
@@ -300,7 +310,10 @@ export class GriotNativeObserverBridge {
       };
 
       window.addEventListener("griot:app-stream-chunk", onStreamChunk as EventListener);
-      window.addEventListener("griot:native-accessibility-event", onAccessibilityEvent as EventListener);
+      window.addEventListener(
+        "griot:native-accessibility-event",
+        onAccessibilityEvent as EventListener,
+      );
     });
   }
 

@@ -58,35 +58,34 @@ function HomePage() {
               .maybeSingle()
           : Promise.resolve({ data: null });
 
-        const [profile, projectsRes, pipelineRes, usageRes, credsRes, opbEventsRes] = await Promise.all([
-          profilePromise,
-          (supabase as any)
-            .from("griot_studio_projects")
-            .select("id, name, description, brief, archived, created_at, updated_at")
-            .eq("archived", false)
-            .order("updated_at", { ascending: false }),
-          (supabase as any)
-            .from("griot_pipeline_configs")
-            .select("nodes")
-            .limit(1)
-            .maybeSingle(),
-          (supabase as any)
-            .from("griot_provider_usage_events")
-            .select("id, provider_id, model_id, total_tokens, estimated_cost_usd, status, created_at")
-            .gte("created_at", since)
-            .order("created_at", { ascending: false })
-            .limit(50),
-          (supabase as any)
-            .from("griot_credentials")
-            .select("id, provider_id, label, kind, status")
-            .eq("status", "active"),
-          (supabase as any)
-            .from("griot_opb_events")
-            .select("id, event_type, payload, created_at")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-        ]);
+        const [profile, projectsRes, pipelineRes, usageRes, credsRes, opbEventsRes] =
+          await Promise.all([
+            profilePromise,
+            (supabase as any)
+              .from("griot_studio_projects")
+              .select("id, name, description, brief, archived, created_at, updated_at")
+              .eq("archived", false)
+              .order("updated_at", { ascending: false }),
+            (supabase as any).from("griot_pipeline_configs").select("nodes").limit(1).maybeSingle(),
+            (supabase as any)
+              .from("griot_provider_usage_events")
+              .select(
+                "id, provider_id, model_id, total_tokens, estimated_cost_usd, status, created_at",
+              )
+              .gte("created_at", since)
+              .order("created_at", { ascending: false })
+              .limit(50),
+            (supabase as any)
+              .from("griot_credentials")
+              .select("id, provider_id, label, kind, status")
+              .eq("status", "active"),
+            (supabase as any)
+              .from("griot_opb_events")
+              .select("id, event_type, payload, created_at")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+          ]);
 
         const localName =
           typeof window !== "undefined" ? localStorage.getItem("griot_user_name") : null;
@@ -117,15 +116,18 @@ function HomePage() {
 
         // Nós ativos do pipeline multi-agente
         const pipelineNodes = Array.isArray(pipelineRes?.data?.nodes) ? pipelineRes.data.nodes : [];
-        const activeAgentsCount = pipelineNodes.length > 0
-          ? pipelineNodes.filter((n: any) => n.enabled !== false).length
-          : 4;
+        const activeAgentsCount =
+          pipelineNodes.length > 0
+            ? pipelineNodes.filter((n: any) => n.enabled !== false).length
+            : 4;
 
         // Execuções reais com telemetria de tokens
         const rawUsage = usageRes?.data || [];
         const mappedRuns: RunRow[] = rawUsage.map((u: any) => ({
           created_at: u.created_at,
-          cost_usd: Number(u.estimated_cost_usd || (u.total_tokens ? u.total_tokens * 0.0000005 : 0)),
+          cost_usd: Number(
+            u.estimated_cost_usd || (u.total_tokens ? u.total_tokens * 0.0000005 : 0),
+          ),
           duration_ms: Number(u.duration_ms || u.latency_ms || 0),
         }));
 

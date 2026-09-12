@@ -112,7 +112,11 @@ export function CaptureDetail({
           </span>
         </div>
 
-        {preview && url && (capture.mime_type?.startsWith("image/") || capture.kind === "photo" || capture.kind === "gallery") ? (
+        {preview &&
+        url &&
+        (capture.mime_type?.startsWith("image/") ||
+          capture.kind === "photo" ||
+          capture.kind === "gallery") ? (
           <img
             src={url}
             alt={captureTitle(capture)}

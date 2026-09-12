@@ -184,8 +184,7 @@ export class GriotObserverEngine {
         this.notifyAction(action);
 
         // Notificação nativa com logo do GRIOT e botões Aprovar / Rejeitar
-        const payloadStr =
-          JSON.stringify(action.params);
+        const payloadStr = JSON.stringify(action.params);
         void notify({
           type: "approval",
           title: `Aprovação Requerida (${action.type})`,

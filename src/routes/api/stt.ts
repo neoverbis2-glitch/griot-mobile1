@@ -23,8 +23,7 @@ export const Route = createFileRoute("/api/stt")({
           const base64Audio = Buffer.from(arrayBuffer).toString("base64");
 
           // Modelos ultrarrápidos e multimodais ativos na API Gemini
-          const candidateModels = ["gemini-2.0-flash", "gemini-1.5-flash"];
-
+          const candidateModels = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-flash-latest"];
 
           const { result: response } = await generateContentWithFallback({
             models: candidateModels,

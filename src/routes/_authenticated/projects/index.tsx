@@ -134,7 +134,9 @@ function ProjectsPage() {
 
       {/* Clean State for Real Production */}
       {loading ? (
-        <div className="py-12 text-center text-muted-foreground text-[14px]">{t("A carregar...")}</div>
+        <div className="py-12 text-center text-muted-foreground text-[14px]">
+          {t("A carregar...")}
+        </div>
       ) : projects.length === 0 ? (
         <div className="py-16 text-center text-muted-foreground text-[15px]">
           <p>{t("Ainda não tens projetos.")}</p>
@@ -156,7 +158,9 @@ function ProjectsPage() {
                 <div className="rounded-[24px] border border-hairline bg-surface p-5 shadow-xs transition-transform active:scale-[0.99]">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <h2 className="text-[20px] font-bold text-foreground tracking-snug">{proj.name}</h2>
+                      <h2 className="text-[20px] font-bold text-foreground tracking-snug">
+                        {proj.name}
+                      </h2>
                       {proj.id === activeProjectId && (
                         <span className="rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10.5px] font-semibold text-foreground tracking-wide uppercase">
                           {t("Ativo")}

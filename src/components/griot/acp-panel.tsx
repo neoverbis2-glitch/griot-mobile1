@@ -21,12 +21,7 @@ import {
   type GriotCredential,
 } from "@/lib/griot-api";
 import { AddApiModal } from "@/components/griot/add-api-modal";
-import {
-  getUserSavedApis,
-  saveUserApi,
-  deleteUserApi,
-  type UserSavedApi,
-} from "@/lib/user-apis";
+import { getUserSavedApis, saveUserApi, deleteUserApi, type UserSavedApi } from "@/lib/user-apis";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getAiLogo } from "@/components/griot/brand-icons";
@@ -45,7 +40,14 @@ export interface ConnectedApiItem {
 
 const PROVIDER_INFO: Record<
   string,
-  { label: string; short: string; vendor: string; hint: string; docUrl: string; placeholder: string }
+  {
+    label: string;
+    short: string;
+    vendor: string;
+    hint: string;
+    docUrl: string;
+    placeholder: string;
+  }
 > = {
   gemini: {
     label: "Google Gemini",
@@ -331,7 +333,9 @@ export function ApisPanel({
               {t("Nenhuma API ligada ainda")}
             </p>
             <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-              {t("Adiciona uma chave de API (Gemini, OpenAI, Claude, DeepSeek) para orquestrar respostas.")}
+              {t(
+                "Adiciona uma chave de API (Gemini, OpenAI, Claude, DeepSeek) para orquestrar respostas.",
+              )}
             </p>
           </div>
         ) : (

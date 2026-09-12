@@ -27,7 +27,9 @@ const geminiModelCompat = {
   },
 };
 
-const mobileAiEntry = fileURLToPath(new URL("./src/lib/ai-client-mobile-entry.ts", import.meta.url));
+const mobileAiEntry = fileURLToPath(
+  new URL("./src/lib/ai-client-mobile-entry.ts", import.meta.url),
+);
 
 export default defineConfig({
   server: {

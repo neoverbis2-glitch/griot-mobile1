@@ -122,7 +122,7 @@ async function main() {
 
       // ic_launcher_foreground.png (balanced at ~50% of safe zone)
       const fgPadded = await sharp(Buffer.from(foregroundSvg))
-        .resize(Math.round(m.fgSize * 0.50), Math.round(m.fgSize * 0.50))
+        .resize(Math.round(m.fgSize * 0.5), Math.round(m.fgSize * 0.5))
         .toBuffer();
 
       await sharp({

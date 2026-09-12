@@ -34,10 +34,7 @@ import {
   setPluginConnected,
   stripPartialPlugin,
 } from "@/lib/plugins";
-import {
-  observerEngine,
-  stripActionBlocks,
-} from "@/lib/runtime";
+import { observerEngine, stripActionBlocks } from "@/lib/runtime";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
 import { getSavedApiKey, resolveProviderAndModel } from "@/lib/ai-client";
 import { chatExecutionManager } from "@/lib/chat-execution-manager";
@@ -103,7 +100,6 @@ import {
 } from "@/lib/capture-share";
 import { getStoredCaptures, saveCapture } from "@/lib/capture-service";
 
-
 type Row = {
   id: string;
   role: string;
@@ -155,7 +151,8 @@ function triggerHaptic(type: "light" | "medium" | "heavy" | "selection" = "light
 }
 
 function generatePreviewSrcDoc(files: WorkspaceFile[]): string {
-  const htmlFile = files.find((f) => f.path.endsWith(".html") || f.path === "index.html") || files[0];
+  const htmlFile =
+    files.find((f) => f.path.endsWith(".html") || f.path === "index.html") || files[0];
   if (!htmlFile) {
     return "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:20px;color:#888;'><h3>Nenhum ficheiro HTML no workspace.</h3></body></html>";
   }
@@ -308,7 +305,9 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [drawer, setDrawer] = useState(false);
   const [drawerKey, setDrawerKey] = useState(0);
   const [projects, setProjects] = useState<GriotProject[]>([]);
-  const [activeProject, setActiveProjectState] = useState<GriotProject | null>(() => getActiveProjectSync());
+  const [activeProject, setActiveProjectState] = useState<GriotProject | null>(() =>
+    getActiveProjectSync(),
+  );
   const [captures, setCaptures] = useState<CaptureRow[]>([]);
   const [deliberationMission, setDeliberationMission] = useState<DeliberationMissionId>("ideate");
   const [roleEngines, setRoleEngines] = useState<Record<DeliberationRoleId, string>>(() => {
@@ -378,7 +377,8 @@ export function ChatSurface({ userId }: { userId: string }) {
             access_type: "offline",
             prompt: "consent",
           },
-          scopes: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email",
+          scopes:
+            "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email",
         },
       });
       if (error) throw error;
@@ -407,7 +407,12 @@ export function ChatSurface({ userId }: { userId: string }) {
   // Seleciona a primeira API adicionada se o modelo selecionado não for válido
   useEffect(() => {
     if (availableModels.length > 0) {
-      if (!model || model === "modelos" || model === "model-os" || !availableModels.some((m) => m.id === model)) {
+      if (
+        !model ||
+        model === "modelos" ||
+        model === "model-os" ||
+        !availableModels.some((m) => m.id === model)
+      ) {
         setModel(availableModels[0].id);
       }
     }
@@ -522,7 +527,9 @@ export function ChatSurface({ userId }: { userId: string }) {
   useEffect(() => {
     if (!busy) return;
     const safetyTimer = setTimeout(() => {
-      console.warn("[ChatSurface] Emergency UI watchdog: busy permaneceu ativo por 22s. Forçando desbloqueio da interface.");
+      console.warn(
+        "[ChatSurface] Emergency UI watchdog: busy permaneceu ativo por 22s. Forçando desbloqueio da interface.",
+      );
       setBusy(false);
       setStreaming("");
       setReasoning("");
@@ -545,7 +552,10 @@ export function ChatSurface({ userId }: { userId: string }) {
           if (raw) {
             const list: Conversation[] = JSON.parse(raw);
             if (activeId) {
-              localConv = list.find((c) => c.id === activeId && !c.archived && (c.scope || "main") === "main") || null;
+              localConv =
+                list.find(
+                  (c) => c.id === activeId && !c.archived && (c.scope || "main") === "main",
+                ) || null;
             }
             if (!localConv) {
               localConv = list.find((c) => (c.scope || "main") === "main" && !c.archived) || null;
@@ -699,7 +709,8 @@ export function ChatSurface({ userId }: { userId: string }) {
         if (!cancelled && data && Array.isArray(data)) {
           const remoteRows: Row[] = data.map((m: any) => ({
             id: m.id,
-            role: m.actor_kind === "human" ? "user" : m.actor_kind === "model" ? "assistant" : "system",
+            role:
+              m.actor_kind === "human" ? "user" : m.actor_kind === "model" ? "assistant" : "system",
             content: m.content,
             created_at: m.created_at,
             feedback: null,
@@ -726,7 +737,10 @@ export function ChatSurface({ userId }: { userId: string }) {
               if (mergedMap.has(remote.id)) {
                 // Mensagem já existe por ID exato: preserva feedback local se houver
                 const existing = mergedMap.get(remote.id)!;
-                mergedMap.set(remote.id, { ...remote, feedback: existing.feedback ?? remote.feedback });
+                mergedMap.set(remote.id, {
+                  ...remote,
+                  feedback: existing.feedback ?? remote.feedback,
+                });
                 continue;
               }
 
@@ -734,7 +748,10 @@ export function ChatSurface({ userId }: { userId: string }) {
               let matchedLocalId: string | null = null;
               const remoteTime = new Date(remote.created_at).getTime();
               for (const [id, localItem] of mergedMap.entries()) {
-                if (localItem.role === remote.role && localItem.content.trim() === remote.content.trim()) {
+                if (
+                  localItem.role === remote.role &&
+                  localItem.content.trim() === remote.content.trim()
+                ) {
                   const localTime = new Date(localItem.created_at).getTime();
                   if (Math.abs(localTime - remoteTime) < 60000) {
                     matchedLocalId = id;
@@ -862,7 +879,6 @@ export function ChatSurface({ userId }: { userId: string }) {
     };
   }, [conversationId]);
 
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, streaming, reasoning]);
@@ -963,8 +979,7 @@ export function ChatSurface({ userId }: { userId: string }) {
     const voiceMode = options?.voice === true;
 
     // Identificar o projeto associado à conversa ou o projeto ativo global
-    const currentProject =
-      projects.find((p) => p.id === conversation?.project_id) || activeProject;
+    const currentProject = projects.find((p) => p.id === conversation?.project_id) || activeProject;
 
     console.log("[GRIOT_DEBUG] handleSend iniciado", {
       conversationId,
@@ -976,13 +991,14 @@ export function ChatSurface({ userId }: { userId: string }) {
     const activeModel = model;
     const { provider, specificApiKey } = resolveProviderAndModel(activeModel);
     const effectiveKey = specificApiKey || getSavedApiKey(provider) || getSavedApiKey("gemini");
-    const isLocalApp =
+    const isNativeApp =
       typeof window !== "undefined" &&
       (window.location.protocol === "capacitor:" ||
-        window.location.hostname === "localhost" ||
         Boolean((window as any).Capacitor?.isNativePlatform?.()));
 
-    if (!effectiveKey && isLocalApp) {
+    const hasAuthSession = Boolean(userId && userId !== "anonymous");
+
+    if (!effectiveKey && isNativeApp && !hasAuthSession) {
       setBusy(false);
       setStreaming("");
       const needKeyMsg: Row = {
@@ -1068,9 +1084,11 @@ Atua como um grupo dinâmico de deliberação e debate. Divide a tua intervenç�
 Cada membro deve ser conciso, direto e falar na sua voz própria, como membros de uma equipa num grupo de rede social.`;
     }
 
-    if (opts?.voice || voiceChat) {
+    if (voiceMode || voiceChat) {
       const prefs = loadPrefs();
-      const langInfo = resolveSpeechLanguage((prefs["voiceLanguage"] as string) || (prefs["appLanguage"] as string));
+      const langInfo = resolveSpeechLanguage(
+        (prefs["voiceLanguage"] as string) || (prefs["appLanguage"] as string),
+      );
       sysInstruction += `\n\n[MODO DE CONVERSAÇÃO POR VOZ EM TEMPO REAL]
 Estás numa chamada de voz falada direta com o utilizador em tempo real.
 DIRETRIZES ESTRITAS DE FALA HUMANA:
@@ -1107,25 +1125,6 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         context,
         currentProject,
       });
-
-      // Reconciliação pós-execução: a resposta já foi persistida pelo
-      // execution manager; injeta-a explicitamente no estado React após
-      // a conclusão da execução para evitar que o cleanup da animação
-      // deixe o chat visualmente sem a resposta.
-      if (typeof window !== "undefined" && targetConvId) {
-        try {
-          const rawFinal = localStorage.getItem("griot_messages_" + targetConvId);
-          if (rawFinal) {
-            const finalMessages = JSON.parse(rawFinal);
-            if (Array.isArray(finalMessages)) {
-              setMessages(finalMessages);
-            }
-          }
-        } catch (reconcileErr) {
-          console.warn("[GRIOT_DEBUG] reconciliação final de mensagens falhou:", reconcileErr);
-        }
-      }
-
       console.log("[GRIOT_DEBUG] startExecution terminou sem lançar erro");
     } catch (err: any) {
       console.error("[GRIOT_DEBUG] startExecution lançou erro:", err);
@@ -1211,16 +1210,14 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     const persist = (async () => {
       try {
         const workspaceId = await getPrimaryWorkspaceId(userId);
-        await (supabase as any)
-          .from("griot_messages")
-          .insert({
-            id: userRowId,
-            workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-            conversation_id: targetConvId,
-            actor_kind: "human",
-            content: clean,
-            status: "succeeded",
-          });
+        await (supabase as any).from("griot_messages").insert({
+          id: userRowId,
+          workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
+          conversation_id: targetConvId,
+          actor_kind: "human",
+          content: clean,
+          status: "succeeded",
+        });
       } catch {
         // ignore
       }
@@ -1234,10 +1231,15 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       if (needsTitle) {
         const title = clean.slice(0, 48);
         try {
-          await (supabase as any).from("griot_conversations").update({ title }).eq("id", targetConvId);
+          await (supabase as any)
+            .from("griot_conversations")
+            .update({ title })
+            .eq("id", targetConvId);
         } catch {}
         setConversation((current) => {
-          const updated = current ? { ...current, title, updated_at: new Date().toISOString() } : current;
+          const updated = current
+            ? { ...current, title, updated_at: new Date().toISOString() }
+            : current;
           if (updated) saveConversationLocally(updated);
           return updated;
         });
@@ -1265,7 +1267,11 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     const base = messages
       .slice(0, index)
       .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-    await (supabase as any).from("griot_messages").delete().eq("id", assistantId).catch(() => null);
+    await (supabase as any)
+      .from("griot_messages")
+      .delete()
+      .eq("id", assistantId)
+      .catch(() => null);
     const updated = messages.filter((m) => m.id !== assistantId);
     setMessages(updated);
     if (typeof window !== "undefined") {
@@ -1282,7 +1288,11 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     const target = messages[index];
     if (!target) return;
     const removed = messages.slice(index).map((m) => m.id);
-    await (supabase as any).from("griot_messages").delete().in("id", removed).catch(() => null);
+    await (supabase as any)
+      .from("griot_messages")
+      .delete()
+      .in("id", removed)
+      .catch(() => null);
     setMessages((current) => current.slice(0, index));
     setDraft(target.content);
   }
@@ -1483,7 +1493,11 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         if (target) {
           const removed = rows.slice(index + 1).map((m) => m.id);
           if (removed.length > 0) {
-            await (supabase as any).from("griot_messages").delete().in("id", removed).catch(() => null);
+            await (supabase as any)
+              .from("griot_messages")
+              .delete()
+              .in("id", removed)
+              .catch(() => null);
           }
           await (supabase as any)
             .from("griot_messages")
@@ -1573,7 +1587,8 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       });
 
       if (isImg) {
-        const imgUrl = saved && saved.storage_path ? await captureUrl(saved.storage_path, saved) : null;
+        const imgUrl =
+          saved && saved.storage_path ? await captureUrl(saved.storage_path, saved) : null;
         if (imgUrl) {
           toast.success(t("Imagem anexada à conversa."));
           void send(`![${file.name}](${imgUrl})\n\nPor favor analisa esta imagem.`);
@@ -1589,7 +1604,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         try {
           const content = await file.text();
           toast.success(t("Ficheiro anexado à conversa."));
-          void send(`[Ficheiro: ${file.name}]\n\`\`\`\n${content.slice(0, 12000)}\n\`\`\`\nPor favor analisa este ficheiro.`);
+          void send(
+            `[Ficheiro: ${file.name}]\n\`\`\`\n${content.slice(0, 12000)}\n\`\`\`\nPor favor analisa este ficheiro.`,
+          );
           return;
         } catch {}
       }
@@ -1629,15 +1646,13 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     void (async () => {
       try {
         const workspaceId = await getPrimaryWorkspaceId(userId);
-        await (supabase as any)
-          .from("griot_conversations")
-          .insert({
-            id: localId,
-            workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
-            owner_id: userId && userId !== "anonymous" ? userId : null,
-            created_by: userId && userId !== "anonymous" ? userId : null,
-            title: defaultTitle,
-          });
+        await (supabase as any).from("griot_conversations").insert({
+          id: localId,
+          workspace_id: workspaceId || "c92b4b86-2ff1-4259-bc16-3ab66751d8b1",
+          owner_id: userId && userId !== "anonymous" ? userId : null,
+          created_by: userId && userId !== "anonymous" ? userId : null,
+          title: defaultTitle,
+        });
       } catch {
         // ignore
       }
@@ -1676,10 +1691,14 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         if (raw) {
           const list: Conversation[] = JSON.parse(raw);
           if (activeId) {
-            targetConv = list.find((c) => c.id === activeId && !c.archived && (c.scope || "main") === targetScope) || null;
+            targetConv =
+              list.find(
+                (c) => c.id === activeId && !c.archived && (c.scope || "main") === targetScope,
+              ) || null;
           }
           if (!targetConv) {
-            targetConv = list.find((c) => (c.scope || "main") === targetScope && !c.archived) || null;
+            targetConv =
+              list.find((c) => (c.scope || "main") === targetScope && !c.archived) || null;
           }
         }
       } catch {}
@@ -1793,7 +1812,10 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     if (!conversation) return;
 
     try {
-      await (supabase as any).from("griot_messages").delete().eq("conversation_id", conversation.id);
+      await (supabase as any)
+        .from("griot_messages")
+        .delete()
+        .eq("conversation_id", conversation.id);
       await (supabase as any).from("griot_conversations").delete().eq("id", conversation.id);
     } catch {}
 
@@ -1848,7 +1870,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
       setConversation((prev) => (prev ? { ...prev, project_id: nextProjectId } : null));
     }
-    toast.success(nextProjectId ? t("Conversa ligada ao projeto.") : t("Conversa desvinculada do projeto."));
+    toast.success(
+      nextProjectId ? t("Conversa ligada ao projeto.") : t("Conversa desvinculada do projeto."),
+    );
     setSheet(null);
   }
 
@@ -1861,7 +1885,11 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       run: async () => {
         setSheet(null);
         try {
-          const { Camera: CapCamera, CameraResultType, CameraSource } = await import("@capacitor/camera");
+          const {
+            Camera: CapCamera,
+            CameraResultType,
+            CameraSource,
+          } = await import("@capacitor/camera");
           const photo = await CapCamera.getPhoto({
             quality: 90,
             allowEditing: false,
@@ -2012,7 +2040,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
               key={value}
               onClick={() => void switchScope(value)}
               className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition-all duration-200 active:scale-95 ${
-                scope === value ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                scope === value
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {value === "main" ? t("Chat") : t("Quick")}
@@ -2101,7 +2131,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             />
           ))}
 
-          {busy && scope !== "quick" ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
+          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
 
           {streaming ? (
             scope === "quick" ? (
@@ -2537,9 +2567,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     className="flex w-full items-center justify-between border-t border-hairline px-4 py-3 text-left active:bg-secondary text-muted-foreground"
                   >
                     <span className="text-[14px]">{t("Nenhum projeto (conversa livre)")}</span>
-                    {!conversation?.project_id && (
-                      <Check className="size-4 text-primary" />
-                    )}
+                    {!conversation?.project_id && <Check className="size-4 text-primary" />}
                   </button>
                 </>
               )}
@@ -2660,7 +2688,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         {(() => {
-                          const Logo = isModelOS(option.id) ? GriotAiLogo : getAiLogo(option.id.split(":")[0]);
+                          const Logo = isModelOS(option.id)
+                            ? GriotAiLogo
+                            : getAiLogo(option.id.split(":")[0]);
                           return (
                             <div className="grid size-6 shrink-0 place-items-center rounded-full border border-hairline/60 bg-surface">
                               <Logo className="size-3.5 text-foreground" />
@@ -2730,7 +2760,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                   {t("Permitir execução no Cloud Shell?")}
                 </h4>
                 <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                  {t("O GRIOT precisa da sua aprovação para executar comandos pesados em ambiente sandbox na nuvem.")}
+                  {t(
+                    "O GRIOT precisa da sua aprovação para executar comandos pesados em ambiente sandbox na nuvem.",
+                  )}
                 </p>
                 {cloudShellCmd ? (
                   <div className="mt-2.5 rounded-xl bg-secondary px-3 py-2 text-[11.5px] font-mono text-foreground/90 break-all select-all">
@@ -2748,7 +2780,9 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                   className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground shadow-sm transition-transform active:scale-[0.98]"
                 >
                   <CloudLightning className="size-4" />
-                  <span>{connectingGoogle ? t("A ligar à Google...") : t("Ligar com a Google")}</span>
+                  <span>
+                    {connectingGoogle ? t("A ligar à Google...") : t("Ligar com a Google")}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -2842,18 +2876,19 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                         : "bg-secondary text-foreground hover:bg-secondary/80 border border-hairline/60"
                     }`}
                   >
-                    {availableModels.length > 0 && (() => {
-                      const Logo = isModelOS(model) ? GriotAiLogo : getAiLogo(model.split(":")[0]);
-                      return <Logo className="size-3.5 shrink-0 text-foreground" />;
-                    })()}
+                    {availableModels.length > 0 &&
+                      (() => {
+                        const Logo = isModelOS(model)
+                          ? GriotAiLogo
+                          : getAiLogo(model.split(":")[0]);
+                        return <Logo className="size-3.5 shrink-0 text-foreground" />;
+                      })()}
                     <span className="max-w-[130px] truncate">
                       {availableModels.length === 0 ? t("+ Adicionar API") : modelLabel(model)}
                     </span>
                     <ChevronDown
                       className={`size-4 ${
-                        availableModels.length === 0
-                          ? "text-primary/70"
-                          : "text-muted-foreground"
+                        availableModels.length === 0 ? "text-primary/70" : "text-muted-foreground"
                       }`}
                     />
                   </button>

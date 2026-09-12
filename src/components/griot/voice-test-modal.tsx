@@ -99,7 +99,10 @@ export function VoiceTestModal({ open, onClose, mode = "voice" }: VoiceTestModal
     // Pitch based on selected voice
     if (voiceType.toLowerCase().includes("grave") || voiceType.toLowerCase().includes("deep")) {
       utterance.pitch = 0.75;
-    } else if (voiceType.toLowerCase().includes("serena") || voiceType.toLowerCase().includes("calm")) {
+    } else if (
+      voiceType.toLowerCase().includes("serena") ||
+      voiceType.toLowerCase().includes("calm")
+    ) {
       utterance.pitch = 1.18;
     } else {
       utterance.pitch = 1.0;
@@ -111,8 +114,7 @@ export function VoiceTestModal({ open, onClose, mode = "voice" }: VoiceTestModal
     );
     const selectedVoiceName = voiceType.toLowerCase();
     const matchedVoice =
-      langVoices.find((v) => v.name.toLowerCase().includes(selectedVoiceName)) ||
-      langVoices[0];
+      langVoices.find((v) => v.name.toLowerCase().includes(selectedVoiceName)) || langVoices[0];
     if (matchedVoice) utterance.voice = matchedVoice;
 
     utterance.onstart = () => setIsSpeaking(true);

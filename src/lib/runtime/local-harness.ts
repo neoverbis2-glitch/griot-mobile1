@@ -128,8 +128,8 @@ export function isCloudShellConnected(): boolean {
   const supabaseSession = localStorage.getItem("sb-dslccwkaitihiszetdlh-auth-token");
   return Boolean(
     (token && token.length > 10) ||
-      (runnerUrl && runnerUrl.startsWith("http")) ||
-      (supabaseSession && supabaseSession.includes("google")),
+    (runnerUrl && runnerUrl.startsWith("http")) ||
+    (supabaseSession && supabaseSession.includes("google")),
   );
 }
 
@@ -173,7 +173,9 @@ export async function executeLocalAction(
     }
 
     case "fs.read_file": {
-      const path = String(params.path || "").trim().replace(/^(\.\/|\/)/, "");
+      const path = String(params.path || "")
+        .trim()
+        .replace(/^(\.\/|\/)/, "");
       const files = getWorkspaceFiles(workspaceId);
       const found = files.find((f) => f.path === path);
 
@@ -253,7 +255,9 @@ export async function executeLocalAction(
     }
 
     case "fs.patch": {
-      const path = String(params.path || "").trim().replace(/^(\.\/|\/)/, "");
+      const path = String(params.path || "")
+        .trim()
+        .replace(/^(\.\/|\/)/, "");
       const target = String(params.target || "");
       const replacement = String(params.replacement || "");
       const files = getWorkspaceFiles(workspaceId);
@@ -362,9 +366,15 @@ export async function executeLocalAction(
           commits = JSON.parse(safeGetItem(getCommitStorageKey(workspaceId)) || "[]");
         } catch {}
       }
-      const stdout = commits.length > 0
-        ? commits.map((c) => `commit ${c.hash}\nAuthor: ${c.author}\nDate: ${c.timestamp}\n\n    ${c.message}\n`).join("\n")
-        : "commit init789 (HEAD -> main)\nAuthor: GRIOT <agent@griot.local>\n\n    Initial workspace commit\n";
+      const stdout =
+        commits.length > 0
+          ? commits
+              .map(
+                (c) =>
+                  `commit ${c.hash}\nAuthor: ${c.author}\nDate: ${c.timestamp}\n\n    ${c.message}\n`,
+              )
+              .join("\n")
+          : "commit init789 (HEAD -> main)\nAuthor: GRIOT <agent@griot.local>\n\n    Initial workspace commit\n";
 
       return {
         actionId: action.id,

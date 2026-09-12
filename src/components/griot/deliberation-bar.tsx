@@ -70,7 +70,7 @@ export function DeliberationBar({
           label: a.label,
           short: a.label.replace(/^Google\s+|^OpenAI\s+|^Anthropic\s+/i, ""),
         }))
-      : [{ id: "gemini:gemini-2.0-flash", label: "Google Gemini (Base)", short: "Gemini" }];
+      : [{ id: "gemini:gemini-2.5-flash", label: "Google Gemini (Base)", short: "Gemini" }];
 
   const currentMissionObj =
     DELIBERATION_MISSIONS.find((m) => m.id === activeMission) || DELIBERATION_MISSIONS[0];
@@ -85,7 +85,10 @@ export function DeliberationBar({
           className="flex w-full items-center justify-between rounded-2xl bg-secondary px-3.5 py-2.5 text-[13px] font-medium text-foreground transition-transform active:scale-[0.98]"
         >
           <div className="flex items-center gap-2 truncate">
-            <RoleIcon name={currentMissionObj.icon} className="size-4 text-foreground/80 shrink-0" />
+            <RoleIcon
+              name={currentMissionObj.icon}
+              className="size-4 text-foreground/80 shrink-0"
+            />
             <span className="truncate">{t(currentMissionObj.label)}</span>
           </div>
           <ChevronDown className="size-3.5 text-muted-foreground shrink-0 ml-2" />
@@ -144,28 +147,32 @@ export function DeliberationBar({
 
       {/* Bottom Row: Active 4 Roles Bar */}
       <div className="mt-2.5 grid grid-cols-4 gap-1.5 w-full">
-        {(["strategist", "analyst", "innovator", "critic"] as DeliberationRoleId[]).map((roleId, idx) => {
-          const role = DELIBERATION_ROLES[roleId];
-          const assignedEngine = roleEngines[roleId] || availableEngines[idx % availableEngines.length]?.id;
-          const engineObj = availableEngines.find((e) => e.id === assignedEngine) || availableEngines[0];
+        {(["strategist", "analyst", "innovator", "critic"] as DeliberationRoleId[]).map(
+          (roleId, idx) => {
+            const role = DELIBERATION_ROLES[roleId];
+            const assignedEngine =
+              roleEngines[roleId] || availableEngines[idx % availableEngines.length]?.id;
+            const engineObj =
+              availableEngines.find((e) => e.id === assignedEngine) || availableEngines[0];
 
-          return (
-            <button
-              key={roleId}
-              type="button"
-              onClick={() => setRoleSelectOpen(roleId)}
-              className="flex min-w-0 flex-col items-center justify-center rounded-2xl bg-secondary px-1 py-2.5 text-center transition-all hover:bg-secondary/80 active:scale-[0.97]"
-            >
-              <RoleIcon name={role.icon} className="size-4 text-foreground/80 shrink-0" />
-              <span className="mt-1 text-[10.5px] font-medium text-foreground truncate w-full px-0.5">
-                {role.label}
-              </span>
-              <span className="mt-0.5 text-[9px] text-muted-foreground/75 truncate w-full px-0.5">
-                {engineObj?.short || "Gemini"}
-              </span>
-            </button>
-          );
-        })}
+            return (
+              <button
+                key={roleId}
+                type="button"
+                onClick={() => setRoleSelectOpen(roleId)}
+                className="flex min-w-0 flex-col items-center justify-center rounded-2xl bg-secondary px-1 py-2.5 text-center transition-all hover:bg-secondary/80 active:scale-[0.97]"
+              >
+                <RoleIcon name={role.icon} className="size-4 text-foreground/80 shrink-0" />
+                <span className="mt-1 text-[10.5px] font-medium text-foreground truncate w-full px-0.5">
+                  {role.label}
+                </span>
+                <span className="mt-0.5 text-[9px] text-muted-foreground/75 truncate w-full px-0.5">
+                  {engineObj?.short || "Gemini"}
+                </span>
+              </button>
+            );
+          },
+        )}
       </div>
 
       {/* Role Engine Selector Centered Modal */}
@@ -174,7 +181,10 @@ export function DeliberationBar({
           <div className="w-full max-w-xs overflow-hidden rounded-3xl bg-card border border-white/[0.08] p-3.5 shadow-2xl rise">
             <div className="flex items-center justify-between px-1 pb-2 border-b border-border/40">
               <div className="flex items-center gap-2">
-                <RoleIcon name={DELIBERATION_ROLES[roleSelectOpen].icon} className="size-4 text-foreground/80" />
+                <RoleIcon
+                  name={DELIBERATION_ROLES[roleSelectOpen].icon}
+                  className="size-4 text-foreground/80"
+                />
                 <p className="text-[13px] font-semibold text-foreground">
                   {DELIBERATION_ROLES[roleSelectOpen].label}
                 </p>
@@ -186,8 +196,7 @@ export function DeliberationBar({
 
             <div className="mt-2 space-y-1 max-h-[45vh] overflow-y-auto no-scrollbar">
               {availableEngines.map((opt) => {
-                const currentEngine =
-                  roleEngines[roleSelectOpen] || availableEngines[0]?.id;
+                const currentEngine = roleEngines[roleSelectOpen] || availableEngines[0]?.id;
                 const isSelected = currentEngine === opt.id;
                 return (
                   <button

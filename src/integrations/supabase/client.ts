@@ -44,24 +44,95 @@ const MOCK_DATA: Record<string, unknown> = {
     },
   ],
   agents: [
-    { id: "a1", name: "Revisor", role: "Qualidade editorial", status: "active", created_at: new Date().toISOString() },
-    { id: "a2", name: "Tradutor", role: "Tradução assistida", status: "active", created_at: new Date().toISOString() },
-    { id: "a3", name: "Orquestrador", role: "Encaminhamento de modelos", status: "active", created_at: new Date().toISOString() },
-    { id: "a4", name: "Observador", role: "Monitorização de custos", status: "active", created_at: new Date().toISOString() },
+    {
+      id: "a1",
+      name: "Revisor",
+      role: "Qualidade editorial",
+      status: "active",
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: "a2",
+      name: "Tradutor",
+      role: "Tradução assistida",
+      status: "active",
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: "a3",
+      name: "Orquestrador",
+      role: "Encaminhamento de modelos",
+      status: "active",
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: "a4",
+      name: "Observador",
+      role: "Monitorização de custos",
+      status: "active",
+      created_at: new Date().toISOString(),
+    },
   ],
   runs: [
-    { id: "r1", label: "Build #482", status: "success", duration_ms: 84000, cost_usd: 0.12, created_at: new Date().toISOString() },
-    { id: "r2", label: "Revisão de 240 parágrafos", status: "success", duration_ms: 213000, cost_usd: 0.87, created_at: new Date().toISOString() },
-    { id: "r3", label: "Sincronização de modelos", status: "running", duration_ms: 30000, cost_usd: 0.04, created_at: new Date().toISOString() },
+    {
+      id: "r1",
+      label: "Build #482",
+      status: "success",
+      duration_ms: 84000,
+      cost_usd: 0.12,
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: "r2",
+      label: "Revisão de 240 parágrafos",
+      status: "success",
+      duration_ms: 213000,
+      cost_usd: 0.87,
+      created_at: new Date().toISOString(),
+    },
+    {
+      id: "r3",
+      label: "Sincronização de modelos",
+      status: "running",
+      duration_ms: 30000,
+      cost_usd: 0.04,
+      created_at: new Date().toISOString(),
+    },
   ],
   services: [
-    { id: "s1", name: "OpenAI", kind: "model", status: "operational", usage_units: 18420, cost_usd: 42.1 },
-    { id: "s2", name: "Gemini", kind: "model", status: "operational", usage_units: 9310, cost_usd: 11.4 },
-    { id: "s3", name: "Cloud", kind: "infra", status: "operational", usage_units: 1, cost_usd: 18.0 },
+    {
+      id: "s1",
+      name: "OpenAI",
+      kind: "model",
+      status: "operational",
+      usage_units: 18420,
+      cost_usd: 42.1,
+    },
+    {
+      id: "s2",
+      name: "Gemini",
+      kind: "model",
+      status: "operational",
+      usage_units: 9310,
+      cost_usd: 11.4,
+    },
+    {
+      id: "s3",
+      name: "Cloud",
+      kind: "infra",
+      status: "operational",
+      usage_units: 1,
+      cost_usd: 18.0,
+    },
     { id: "s4", name: "Storage", kind: "infra", status: "degraded", usage_units: 1, cost_usd: 3.2 },
   ],
   alerts: [
-    { id: "al1", kind: "deploy", message: "Deploy realizado", created_at: new Date().toISOString() },
+    {
+      id: "al1",
+      kind: "deploy",
+      message: "Deploy realizado",
+      created_at: new Date().toISOString(),
+    },
   ],
   tasks: [
     { id: "t1", title: "Rever fluxo de revisão editorial", status: "doing", priority: "high" },
@@ -69,12 +140,22 @@ const MOCK_DATA: Record<string, unknown> = {
     { id: "t3", title: "Testes de carga na API", status: "done", priority: "normal" },
   ],
   pull_requests: [
-    { id: "pr1", number: 128, title: "Nova camada de cache para traduções", branch: "feat/cache", status: "pending" },
-    { id: "pr2", number: 127, title: "Correção de acentuação no importador", branch: "fix/import", status: "pending" },
+    {
+      id: "pr1",
+      number: 128,
+      title: "Nova camada de cache para traduções",
+      branch: "feat/cache",
+      status: "pending",
+    },
+    {
+      id: "pr2",
+      number: 127,
+      title: "Correção de acentuação no importador",
+      branch: "fix/import",
+      status: "pending",
+    },
   ],
-  logs: [
-    { id: "l1", level: "info", source: "build", message: "Deploy realizado com sucesso." },
-  ],
+  logs: [{ id: "l1", level: "info", source: "build", message: "Deploy realizado com sucesso." }],
   captures: [],
   conversations: [],
   messages: [],
@@ -168,8 +249,12 @@ function createSupabaseClient() {
     process.env["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
     "sb_publishable__C-TElQqGI2za2yyyihRfg_fRpS1VtS";
 
-  rawUrl = String(rawUrl).trim().replace(/^["']|["']$/g, "");
-  rawKey = String(rawKey).trim().replace(/^["']|["']$/g, "");
+  rawUrl = String(rawUrl)
+    .trim()
+    .replace(/^["']|["']$/g, "");
+  rawKey = String(rawKey)
+    .trim()
+    .replace(/^["']|["']$/g, "");
 
   if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
     rawUrl = "https://dslccwkaitihiszetdlh.supabase.co";
@@ -196,7 +281,9 @@ function createSupabaseClient() {
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key",
       {
         global: {
-          fetch: createSupabaseFetch("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key"),
+          fetch: createSupabaseFetch(
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder-anon-key",
+          ),
         },
       },
     );

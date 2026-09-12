@@ -1191,7 +1191,10 @@ export const extractFromConversation = createServerFn({ method: "POST" })
       .limit(200);
 
     const transcript = (messages ?? [])
-      .map((m: { actor_kind: string; content: string }) => `${m.actor_kind === "human" ? "user" : "assistant"}: ${m.content.slice(0, 1200)}`)
+      .map(
+        (m: { actor_kind: string; content: string }) =>
+          `${m.actor_kind === "human" ? "user" : "assistant"}: ${m.content.slice(0, 1200)}`,
+      )
       .join("\n")
       .slice(0, 40000);
     if (!transcript) return { decisions: [], entities: [] };

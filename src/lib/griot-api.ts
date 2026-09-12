@@ -16,11 +16,17 @@ export type GriotApiResult<T> = { data: T | null; error: string | null; status: 
 // browser Supabase client, but still needs to call GRIOT's Edge Functions
 // with the caller's forwarded bearer token.
 export const GRIOT_SUPABASE_URL =
-  import.meta.env["VITE_SUPABASE_URL"] || process.env["SUPABASE_URL"] || "";
+  import.meta.env["VITE_SUPABASE_URL"] ||
+  import.meta.env["NEXT_PUBLIC_SUPABASE_URL"] ||
+  process.env["SUPABASE_URL"] ||
+  process.env["NEXT_PUBLIC_SUPABASE_URL"] ||
+  "https://dslccwkaitihiszetdlh.supabase.co";
 export const GRIOT_SUPABASE_ANON_KEY =
   import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+  import.meta.env["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
   process.env["SUPABASE_PUBLISHABLE_KEY"] ||
-  "";
+  process.env["NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ||
+  "sb_publishable__C-TElQqGI2za2yyyihRfg_fRpS1VtS";
 
 export async function callGriotApi<T = unknown>(
   path: string,
@@ -52,9 +58,10 @@ export async function callGriotApi<T = unknown>(
  * afterwards. Fire-and-forget; failures are non-fatal (e.g. offline).
  */
 export async function ensureGriotWorkspace() {
-  return callGriotApi<{ user: { id: string; email: string; displayName: string }; workspace: { id: string; role: string } }>(
-    "/auth/me",
-  );
+  return callGriotApi<{
+    user: { id: string; email: string; displayName: string };
+    workspace: { id: string; role: string };
+  }>("/auth/me");
 }
 
 /** Resolves the current user's primary (first-joined) workspace id, if any. */

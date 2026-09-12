@@ -10,6 +10,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { GRIOT_SUPABASE_URL, GRIOT_SUPABASE_ANON_KEY } from "@/lib/griot-api";
 import type { GriotAction, GriotActionType } from "./runtime/protocol";
 
+export const GEMINI_MODELS_CASCADE = [
+  "gemini-flash-latest",
+  "gemini-3.7-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash",
+] as const;
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
@@ -98,15 +105,16 @@ export const OPENAI_TOOLS = GEMINI_TOOL_DECLARATIONS.map((t) => ({
       properties: Object.fromEntries(
         Object.entries(t.parameters.properties).map(([k, v]) => [
           k,
-          { type: (v as { type: string }).type.toLowerCase(), description: (v as { description: string }).description },
+          {
+            type: (v as { type: string }).type.toLowerCase(),
+            description: (v as { description: string }).description,
+          },
         ]),
       ),
       required: t.parameters.required || [],
     },
   },
 }));
-
-
 
 import { findApiByIdOrProvider, getUserSavedApis } from "@/lib/user-apis";
 
@@ -120,14 +128,21 @@ export function getSavedApiKey(provider: string): string | null {
 
   // 2. Chaves específicas do provedor
   const prov = provider.toLowerCase();
-  const keysToTry = [
-    `griot_api_key_${prov}`,
-    `griot_${prov}_api_key`,
-  ];
+  const keysToTry = [`griot_api_key_${prov}`, `griot_${prov}_api_key`];
   if (prov === "claude" || prov === "anthropic") {
-    keysToTry.push("griot_api_key_anthropic", "griot_anthropic_api_key", "griot_api_key_claude", "griot_claude_api_key");
+    keysToTry.push(
+      "griot_api_key_anthropic",
+      "griot_anthropic_api_key",
+      "griot_api_key_claude",
+      "griot_claude_api_key",
+    );
   } else if (prov === "grok" || prov === "xai") {
-    keysToTry.push("griot_api_key_grok", "griot_grok_api_key", "griot_api_key_xai", "griot_xai_api_key");
+    keysToTry.push(
+      "griot_api_key_grok",
+      "griot_grok_api_key",
+      "griot_api_key_xai",
+      "griot_xai_api_key",
+    );
   }
 
   for (const k of keysToTry) {
@@ -139,63 +154,81 @@ export function getSavedApiKey(provider: string): string | null {
 }
 
 /** Retorna a primeira chave de API configurada no sistema (para fallback seguro se o modelo escolhido não tiver chave própria) */
-export function getAnyConfiguredApiKey(): { provider: string; apiKey: string; modelName?: string } | null {
+export function getAnyConfiguredApiKey(): {
+  provider: string;
+  apiKey: string;
+  modelName?: string;
+} | null {
   if (typeof window === "undefined") return null;
 
   try {
     const savedApis = getUserSavedApis();
     const active = savedApis.find((a) => a.status === "active" && a.apiKey);
-    if (active) return { provider: active.providerId, apiKey: active.apiKey, modelName: active.model };
+    if (active)
+      return { provider: active.providerId, apiKey: active.apiKey, modelName: active.model };
   } catch {}
 
   const gemini =
     localStorage.getItem("griot_api_key_gemini")?.trim() ||
     localStorage.getItem("griot_gemini_api_key")?.trim();
-  if (gemini && gemini.length > 5) return { provider: "gemini", apiKey: gemini, modelName: "gemini-2.0-flash" };
+  if (gemini && gemini.length > 5)
+    return { provider: "gemini", apiKey: gemini, modelName: "gemini-2.5-flash" };
 
   const openAi =
     localStorage.getItem("griot_api_key_openai")?.trim() ||
     localStorage.getItem("griot_openai_api_key")?.trim();
-  if (openAi && openAi.length > 5) return { provider: "openai", apiKey: openAi, modelName: "gpt-4o" };
+  if (openAi && openAi.length > 5)
+    return { provider: "openai", apiKey: openAi, modelName: "gpt-4o" };
 
   const anthropic =
     localStorage.getItem("griot_api_key_anthropic")?.trim() ||
     localStorage.getItem("griot_api_key_claude")?.trim();
-  if (anthropic && anthropic.length > 5) return { provider: "anthropic", apiKey: anthropic, modelName: "claude-3-5-sonnet-latest" };
+  if (anthropic && anthropic.length > 5)
+    return { provider: "anthropic", apiKey: anthropic, modelName: "claude-3-5-sonnet-latest" };
 
   const groq =
     localStorage.getItem("griot_api_key_groq")?.trim() ||
     localStorage.getItem("griot_groq_api_key")?.trim();
-  if (groq && groq.length > 5) return { provider: "groq", apiKey: groq, modelName: "llama-3.3-70b-versatile" };
+  if (groq && groq.length > 5)
+    return { provider: "groq", apiKey: groq, modelName: "llama-3.3-70b-versatile" };
 
   const deepseek =
     localStorage.getItem("griot_api_key_deepseek")?.trim() ||
     localStorage.getItem("griot_deepseek_api_key")?.trim();
-  if (deepseek && deepseek.length > 5) return { provider: "deepseek", apiKey: deepseek, modelName: "deepseek-chat" };
+  if (deepseek && deepseek.length > 5)
+    return { provider: "deepseek", apiKey: deepseek, modelName: "deepseek-chat" };
 
   return null;
 }
 
 /** Mapeia nomes amigáveis para endpoints de IA */
-export function resolveProviderAndModel(modelId: string): { provider: string; modelName: string; specificApiKey?: string } {
+export function resolveProviderAndModel(modelId: string): {
+  provider: string;
+  modelName: string;
+  specificApiKey?: string;
+} {
   // Se for um ID de API adicionada pelo utilizador
   const userApi = findApiByIdOrProvider(modelId);
   if (userApi) {
     const prov = userApi.providerId;
-    let mName = "gemini-2.0-flash";
+    let mName = "gemini-flash-latest";
     if (prov === "openai") mName = "gpt-4o";
     else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
     else if (prov === "deepseek") mName = "deepseek-chat";
     else if (prov === "groq") mName = "llama-3.3-70b-versatile";
-    else if (prov === "openrouter") mName = userApi.model || "google/gemini-2.0-flash-exp:free";
+    else if (prov === "openrouter") mName = userApi.model || "google/gemini-flash-latest";
     else if (prov === "mistral") mName = "mistral-large-latest";
     else if (prov === "perplexity") mName = "sonar-pro";
     else if (prov === "grok" || prov === "xai") mName = "grok-2-latest";
     else if (prov === "gemini") {
       const declared = (userApi.model || "").toLowerCase();
-      if (declared.includes("1.5-pro")) mName = "gemini-1.5-pro";
-      else if (declared.includes("1.5-flash")) mName = "gemini-1.5-flash";
-      else mName = "gemini-2.0-flash";
+      if (declared.includes("3.7")) mName = "gemini-3.7-flash";
+      else if (declared.includes("3.6")) mName = "gemini-3.6-flash";
+      else if (declared.includes("3.1-pro") || declared.includes("pro"))
+        mName = "gemini-3.1-pro-preview";
+      else if (declared.includes("lite")) mName = "gemini-3.1-flash-lite";
+      else if (declared.includes("2.5")) mName = "gemini-2.5-flash";
+      else mName = "gemini-flash-latest";
     }
     return { provider: prov, modelName: mName, specificApiKey: userApi.apiKey };
   }
@@ -206,18 +239,25 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
     if (anyKey) {
       return {
         provider: anyKey.provider,
-        modelName: anyKey.modelName || (anyKey.provider === "gemini" ? "gemini-2.0-flash" : "gpt-4o"),
+        modelName:
+          anyKey.modelName || (anyKey.provider === "gemini" ? "gemini-flash-latest" : "gpt-4o"),
         specificApiKey: anyKey.apiKey,
       };
     }
-    return { provider: "gemini", modelName: "gemini-2.0-flash" };
+    return { provider: "gemini", modelName: "gemini-flash-latest" };
   }
   if (m.includes("gemini")) {
-    const name = m.includes("1.5-pro")
-      ? "gemini-1.5-pro"
-      : m.includes("1.5-flash")
-      ? "gemini-1.5-flash"
-      : "gemini-2.0-flash";
+    const name = m.includes("3.7")
+      ? "gemini-3.7-flash"
+      : m.includes("3.6")
+        ? "gemini-3.6-flash"
+        : m.includes("3.1-pro") || m.includes("pro")
+          ? "gemini-3.1-pro-preview"
+          : m.includes("lite")
+            ? "gemini-3.1-flash-lite"
+            : m.includes("2.5")
+              ? "gemini-2.5-flash"
+              : "gemini-flash-latest";
     return { provider: "gemini", modelName: name };
   }
   if (m.includes("gpt-4o") || m.includes("openai") || m.includes("o1") || m.includes("o3")) {
@@ -236,7 +276,7 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
     return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
   }
   if (m.includes("openrouter")) {
-    return { provider: "openrouter", modelName: "google/gemini-2.0-flash-exp:free" };
+    return { provider: "openrouter", modelName: "google/gemini-2.5-flash" };
   }
   if (m.includes("grok") || m.includes("xai")) {
     return { provider: "xai", modelName: "grok-2-latest" };
@@ -247,7 +287,7 @@ export function resolveProviderAndModel(modelId: string): { provider: string; mo
   if (m.includes("perplexity")) {
     return { provider: "perplexity", modelName: "sonar-pro" };
   }
-  return { provider: "gemini", modelName: "gemini-2.0-flash" };
+  return { provider: "gemini", modelName: "gemini-2.5-flash" };
 }
 
 /**
@@ -291,7 +331,7 @@ export async function streamDirectAI(params: {
       activeProvider = anyKey.provider;
       effectiveKey = anyKey.apiKey;
       if (activeProvider === "gemini") {
-        activeModelName = anyKey.modelName || "gemini-2.0-flash";
+        activeModelName = anyKey.modelName || "gemini-2.5-flash";
       } else if (activeProvider === "openai") {
         activeModelName = anyKey.modelName || "gpt-4o";
       } else if (activeProvider === "claude" || activeProvider === "anthropic") {
@@ -307,23 +347,74 @@ export async function streamDirectAI(params: {
     }
   }
 
-  // Se ainda assim não há nenhuma chave configurada no dispositivo
+  // Se ainda assim não há nenhuma chave configurada no dispositivo, utiliza os gateways do sistema
   if (!effectiveKey) {
-    throw new Error(
-      `Nenhuma chave de API configurada para ${resolved.provider.toUpperCase()}. Configura a tua chave gratuita da Google Gemini em Definições → Chave Google Gemini para conversar em tempo real.`,
-    );
-  }
-
-  // 1. Chamada direta ao Google Gemini
-  if (activeProvider === "gemini") {
-    return streamGeminiDirect({
-      apiKey: effectiveKey,
+    return streamSupabaseOrchestratorFallback({
+      provider: activeProvider,
       modelName: activeModelName,
       messages,
-      systemInstruction,
       callbacks,
       signal,
     });
+  }
+
+  // 1. Chamada direta ao Google Gemini com recuperação resiliente
+  if (activeProvider === "gemini") {
+    try {
+      return await streamGeminiDirect({
+        apiKey: effectiveKey,
+        modelName: activeModelName,
+        messages,
+        systemInstruction,
+        callbacks,
+        signal,
+      });
+    } catch (geminiErr: any) {
+      console.warn("[GRIOT_DEBUG] Chamada direta Gemini falhou:", geminiErr);
+
+      if (signal?.aborted) {
+        throw geminiErr;
+      }
+
+      // Se o erro for 403 (PERMISSION_DENIED), 401 ou 429:
+      // 1. Tenta outras chaves de API salvas pelo utilizador se existirem
+      const otherApis = getUserSavedApis().filter(
+        (a) => a.apiKey && a.apiKey !== effectiveKey && a.status !== "error",
+      );
+      for (const altApi of otherApis) {
+        try {
+          console.log(`[GRIOT_DEBUG] Tentando chave alternativa (${altApi.providerId})...`);
+          callbacks?.onReasoning?.(
+            `⚡ [GRIOT] Chave anterior indisponível. A tentar credencial alternativa (${altApi.label || altApi.providerId})...\n`,
+          );
+          return await streamDirectAI({
+            ...params,
+            modelId: `${altApi.providerId}:${altApi.model || "default"}`,
+          });
+        } catch (altErr) {
+          console.warn(`[GRIOT_DEBUG] Chave alternativa ${altApi.id} também falhou:`, altErr);
+        }
+      }
+
+      // 2. Fallback de salvaguarda seguro para o endpoint /api/chat do servidor
+      console.log("[GRIOT_DEBUG] Recorrendo a streamSupabaseOrchestratorFallback (/api/chat)...");
+      callbacks?.onReasoning?.(
+        "⚡ [GRIOT] Chave local com restrições (403). A utilizar o gateway seguro do servidor para concluir a resposta...\n",
+      );
+      try {
+        return await streamSupabaseOrchestratorFallback({
+          provider: "gemini",
+          modelName: "gemini-flash-latest",
+          messages,
+          systemInstruction,
+          callbacks,
+          signal,
+        });
+      } catch (fallbackErr) {
+        console.error("[GRIOT_DEBUG] Fallback seguro do servidor também falhou:", fallbackErr);
+        throw geminiErr;
+      }
+    }
   }
 
   // 2. Chamada direta ao OpenAI
@@ -439,7 +530,10 @@ export async function streamDirectAI(params: {
   });
 }
 
-function createSafeTimeoutSignal(ms: number, parentSignal?: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+function createSafeTimeoutSignal(
+  ms: number,
+  parentSignal?: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void } {
   const ctrl = new AbortController();
   const timer = setTimeout(() => {
     ctrl.abort(new Error(`Timeout após ${Math.round(ms / 1000)}s`));
@@ -549,13 +643,25 @@ async function fetchGeminiDirectSync(params: {
   body: Record<string, unknown>;
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
+  attemptIndex?: number;
 }): Promise<AIResponse> {
-  const { apiKey, modelName, body, callbacks, signal } = params;
-  const syncEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+  const { apiKey, modelName, body, callbacks, signal, attemptIndex = 0 } = params;
 
-  console.log("[GRIOT_DEBUG] fetch REST iniciado", { url: syncEndpoint.replace(apiKey, "[REDACTED]") });
+  // Sanitiza o modelName para nunca utilizar modelos legados ou descontinuados
+  let targetModel = modelName;
+  if (targetModel.includes("2.0") || targetModel.includes("1.5") || !targetModel) {
+    targetModel = "gemini-flash-latest";
+  }
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
+  const syncEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+
+  console.log("[GRIOT_DEBUG] fetch REST iniciado", {
+    url: syncEndpoint.replace(apiKey, "[REDACTED]"),
+    model: targetModel,
+    attempt: attemptIndex,
+  });
+
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(14000, signal);
   let res: Response;
   try {
     res = await fetch(syncEndpoint, {
@@ -568,14 +674,60 @@ async function fetchGeminiDirectSync(params: {
     cleanup();
   }
 
-  console.log("[GRIOT_DEBUG] fetch REST respondeu", { status: res.status });
+  console.log("[GRIOT_DEBUG] fetch REST respondeu", { status: res.status, model: targetModel });
 
   if (!res.ok) {
-    if (res.status === 404 && modelName !== "gemini-1.5-flash") {
-      console.warn(`[GRIOT_DEBUG] REST direct 404 em ${modelName}. Tentando gemini-1.5-flash...`);
-      return fetchGeminiDirectSync({ ...params, modelName: "gemini-1.5-flash" });
-    }
     const errText = await res.text().catch(() => "");
+    console.warn(`[GRIOT_DEBUG] REST direct erro ${res.status} em ${targetModel}:`, errText);
+
+    // 1. Se erro 400 (INVALID_ARGUMENT) e tínhamos tools, retenta imediatamente SEM tools
+    if (res.status === 400 && body.tools && attemptIndex < 4) {
+      console.warn(
+        "[GRIOT_DEBUG] Gemini rejeitou ferramentas (400 INVALID_ARGUMENT). Tentando sem tools...",
+      );
+      const bodyNoTools = { ...body };
+      delete bodyNoTools.tools;
+      return fetchGeminiDirectSync({
+        ...params,
+        modelName: targetModel,
+        body: bodyNoTools,
+        attemptIndex: attemptIndex + 1,
+      });
+    }
+
+    // 2. Se erro 400 persistir e tiver systemInstruction estruturado, converte para instrução limpa
+    if (res.status === 400 && body.systemInstruction && attemptIndex < 4) {
+      console.warn(
+        "[GRIOT_DEBUG] Gemini erro 400 com systemInstruction. Tentando sem systemInstruction estruturado...",
+      );
+      const bodyClean = { ...body };
+      delete bodyClean.systemInstruction;
+      return fetchGeminiDirectSync({
+        ...params,
+        modelName: targetModel,
+        body: bodyClean,
+        attemptIndex: attemptIndex + 1,
+      });
+    }
+
+    // 3. Se modelo for 404 (descontinuado), 400, 403 (permissão do modelo) ou 429, tenta o próximo modelo na cascata
+    const candidateModels = GEMINI_MODELS_CASCADE.filter((m) => m !== targetModel);
+    if (
+      (res.status === 404 || res.status === 400 || res.status === 403 || res.status === 429) &&
+      candidateModels.length > 0 &&
+      attemptIndex < candidateModels.length
+    ) {
+      const nextCandidate = candidateModels[attemptIndex % candidateModels.length];
+      console.warn(
+        `[GRIOT_DEBUG] Alternando de ${targetModel} para ${nextCandidate} (status ${res.status})...`,
+      );
+      return fetchGeminiDirectSync({
+        ...params,
+        modelName: nextCandidate,
+        attemptIndex: attemptIndex + 1,
+      });
+    }
+
     throw new Error(`Google Gemini erro ${res.status}: ${errText.slice(0, 180)}`);
   }
 
@@ -607,7 +759,10 @@ async function fetchGeminiDirectSync(params: {
         id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         type: mappedType,
         category: mappedType.split(".")[0] as any,
-        risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+        risk:
+          mappedType.startsWith("fs.write") || mappedType.startsWith("shell.")
+            ? "sensitive"
+            : "safe",
         params: fn.args || {},
         requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
         status: "pending",
@@ -682,13 +837,19 @@ async function streamGeminiDirect(params: {
     };
   }
 
+  // Sanitiza o modelName se for um modelo legado já descontinuado
+  let activeModel = modelName;
+  if (activeModel.includes("2.0") || activeModel.includes("1.5") || !activeModel) {
+    activeModel = "gemini-flash-latest";
+  }
+
   // No WebView móvel nativo (Capacitor/Android), streams SSE por chunked transfer sofrem buffering agressivo no Chromium.
   // Recorrer a REST direto (:generateContent) com token synthesis garante resposta imediata (< 1s) sem travamento de socket.
   if (isMobileOrCapacitor()) {
-    return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
+    return fetchGeminiDirectSync({ apiKey, modelName: activeModel, body, callbacks, signal });
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
   // Controlador de aborto local interligado ao sinal do utilizador
   const streamAbortController = new AbortController();
@@ -718,7 +879,7 @@ async function streamGeminiDirect(params: {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
     console.warn("[GRIOT_DEBUG] Falha no streaming SSE do Gemini, tentando REST direto:", fetchErr);
-    return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
+    return fetchGeminiDirectSync({ apiKey, modelName: activeModel, body, callbacks, signal });
   }
 
   if (!response.ok) {
@@ -726,15 +887,21 @@ async function streamGeminiDirect(params: {
     const errorText = await response.text().catch(() => "");
 
     // 1. Auto-recuperação inteligente se a Google sugerir um novo modelo no erro 404
-    const updateMatch = errorText.match(/use models\/([a-zA-Z0-9.-]+)/i) || errorText.match(/models\/([a-zA-Z0-9.-]+)/g);
+    const updateMatch =
+      errorText.match(/use models\/([a-zA-Z0-9.-]+)/i) ||
+      errorText.match(/models\/([a-zA-Z0-9.-]+)/g);
     let suggestedModel: string | null = null;
     if (updateMatch) {
-      if (typeof updateMatch[1] === "string" && updateMatch[1] !== modelName) {
+      if (
+        typeof updateMatch[1] === "string" &&
+        updateMatch[1] !== activeModel &&
+        !updateMatch[1].includes("2.0")
+      ) {
         suggestedModel = updateMatch[1];
       } else if (Array.isArray(updateMatch)) {
         for (const m of updateMatch) {
           const clean = m.replace(/^models\//, "");
-          if (clean !== modelName) {
+          if (clean !== activeModel && !clean.includes("2.0") && !clean.includes("1.5")) {
             suggestedModel = clean;
             break;
           }
@@ -742,28 +909,46 @@ async function streamGeminiDirect(params: {
       }
     }
 
-    if (response.status === 404 && suggestedModel && suggestedModel !== modelName) {
-      console.warn(`[GRIOT_DEBUG] Google recomendou o modelo ${suggestedModel}. A auto-recuperar...`);
+    if (response.status === 404 && suggestedModel && suggestedModel !== activeModel) {
+      console.warn(
+        `[GRIOT_DEBUG] Google recomendou o modelo ${suggestedModel}. A auto-recuperar...`,
+      );
       return fetchGeminiDirectSync({
         ...params,
         modelName: suggestedModel,
       });
     }
 
-    // 2. Fallback de passo único sem recursão se for 404
-    if (response.status === 404 && modelName !== "gemini-1.5-flash") {
-      console.warn(`[GRIOT_DEBUG] Gemini 404 em ${modelName}. Tentando gemini-1.5-flash via REST direto...`);
+    // 2. Se deu erro 400 (INVALID_ARGUMENT), tenta REST sem ferramentas
+    if (response.status === 400 && body.tools) {
+      console.warn("[GRIOT_DEBUG] SSE retornou 400 com ferramentas. Tentando REST sem tools...");
+      const bodyNoTools = { ...body };
+      delete bodyNoTools.tools;
       return fetchGeminiDirectSync({
-        ...params,
-        modelName: "gemini-1.5-flash",
+        apiKey,
+        modelName: activeModel,
+        body: bodyNoTools,
+        callbacks,
+        signal,
       });
     }
 
-    // 3. Se deu erro 400 por ferramentas, tenta síncrono sem tools
-    if (response.status === 400 && (errorText.includes("tool") || errorText.includes("function"))) {
-      const bodyNoTools = { ...body };
-      delete bodyNoTools.tools;
-      return fetchGeminiDirectSync({ apiKey, modelName, body: bodyNoTools, callbacks, signal });
+    // 3. Fallback de passo único para cascata de modelos modernos em caso de 404, 400, 403 ou 429
+    if (
+      response.status === 404 ||
+      response.status === 400 ||
+      response.status === 403 ||
+      response.status === 429
+    ) {
+      const nextModel =
+        GEMINI_MODELS_CASCADE.find((m) => m !== activeModel) || "gemini-flash-latest";
+      console.warn(
+        `[GRIOT_DEBUG] Gemini SSE ${response.status} em ${activeModel}. Tentando ${nextModel} via REST direto...`,
+      );
+      return fetchGeminiDirectSync({
+        ...params,
+        modelName: nextModel,
+      });
     }
 
     throw new Error(
@@ -789,7 +974,9 @@ async function streamGeminiDirect(params: {
   // cancela o leitor e aborta o stream ativo no socket e invoca imediatamente o endpoint REST direto (:generateContent)
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT_DEBUG] Watchdog acionado: sem tokens SSE em 4.5s no WebView móvel. Cancelando reader e recorrendo a REST...");
+      console.warn(
+        "[GRIOT_DEBUG] Watchdog acionado: sem tokens SSE em 4.5s no WebView móvel. Cancelando reader e recorrendo a REST...",
+      );
       try {
         void reader.cancel();
       } catch {}
@@ -867,9 +1054,13 @@ async function streamGeminiDirect(params: {
                   id: `act_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
                   type: mappedType,
                   category: mappedType.split(".")[0] as any,
-                  risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+                  risk:
+                    mappedType.startsWith("fs.write") || mappedType.startsWith("shell.")
+                      ? "sensitive"
+                      : "safe",
                   params: fn.args || {},
-                  requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
+                  requiresApproval:
+                    mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
                   status: "pending",
                   createdAt: new Date().toISOString(),
                 });
@@ -887,7 +1078,10 @@ async function streamGeminiDirect(params: {
     }
     // Se o stream falhou a meio ou foi abortado pelo watchdog sem devolver resposta, tenta o fallback REST
     if (!fullText.trim()) {
-      console.warn("[GRIOT_DEBUG] Stream SSE interrompido, recorrendo ao endpoint REST padrão:", streamErr);
+      console.warn(
+        "[GRIOT_DEBUG] Stream SSE interrompido, recorrendo ao endpoint REST padrão:",
+        streamErr,
+      );
       return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
     }
   } finally {
@@ -905,7 +1099,9 @@ async function streamGeminiDirect(params: {
 
   // Se o stream encerrou sem produzir nenhum texto nem tool calls, não deixar a IA muda:
   if (!fullText.trim() && toolCalls.length === 0 && !signal?.aborted) {
-    console.warn("[GRIOT_DEBUG] Stream SSE terminou sem gerar texto, acionando REST direto (:generateContent)...");
+    console.warn(
+      "[GRIOT_DEBUG] Stream SSE terminou sem gerar texto, acionando REST direto (:generateContent)...",
+    );
     return fetchGeminiDirectSync({ apiKey, modelName, body, callbacks, signal });
   }
 
@@ -1001,7 +1197,10 @@ async function fetchOpenAIDirectSync(params: {
           id: tc.id || `act_${Date.now()}`,
           type: mappedType,
           category: mappedType.split(".")[0] as any,
-          risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+          risk:
+            mappedType.startsWith("fs.write") || mappedType.startsWith("shell.")
+              ? "sensitive"
+              : "safe",
           params: parsedArgs,
           requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
           status: "pending",
@@ -1054,7 +1253,14 @@ async function streamOpenAIDirect(params: {
   // No WebView móvel nativo (Android Capacitor/iOS), streams SSE por chunked transfer sofrem buffering agressivo no Chromium.
   // Recorrer a REST direto (/v1/chat/completions) com síntese de streaming de tokens a 6ms garante resposta imediata sem travamentos e poupa créditos.
   if (isMobileOrCapacitor()) {
-    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+    return fetchOpenAIDirectSync({
+      apiKey,
+      baseUrl,
+      modelName,
+      formattedMessages,
+      callbacks,
+      signal,
+    });
   }
 
   const isReasoning =
@@ -1120,16 +1326,40 @@ async function streamOpenAIDirect(params: {
     if (signal?.aborted) {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
-    console.warn("[GRIOT_DEBUG] Falha no streaming SSE de OpenAI/Groq, tentando REST direto:", fetchErr);
-    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+    console.warn(
+      "[GRIOT_DEBUG] Falha no streaming SSE de OpenAI/Groq, tentando REST direto:",
+      fetchErr,
+    );
+    return fetchOpenAIDirectSync({
+      apiKey,
+      baseUrl,
+      modelName,
+      formattedMessages,
+      callbacks,
+      signal,
+    });
   }
 
   if (!response.ok) {
     if (signal) signal.removeEventListener("abort", onParentAbort);
     const errorText = await response.text().catch(() => "");
-    if (response.status === 400 && (errorText.includes("tool") || errorText.includes("function") || isReasoning)) {
-      console.warn("[GRIOT_DEBUG] Provedor OpenAI rejeitou tools (400), recorrendo a REST sem tools:", errorText);
-      return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal, withoutTools: true });
+    if (
+      response.status === 400 &&
+      (errorText.includes("tool") || errorText.includes("function") || isReasoning)
+    ) {
+      console.warn(
+        "[GRIOT_DEBUG] Provedor OpenAI rejeitou tools (400), recorrendo a REST sem tools:",
+        errorText,
+      );
+      return fetchOpenAIDirectSync({
+        apiKey,
+        baseUrl,
+        modelName,
+        formattedMessages,
+        callbacks,
+        signal,
+        withoutTools: true,
+      });
     }
     throw new Error(
       `Provedor de IA retornou erro ${response.status}: ${errorText.slice(0, 200) || response.statusText}`,
@@ -1143,7 +1373,14 @@ async function streamOpenAIDirect(params: {
   const reader = response.body?.getReader();
   if (!reader) {
     if (signal) signal.removeEventListener("abort", onParentAbort);
-    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+    return fetchOpenAIDirectSync({
+      apiKey,
+      baseUrl,
+      modelName,
+      formattedMessages,
+      callbacks,
+      signal,
+    });
   }
 
   const decoder = new TextDecoder();
@@ -1152,7 +1389,9 @@ async function streamOpenAIDirect(params: {
 
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT_DEBUG] Watchdog acionado: sem tokens OpenAI em 4.5s. Cancelando leitor e abortando stream...");
+      console.warn(
+        "[GRIOT_DEBUG] Watchdog acionado: sem tokens OpenAI em 4.5s. Cancelando leitor e abortando stream...",
+      );
       try {
         void reader.cancel();
       } catch {}
@@ -1228,9 +1467,13 @@ async function streamOpenAIDirect(params: {
                   id: tc.id || `act_${Date.now()}`,
                   type: mappedType,
                   category: mappedType.split(".")[0] as any,
-                  risk: mappedType.startsWith("fs.write") || mappedType.startsWith("shell.") ? "sensitive" : "safe",
+                  risk:
+                    mappedType.startsWith("fs.write") || mappedType.startsWith("shell.")
+                      ? "sensitive"
+                      : "safe",
                   params: parsedArgs,
-                  requiresApproval: mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
+                  requiresApproval:
+                    mappedType.startsWith("fs.write") || mappedType.startsWith("shell."),
                   status: "pending",
                   createdAt: new Date().toISOString(),
                 });
@@ -1247,8 +1490,18 @@ async function streamOpenAIDirect(params: {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
     if (!fullText.trim()) {
-      console.warn("[GRIOT_DEBUG] Stream OpenAI interrompido ou em buffer, recorrendo ao endpoint REST padrão:", streamErr);
-      return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+      console.warn(
+        "[GRIOT_DEBUG] Stream OpenAI interrompido ou em buffer, recorrendo ao endpoint REST padrão:",
+        streamErr,
+      );
+      return fetchOpenAIDirectSync({
+        apiKey,
+        baseUrl,
+        modelName,
+        formattedMessages,
+        callbacks,
+        signal,
+      });
     }
   } finally {
     clearTimeout(overallTimeoutTimer);
@@ -1266,7 +1519,14 @@ async function streamOpenAIDirect(params: {
 
   if (!fullText.trim() && toolCalls.length === 0 && !signal?.aborted) {
     console.warn("[GRIOT_DEBUG] Stream OpenAI terminou sem texto, recorrendo a REST direto...");
-    return fetchOpenAIDirectSync({ apiKey, baseUrl, modelName, formattedMessages, callbacks, signal });
+    return fetchOpenAIDirectSync({
+      apiKey,
+      baseUrl,
+      modelName,
+      formattedMessages,
+      callbacks,
+      signal,
+    });
   }
 
   return { text: fullText, reasoning: fullReasoning, toolCalls };
@@ -1397,7 +1657,10 @@ async function streamAnthropicDirect(params: {
     if (signal?.aborted) {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
-    console.warn("[GRIOT_DEBUG] Falha no streaming SSE de Anthropic, recorrendo a REST direto:", fetchErr);
+    console.warn(
+      "[GRIOT_DEBUG] Falha no streaming SSE de Anthropic, recorrendo a REST direto:",
+      fetchErr,
+    );
     return fetchAnthropicDirectSync(params);
   }
 
@@ -1422,7 +1685,9 @@ async function streamAnthropicDirect(params: {
 
   let watchdogTimer: any = setTimeout(() => {
     if (!receivedAnyToken && !signal?.aborted) {
-      console.warn("[GRIOT_DEBUG] Watchdog acionado: sem tokens Anthropic em 4.5s. Cancelando leitor e recorrendo a REST...");
+      console.warn(
+        "[GRIOT_DEBUG] Watchdog acionado: sem tokens Anthropic em 4.5s. Cancelando leitor e recorrendo a REST...",
+      );
       try {
         void reader.cancel();
       } catch {}
@@ -1475,7 +1740,10 @@ async function streamAnthropicDirect(params: {
       throw new DOMException("Operação cancelada.", "AbortError");
     }
     if (!fullText.trim()) {
-      console.warn("[GRIOT_DEBUG] Stream SSE Anthropic interrompido, recorrendo ao endpoint REST padrão:", streamErr);
+      console.warn(
+        "[GRIOT_DEBUG] Stream SSE Anthropic interrompido, recorrendo ao endpoint REST padrão:",
+        streamErr,
+      );
       return fetchAnthropicDirectSync(params);
     }
   } finally {
@@ -1502,24 +1770,24 @@ async function streamSupabaseOrchestratorFallback(params: {
   provider: string;
   modelName: string;
   messages: ChatMessage[];
+  systemInstruction?: string;
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
 }): Promise<AIResponse> {
-  const { provider, modelName, messages, callbacks, signal } = params;
+  const { provider, modelName, messages, systemInstruction, callbacks, signal } = params;
 
-  // Em ambiente móvel Capacitor / WebView local, NUNCA chamar /api/chat porque não há backend Node local.
+  // Em ambiente móvel nativo Capacitor, não chamar /api/chat se não houver servidor local
   const isCapacitorOrNative =
     typeof window !== "undefined" &&
     (window.location.protocol === "capacitor:" ||
-      window.location.hostname === "localhost" ||
       Boolean((window as any).Capacitor?.isNativePlatform?.()));
 
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData?.session?.access_token;
 
-  // 1. Tentar endpoint /api/chat SOMENTE se NÃO for Capacitor/móvel e com timeout estrito de 2.5s
+  // 1. Tentar endpoint /api/chat SOMENTE se NÃO for Capacitor nativo
   if (typeof window !== "undefined" && !isCapacitorOrNative) {
-    const { signal: chatSignal, cleanup: cleanupChat } = createSafeTimeoutSignal(2500, signal);
+    const { signal: chatSignal, cleanup: cleanupChat } = createSafeTimeoutSignal(45000, signal);
     try {
       const localChatRes = await fetch("/api/chat", {
         method: "POST",
@@ -1530,6 +1798,7 @@ async function streamSupabaseOrchestratorFallback(params: {
         body: JSON.stringify({
           messages: messages.slice(-20),
           model: modelName,
+          systemInstruction,
         }),
         signal: chatSignal,
       });

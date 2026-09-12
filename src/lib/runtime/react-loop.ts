@@ -6,7 +6,7 @@
  * Includes Reflection & Self-healing on tool failures.
  */
 
-import { streamDirectAI, type ChatMessage, type StreamCallbacks } from "@/lib/ai-client-mobile-entry";
+import { streamDirectAI, type ChatMessage, type StreamCallbacks } from "@/lib/ai-client";
 import { defaultExecutor } from "./executors";
 import { parseGriotActions } from "./parser";
 import type { GriotAction, GriotExecutionResult } from "./protocol";
@@ -98,7 +98,11 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
     // Se o modelo gerou blocos de ação em XML / Markdown mas não via tool call nativo
     const parsedFromText = parseGriotActions(response.text);
     for (const pa of parsedFromText) {
-      if (!candidateActions.some((ca) => ca.type === pa.type && JSON.stringify(ca.params) === JSON.stringify(pa.params))) {
+      if (
+        !candidateActions.some(
+          (ca) => ca.type === pa.type && JSON.stringify(ca.params) === JSON.stringify(pa.params),
+        )
+      ) {
         candidateActions.push(pa);
       }
     }
@@ -158,7 +162,10 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
     currentMessages = [
       ...currentMessages,
       { role: "assistant", content: response.text || "[Executando ferramenta...]" },
-      { role: "user", content: `[OBSERVAÇÃO DA EXECUÇÃO]\n${observationText}\nPor favor analisa os resultados e conclui a resposta.` },
+      {
+        role: "user",
+        content: `[OBSERVAÇÃO DA EXECUÇÃO]\n${observationText}\nPor favor analisa os resultados e conclui a resposta.`,
+      },
     ];
   }
 

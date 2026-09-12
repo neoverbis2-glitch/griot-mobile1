@@ -46,7 +46,9 @@ export async function listConversations(): Promise<Conversation[]> {
     const loc = localMap[c.id] || {};
     const title = c.title || loc.title || "Conversa GRIOT";
     const inferredScope: "main" | "quick" =
-      loc.scope === "quick" || title.toLowerCase().startsWith("quick") || title.toLowerCase().includes("quick")
+      loc.scope === "quick" ||
+      title.toLowerCase().startsWith("quick") ||
+      title.toLowerCase().includes("quick")
         ? "quick"
         : (loc.scope as "main" | "quick") || "main";
 

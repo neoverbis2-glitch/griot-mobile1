@@ -40,7 +40,12 @@ export async function captureUrl(path: string | null, capture?: CaptureRow | nul
     } catch {}
   }
   if (!path) return null;
-  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:") || path.startsWith("blob:")) {
+  if (
+    path.startsWith("http://") ||
+    path.startsWith("https://") ||
+    path.startsWith("data:") ||
+    path.startsWith("blob:")
+  ) {
     return path;
   }
   if (path.startsWith("local://")) {
@@ -77,7 +82,9 @@ export async function captureAsText(capture: CaptureRow) {
   const lines = [`Capture (${capture.kind}) — ${exactDateTime(capture.created_at)}`];
   if (capture.note?.trim()) lines.push(capture.note.trim());
   if (capture.latitude != null && capture.longitude != null) {
-    lines.push(`Localização: https://www.google.com/maps?q=${capture.latitude},${capture.longitude}`);
+    lines.push(
+      `Localização: https://www.google.com/maps?q=${capture.latitude},${capture.longitude}`,
+    );
   }
   const url = await captureUrl(capture.storage_path, capture);
   if (url) {
@@ -202,4 +209,3 @@ export function pushQuickCapture(id: string) {
   const next = [id, ...listQuickCaptures().filter((item) => item !== id)].slice(0, 12);
   window.localStorage.setItem(QUICK_KEY, JSON.stringify(next));
 }
-

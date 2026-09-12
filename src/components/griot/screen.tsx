@@ -19,7 +19,10 @@ export function Screen({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             {subtitle ? (
-              <p suppressHydrationWarning className="text-[12.5px] font-medium text-muted-foreground tracking-wide">
+              <p
+                suppressHydrationWarning
+                className="text-[12.5px] font-medium text-muted-foreground tracking-wide"
+              >
                 {subtitle}
               </p>
             ) : null}

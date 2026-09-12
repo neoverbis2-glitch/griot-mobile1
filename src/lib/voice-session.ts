@@ -787,11 +787,12 @@ export class VoiceSession {
         const selectedVoiceName = this.opts.voice?.toLowerCase() || "";
         const preferred =
           matchingVoices.find((v) => v.name.toLowerCase().includes(selectedVoiceName)) ||
-          matchingVoices.find((v) =>
-            v.name.toLowerCase().includes("natural") ||
-            v.name.toLowerCase().includes("neural") ||
-            v.name.toLowerCase().includes("google") ||
-            v.name.toLowerCase().includes("online"),
+          matchingVoices.find(
+            (v) =>
+              v.name.toLowerCase().includes("natural") ||
+              v.name.toLowerCase().includes("neural") ||
+              v.name.toLowerCase().includes("google") ||
+              v.name.toLowerCase().includes("online"),
           ) ||
           matchingVoices[0];
         if (preferred) utterance.voice = preferred;
@@ -1068,18 +1069,47 @@ export class VoiceSession {
         })
       ).trim();
 
-      const lower = text.toLowerCase().replace(/[.,!?;:…"'»«]/g, "").trim();
+      const lower = text
+        .toLowerCase()
+        .replace(/[.,!?;:…"'»«]/g, "")
+        .trim();
       const hesitationKeywords = [
-        "espera", "pera", "espera aí", "pera aí", "como", "como assim", "hã", "hum",
-        "uhm", "ai", "não", "sim", "ok", "pois", "olha", "opa", "epa", "wait", "huh",
-        "um", "uh", "what", "eish", "calma",
+        "espera",
+        "pera",
+        "espera aí",
+        "pera aí",
+        "como",
+        "como assim",
+        "hã",
+        "hum",
+        "uhm",
+        "ai",
+        "não",
+        "sim",
+        "ok",
+        "pois",
+        "olha",
+        "opa",
+        "epa",
+        "wait",
+        "huh",
+        "um",
+        "uh",
+        "what",
+        "eish",
+        "calma",
       ];
 
       const words = lower.split(/\s+/).filter(Boolean);
       const isHesitation =
         words.length === 0 ||
-        (words.length <= 2 && (hesitationKeywords.includes(lower) || words.some((w) => hesitationKeywords.includes(w)))) ||
-        (duration < 1400 && words.length <= 3 && !lower.includes("para") && !lower.includes("cancela"));
+        (words.length <= 2 &&
+          (hesitationKeywords.includes(lower) ||
+            words.some((w) => hesitationKeywords.includes(w)))) ||
+        (duration < 1400 &&
+          words.length <= 3 &&
+          !lower.includes("para") &&
+          !lower.includes("cancela"));
 
       if (isHesitation) {
         // Hesitação ou confusão: RETOMA SUAVEMENTE NO PONTO EXATO!

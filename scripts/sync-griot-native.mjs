@@ -8,12 +8,22 @@ import fs from "node:fs";
 import path from "node:path";
 
 const MANIFEST_PATH = path.resolve("android/app/src/main/AndroidManifest.xml");
-const ACCESSIBILITY_CONFIG = path.resolve("android/app/src/main/res/xml/accessibility_service_config.xml");
-const JAVA_OBSERVER_SERVICE = path.resolve("android/app/src/main/java/com/griot/app/observer/GriotObserverService.java");
-const JAVA_NOTIF_SERVICE = path.resolve("android/app/src/main/java/com/griot/app/observer/GriotNotificationObserverService.java");
+const ACCESSIBILITY_CONFIG = path.resolve(
+  "android/app/src/main/res/xml/accessibility_service_config.xml",
+);
+const JAVA_OBSERVER_SERVICE = path.resolve(
+  "android/app/src/main/java/com/griot/app/observer/GriotObserverService.java",
+);
+const JAVA_NOTIF_SERVICE = path.resolve(
+  "android/app/src/main/java/com/griot/app/observer/GriotNotificationObserverService.java",
+);
 const JAVA_PLUGIN = path.resolve("android/app/src/main/java/com/griot/app/plugin/GriotPlugin.java");
-const JAVA_NOTIF_HELPER = path.resolve("android/app/src/main/java/com/griot/app/notifications/GriotNotificationHelper.java");
-const JAVA_ACTION_RECEIVER = path.resolve("android/app/src/main/java/com/griot/app/notifications/GriotNotificationActionReceiver.java");
+const JAVA_NOTIF_HELPER = path.resolve(
+  "android/app/src/main/java/com/griot/app/notifications/GriotNotificationHelper.java",
+);
+const JAVA_ACTION_RECEIVER = path.resolve(
+  "android/app/src/main/java/com/griot/app/notifications/GriotNotificationActionReceiver.java",
+);
 
 console.log("==> Verificando ficheiros nativos Android do GRIOT...");
 

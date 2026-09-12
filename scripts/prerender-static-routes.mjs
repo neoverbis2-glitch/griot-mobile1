@@ -55,8 +55,15 @@ async function prerender() {
       const res = await ssr.default.fetch(req, { ASSETS: null }, { waitUntil: () => {} });
       const html = await res.text();
 
-      if (res.status !== 200 || html.includes("Algo correu mal") || html.includes("This page didn't load") || html.includes("Página não encontrada")) {
-        console.error(`Warning: prerender for ${urlPath} returned status ${res.status} or error page. Skipping write.`);
+      if (
+        res.status !== 200 ||
+        html.includes("Algo correu mal") ||
+        html.includes("This page didn't load") ||
+        html.includes("Página não encontrada")
+      ) {
+        console.error(
+          `Warning: prerender for ${urlPath} returned status ${res.status} or error page. Skipping write.`,
+        );
         continue;
       }
 

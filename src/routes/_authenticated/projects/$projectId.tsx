@@ -99,7 +99,8 @@ function ProjectDetailPage() {
             created_at: data.created_at,
           });
         } else {
-          const stored = typeof window !== "undefined" ? localStorage.getItem("griot_local_projects") : null;
+          const stored =
+            typeof window !== "undefined" ? localStorage.getItem("griot_local_projects") : null;
           if (stored) {
             const list: ProjectDetail[] = JSON.parse(stored);
             const found = list.find((p) => p.id === projectId);
@@ -124,7 +125,8 @@ function ProjectDetailPage() {
             dbTasks.map((t: any) => ({
               id: t.id,
               title: t.title,
-              status: t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
+              status:
+                t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
             })),
           );
         }
@@ -187,7 +189,9 @@ function ProjectDetailPage() {
           >
             <ChevronLeft className="size-5" />
           </button>
-          <h1 className="text-[34px] font-bold tracking-tight text-foreground">{project?.name || t("Projeto")}</h1>
+          <h1 className="text-[34px] font-bold tracking-tight text-foreground">
+            {project?.name || t("Projeto")}
+          </h1>
         </div>
 
         <button
@@ -298,7 +302,9 @@ function ProjectDetailPage() {
                 className="rounded-[24px] border border-hairline bg-surface p-5 shadow-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[17px] font-bold text-foreground tracking-snug">{pr.title}</span>
+                  <span className="text-[17px] font-bold text-foreground tracking-snug">
+                    {pr.title}
+                  </span>
                   <span className="rounded-full bg-secondary px-3 py-1 font-mono text-[12.5px] text-muted-foreground">
                     {pr.status}
                   </span>

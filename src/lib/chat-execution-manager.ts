@@ -164,9 +164,13 @@ class ChatExecutionManager {
     const controller = new AbortController();
     const hardTimeoutTimer = setTimeout(() => {
       if (!controller.signal.aborted) {
-        console.warn(`[ChatExecutionManager] Watchdog de execução atingiu ${executionTimeoutMs / 1000}s. Abortando execução travada...`);
+        console.warn(
+          `[ChatExecutionManager] Watchdog de execução atingiu ${executionTimeoutMs / 1000}s. Abortando execução travada...`,
+        );
         try {
-          controller.abort(new Error(`Tempo limite de execução atingido (${executionTimeoutMs / 1000}s).`));
+          controller.abort(
+            new Error(`Tempo limite de execução atingido (${executionTimeoutMs / 1000}s).`),
+          );
         } catch {}
       }
     }, executionTimeoutMs);
@@ -328,7 +332,16 @@ class ChatExecutionManager {
       }
       console.warn("[ChatExecutionManager] Falha na execução da IA:", err);
       const mLabel = isModelOS(modelId) ? "ModelOS" : modelLabel(modelId);
-      answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${isTimeout ? `A execução excedeu o limite de segurança de ${executionTimeoutMs / 1000}s.` : (err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA.")}\n\n👉 Tenta novamente ou verifica a tua chave em **Definições → Chave Google Gemini**.`;
+      const is403 =
+        String(err?.message).includes("403") ||
+        String(err?.message).includes("PERMISSION_DENIED") ||
+        String(err?.message).includes("permission");
+
+      if (is403) {
+        answer = `⚠️ **Permissão Negada na API Google Gemini (Erro 403)**\n\nA chave de API Google Gemini configurada não tem permissão para aceder aos modelos de IA.\n\n**Como resolver:**\n1. Ativa a **Generative Language API** no teu projeto Google Cloud Console.\n2. Verifica se a chave não tem restrições de IP ou domínio que bloqueiem o acesso.\n3. Ou obtém uma nova chave gratuita em **[Google AI Studio](https://aistudio.google.com/)** e atualiza-a em **Definições → Chaves de API**.`;
+      } else {
+        answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${isTimeout ? `A execução excedeu o limite de segurança de ${executionTimeoutMs / 1000}s.` : err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Tenta novamente ou verifica a tua chave em **Definições → Chave Google Gemini**.`;
+      }
     } finally {
       clearTimeout(hardTimeoutTimer);
       console.log("[GRIOT_DEBUG] startExecution: entrou no finally", {
@@ -338,7 +351,6 @@ class ChatExecutionManager {
 
       // 2. Finalizar e salvar a mensagem do assistente localmente e no Supabase
       if (answer.trim()) {
-
         const cleaned = parseProposals(answer).clean || answer;
 
         let appKey = "custom";
@@ -374,7 +386,12 @@ class ChatExecutionManager {
           console.warn("[ChatExecutionManager] Observer non-critical:", obsErr);
         }
 
-        await this.finalizeAssistantMessage(conversationId, cleaned, userId, isModelOS(modelId) ? "modelos" : modelId);
+        await this.finalizeAssistantMessage(
+          conversationId,
+          cleaned,
+          userId,
+          isModelOS(modelId) ? "modelos" : modelId,
+        );
       }
 
       // Desregistar execução ativa
@@ -416,7 +433,9 @@ class ChatExecutionManager {
 
       list.push(msg);
       localStorage.setItem(storageKey, JSON.stringify(list));
-      window.dispatchEvent(new CustomEvent("griot_message_saved", { detail: { conversationId, msg } }));
+      window.dispatchEvent(
+        new CustomEvent("griot_message_saved", { detail: { conversationId, msg } }),
+      );
     } catch (e) {
       console.warn("[ChatExecutionManager] Erro ao gravar localmente:", e);
     }

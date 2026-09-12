@@ -7,13 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { GRIOT_SUPABASE_URL, GRIOT_SUPABASE_ANON_KEY } from "@/lib/griot-api";
 
 export type DeliberationMissionId =
-  | "ideate"
-  | "analyze"
-  | "debate"
-  | "build"
-  | "business"
-  | "red_team"
-  | "decide";
+  "ideate" | "analyze" | "debate" | "build" | "business" | "red_team" | "decide";
 
 export interface DeliberationMission {
   id: DeliberationMissionId;
@@ -119,7 +113,7 @@ export const DELIBERATION_ROLES: Record<DeliberationRoleId, DeliberationRole> = 
     label: "Strategist",
     icon: "brain",
     duty: "Pensa no produto, proposta de valor, mercado e visão estratégica.",
-    defaultEngine: "gemini:gemini-2.0-flash",
+    defaultEngine: "gemini:gemini-2.5-flash",
   },
   analyst: {
     id: "analyst",
@@ -133,7 +127,7 @@ export const DELIBERATION_ROLES: Record<DeliberationRoleId, DeliberationRole> = 
     label: "Innovator",
     icon: "lightbulb",
     duty: "Tenta evoluir a ideia, propondo melhorias e recursos diferenciadores.",
-    defaultEngine: "gemini:gemini-2.0-flash",
+    defaultEngine: "gemini:gemini-2.5-flash",
   },
   critic: {
     id: "critic",
@@ -178,10 +172,7 @@ Tópico Principal / Pergunta do Utilizador:
 /**
  * Formats a GRIOT Verdict based on the deliberation turn history.
  */
-export function buildVerdictPrompt(
-  userPrompt: string,
-  turns: DeliberationTurn[],
-): string {
+export function buildVerdictPrompt(userPrompt: string, turns: DeliberationTurn[]): string {
   const historyText = turns.map((t) => `${t.roleName}: ${t.content}`).join("\n\n");
 
   return `[GRIOT Verdict Generation]

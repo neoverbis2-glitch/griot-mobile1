@@ -18,7 +18,8 @@ export const Route = createFileRoute("/api/chat")({
         }
 
         const authorization = request.headers.get("authorization") || "";
-        if (!authorization.toLowerCase().startsWith("bearer ")) {
+        const hasAuthToken = authorization.toLowerCase().startsWith("bearer ");
+        if (!hasAuthToken && !process.env.GEMINI_API_KEY) {
           return new Response(
             JSON.stringify({ error: "Sessão não autenticada. Inicia sessão novamente." }),
             { status: 401, headers: { "Content-Type": "application/json", ...SECURITY_HEADERS } },
@@ -31,6 +32,7 @@ export const Route = createFileRoute("/api/chat")({
           effort?: "low" | "medium" | "high";
           conversationId?: string;
           conversationTitle?: string;
+          systemInstruction?: string;
         };
         const rawMessages = body.messages ?? [];
         if (rawMessages.length === 0) {
@@ -59,8 +61,8 @@ export const Route = createFileRoute("/api/chat")({
               p === "google"
                 ? "gemini"
                 : ["gemini", "openai", "anthropic", "groq", "openrouter", "deepseek"].includes(p)
-                ? p
-                : "gemini";
+                  ? p
+                  : "gemini";
             model = modelParts.join(delimiter);
           } else {
             provider = "gemini";
@@ -77,17 +79,22 @@ export const Route = createFileRoute("/api/chat")({
 
             if (process.env.GEMINI_API_KEY && (provider === "gemini" || rawModel === "modelos")) {
               try {
-                const { generateContentStreamWithFallback } = await import("@/lib/gemini.server");
+                const { generateContentStreamWithFallback, resolveModelChain } =
+                  await import("@/lib/gemini.server");
                 const contents = rawMessages.slice(-20).map((m) => ({
                   role: m.role === "assistant" ? "model" : "user",
                   parts: [{ text: m.content }],
                 }));
 
+                const modelsToTry = resolveModelChain(model);
+
                 const { stream: genStream } = await generateContentStreamWithFallback({
+                  models: modelsToTry,
                   contents,
                   config: {
                     temperature: 0.7,
                     maxOutputTokens: 8192,
+                    systemInstruction: body.systemInstruction || undefined,
                   },
                 });
 
@@ -100,7 +107,10 @@ export const Route = createFileRoute("/api/chat")({
                 controller.close();
                 return;
               } catch (directErr) {
-                console.warn("[GRIOT Server] Streaming direto Gemini falhou, caindo para orquestrador:", directErr);
+                console.warn(
+                  "[GRIOT Server] Streaming direto Gemini falhou, caindo para orquestrador:",
+                  directErr,
+                );
               }
             }
 
