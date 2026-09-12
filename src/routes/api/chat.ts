@@ -49,7 +49,7 @@ export const Route = createFileRoute("/api/chat")({
 
         if (rawModel === "modelos" || rawModel === "model-os") {
           provider = "gemini";
-          model = "gemini-2.0-flash";
+          model = "gemini-flash-latest";
         } else {
           const delimiter = rawModel.includes("/") ? "/" : rawModel.includes(":") ? ":" : null;
           if (delimiter) {
@@ -64,7 +64,7 @@ export const Route = createFileRoute("/api/chat")({
             model = modelParts.join(delimiter);
           } else {
             provider = "gemini";
-            model = rawModel || "gemini-2.0-flash";
+            model = rawModel || "gemini-flash-latest";
           }
         }
 
@@ -75,7 +75,6 @@ export const Route = createFileRoute("/api/chat")({
               controller.enqueue(encoder.encode(`${JSON.stringify({ t, d })}\n`));
             };
 
-            // 1. Streaming Direto de Alta Velocidade no Servidor com Google Gen AI
             if (process.env.GEMINI_API_KEY && (provider === "gemini" || rawModel === "modelos")) {
               try {
                 const { generateContentStreamWithFallback } = await import("@/lib/gemini.server");
@@ -105,7 +104,6 @@ export const Route = createFileRoute("/api/chat")({
               }
             }
 
-            // 2. Fallback para o Edge Orchestrator com histórico de mensagens
             try {
               const upstream = await fetch(
                 `${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`,
@@ -138,7 +136,6 @@ export const Route = createFileRoute("/api/chat")({
                 return;
               }
 
-              // Se o upstream suporta streaming em tempo real
               if (upstream.body) {
                 const reader = upstream.body.getReader();
                 const decoder = new TextDecoder();
@@ -150,7 +147,6 @@ export const Route = createFileRoute("/api/chat")({
                   const chunk = decoder.decode(value, { stream: true });
                   accumulated += chunk;
 
-                  // Tenta extrair linhas de texto ou tokens se for streaming
                   const lines = accumulated.split("\n");
                   accumulated = lines.pop() || "";
 
