@@ -60,6 +60,15 @@ if "Reconciliação pós-execução" not in chat:
         raise SystemExit("chat-surface anchor not found")
     chat_path.write_text(chat.replace(anchor, replacement, 1), encoding="utf-8")
 
+# 1b. Quick is the zero-thinking fast path: never render the Thinking animation.
+quick_anchor = '''          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}'''
+quick_replacement = '''          {busy && scope !== "quick" ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}'''
+chat = chat_path.read_text(encoding="utf-8")
+if quick_anchor in chat:
+    chat_path.write_text(chat.replace(quick_anchor, quick_replacement, 1), encoding="utf-8")
+elif quick_replacement not in chat:
+    raise SystemExit("Thinking render anchor not found")
+
 # 2. Keep package + Android version aligned for the next release.
 pkg_path = ROOT / "package.json"
 pkg = json.loads(pkg_path.read_text(encoding="utf-8"))
