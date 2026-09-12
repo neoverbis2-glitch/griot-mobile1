@@ -234,7 +234,7 @@ async function streamMobileOrchestrator(params: {
   };
 
   console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_AI_START", {
-    path: "orchestrator",
+    path: "orchestrator-mobile-gateway",
     provider,
     model: modelName,
     promptChars: prompt.length,
@@ -245,7 +245,7 @@ async function streamMobileOrchestrator(params: {
   let response: Response;
   const startedAt = Date.now();
   try {
-    response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`, {
+    response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator-mobile`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -257,7 +257,7 @@ async function streamMobileOrchestrator(params: {
     });
 
     console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_AI_RESPONSE", {
-      path: "orchestrator",
+      path: "orchestrator-mobile-gateway",
       status: response.status,
       elapsedMs: Date.now() - startedAt,
     });
@@ -294,7 +294,7 @@ async function streamMobileOrchestrator(params: {
     }
 
     console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_AI_DONE", {
-      path: "orchestrator",
+      path: "orchestrator-mobile-gateway",
       chars: text.length,
       requestId: payload.requestId || null,
       elapsedMs: Date.now() - startedAt,
