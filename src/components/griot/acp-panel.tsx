@@ -25,6 +25,7 @@ import { getUserSavedApis, saveUserApi, deleteUserApi, type UserSavedApi } from 
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getAiLogo } from "@/components/griot/brand-icons";
+import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 
 export interface ConnectedApiItem {
   id: string;
@@ -179,6 +180,7 @@ export function ApisPanel({
   const [loading, setLoading] = useState(false);
   const [credentials, setCredentials] = useState<GriotCredential[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [apiToDelete, setApiToDelete] = useState<ConnectedApiItem | null>(null);
   const [localApis, setLocalApis] = useState<UserSavedApi[]>(() => getUserSavedApis());
 
   // Carrega as credenciais ativas do backend e localStorage instantaneamente
@@ -362,8 +364,9 @@ export function ApisPanel({
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="size-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
                   <button
-                    onClick={() => void handleDelete(api)}
-                    className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    type="button"
+                    onClick={() => setApiToDelete(api)}
+                    className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
                     title={t("Remover API")}
                   >
                     <Trash2 className="size-3.5" />
@@ -400,6 +403,30 @@ export function ApisPanel({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSuccess={() => void refreshApis()}
+      />
+
+      {/* Modal de Confirmação para Remover API */}
+      <ConfirmationModal
+        open={Boolean(apiToDelete)}
+        title={t("Remover API?")}
+        description={
+          apiToDelete
+            ? t(
+                `Tens a certeza de que desejas remover a chave de API de ${apiToDelete.label}? As respostas e agentes associados a este modelo deixarão de funcionar.`,
+              )
+            : ""
+        }
+        confirmLabel={t("Remover")}
+        cancelLabel={t("Cancelar")}
+        variant="destructive"
+        icon={<Trash2 className="size-5" />}
+        onConfirm={() => {
+          if (apiToDelete) {
+            void handleDelete(apiToDelete);
+            setApiToDelete(null);
+          }
+        }}
+        onClose={() => setApiToDelete(null)}
       />
     </>
   );

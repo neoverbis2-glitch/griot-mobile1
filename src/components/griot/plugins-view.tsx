@@ -24,6 +24,7 @@ import {
   type ConnectedPluginData,
 } from "@/lib/plugins-service";
 import * as BrandIcons from "@/components/griot/brand-icons";
+import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 import { toast } from "sonner";
 
 interface PluginsViewProps {
@@ -38,6 +39,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     getConnectedPlugins(),
   );
   const [configuringPlugin, setConfiguringPlugin] = useState<PluginDefinition | null>(null);
+  const [pluginToDisconnect, setPluginToDisconnect] = useState<PluginDefinition | null>(null);
   const [inputKey, setInputKey] = useState("");
   const [inputAccount, setInputAccount] = useState("");
 
@@ -267,8 +269,9 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                           <Sliders className="size-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDisconnect(plugin)}
-                          className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-95"
+                          type="button"
+                          onClick={() => setPluginToDisconnect(plugin)}
+                          className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:scale-95 transition-colors"
                           title={t("Desligar")}
                         >
                           <Trash2 className="size-3.5" />
@@ -365,13 +368,29 @@ export function PluginsView({ onBack }: PluginsViewProps) {
             </div>
 
             <div className="mt-6 flex items-center justify-end gap-2.5 border-t border-hairline pt-3.5">
+              {Boolean(connectedMap[configuringPlugin.id]?.connected) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const p = configuringPlugin;
+                    setConfiguringPlugin(null);
+                    setPluginToDisconnect(p);
+                  }}
+                  className="mr-auto inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium text-destructive hover:bg-destructive/10 active:scale-95 transition-colors"
+                >
+                  <Trash2 className="size-3.5" />
+                  <span>{t("Desligar")}</span>
+                </button>
+              )}
               <button
+                type="button"
                 onClick={() => setConfiguringPlugin(null)}
                 className="rounded-full px-4 py-2 text-[13px] font-medium text-muted-foreground hover:text-foreground"
               >
                 {t("Cancelar")}
               </button>
               <button
+                type="button"
                 onClick={handleSaveConnection}
                 className="rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-xs transition-transform active:scale-95"
               >
@@ -381,6 +400,30 @@ export function PluginsView({ onBack }: PluginsViewProps) {
           </div>
         </div>
       )}
+
+      {/* Modal de Confirmação para Desligar Plugin */}
+      <ConfirmationModal
+        open={Boolean(pluginToDisconnect)}
+        title={t("Desligar plugin?")}
+        description={
+          pluginToDisconnect
+            ? t(
+                `Tens a certeza de que desejas desligar o plugin "${pluginToDisconnect.name}"? As ferramentas e integrações deste serviço deixarão de estar disponíveis para os agentes.`,
+              )
+            : ""
+        }
+        confirmLabel={t("Desligar")}
+        cancelLabel={t("Cancelar")}
+        variant="destructive"
+        icon={<Trash2 className="size-5" />}
+        onConfirm={() => {
+          if (pluginToDisconnect) {
+            handleDisconnect(pluginToDisconnect);
+            setPluginToDisconnect(null);
+          }
+        }}
+        onClose={() => setPluginToDisconnect(null)}
+      />
     </div>
   );
 }
