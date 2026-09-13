@@ -1,21 +1,93 @@
-import React, { useState } from "react";
-import { FolderArchive, FileCheck, FileText, ChevronRight, ChevronDown } from "lucide-react";
+import React from "react";
+import {
+  FolderArchive,
+  FileCheck,
+  FileText,
+  ChevronRight,
+  ImageIcon,
+  Mic,
+  Video,
+  FileCode,
+  FileSpreadsheet,
+  File,
+} from "lucide-react";
 import { MarkdownContent } from "./markdown-content";
 import { UserActions, AssistantActions } from "./message-actions";
 import { parseAttachmentMeta, type AttachmentMetadata } from "@/lib/file-attachment-processor";
 
-function AttachmentBubble({
-  meta,
-  cleanContent,
-}: {
-  meta: AttachmentMetadata;
-  cleanContent: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const isZip = meta.kind === "zip";
-  const isSha =
-    meta.fileName.toLowerCase().endsWith(".sha256") ||
-    meta.fileName.toLowerCase().endsWith(".md5");
+function getAttachmentDisplay(meta: AttachmentMetadata) {
+  const name = (meta.fileName || "").toLowerCase();
+  const kind = meta.kind;
+
+  if (kind === "image" || /\.(png|jpe?g|gif|webp|bmp|svg|heic|avif)$/i.test(name)) {
+    const ext = name.split(".").pop()?.toUpperCase();
+    return {
+      Icon: ImageIcon,
+      label: ext ? `Imagem ${ext}` : "Imagem",
+    };
+  }
+
+  if (kind === "audio" || /\.(mp3|wav|ogg|m4a|aac|flac|weba)$/i.test(name)) {
+    return {
+      Icon: Mic,
+      label: "Áudio",
+    };
+  }
+
+  if (kind === "video" || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) {
+    return {
+      Icon: Video,
+      label: "Vídeo",
+    };
+  }
+
+  if (kind === "zip" || /\.(zip|tar|gz|bz2|7z|rar)$/i.test(name)) {
+    return {
+      Icon: FolderArchive,
+      label: "Arquivo ZIP",
+    };
+  }
+
+  if (/\.(xlsx?|csv|tsv|ods)$/i.test(name)) {
+    return {
+      Icon: FileSpreadsheet,
+      label: "Folha de Cálculo",
+    };
+  }
+
+  if (kind === "document" || /\.(pdf|docx?|odt|rtf|pptx?)$/i.test(name)) {
+    const ext = name.split(".").pop()?.toUpperCase();
+    return {
+      Icon: FileText,
+      label: ext ? `Documento ${ext}` : "Documento",
+    };
+  }
+
+  if (
+    kind === "code" ||
+    /\.(ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|cs|php|rb|swift|kt|sql|html|css|json|yaml|yml|toml)$/i.test(name)
+  ) {
+    return {
+      Icon: FileCode,
+      label: "Código-fonte",
+    };
+  }
+
+  if (name.endsWith(".sha256") || name.endsWith(".md5") || name.endsWith(".sha1")) {
+    return {
+      Icon: FileCheck,
+      label: "Checksum",
+    };
+  }
+
+  return {
+    Icon: File,
+    label: "Ficheiro",
+  };
+}
+
+function AttachmentBubble({ meta }: { meta: AttachmentMetadata }) {
+  const { Icon, label } = getAttachmentDisplay(meta);
 
   return (
     <div className="flex flex-col gap-1.5 w-full max-w-[92%] sm:max-w-md items-end">
@@ -28,13 +100,7 @@ function AttachmentBubble({
       <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-black/[0.05] dark:border-white/10 dark:bg-white/[0.08] px-3.5 py-2.5 backdrop-blur-md shadow-xs w-full max-w-full overflow-hidden transition-colors">
         {/* Ícone monocromático / neutro sem cores gritantes */}
         <div className="grid size-9 shrink-0 place-items-center rounded-xl border border-black/10 bg-black/[0.04] text-zinc-700 dark:border-white/10 dark:bg-white/[0.06] dark:text-zinc-200">
-          {isZip ? (
-            <FolderArchive className="size-5" />
-          ) : isSha ? (
-            <FileCheck className="size-5" />
-          ) : (
-            <FileText className="size-5" />
-          )}
+          <Icon className="size-5" />
         </div>
 
         {/* Informações do ficheiro */}
@@ -46,7 +112,7 @@ function AttachmentBubble({
             {meta.fileName}
           </p>
           <p className="text-[11.5px] text-muted-foreground mt-0.5 truncate flex items-center gap-1.5">
-            <span>{isZip ? "Arquivo ZIP" : isSha ? "Checksum" : "Ficheiro"}</span>
+            <span>{label}</span>
             <span>·</span>
             <span>{meta.fileSize}</span>
             {typeof meta.fileCount === "number" ? (
@@ -61,22 +127,6 @@ function AttachmentBubble({
         {/* Ícone sutil lateral */}
         <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
       </div>
-
-      {/* Botão sutil para inspeção técnica opcional */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="self-end flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors py-0.5 px-1"
-      >
-        <span>{expanded ? "Ocultar detalhes técnicos" : "Ver estrutura enviada"}</span>
-        <ChevronDown className={`size-3 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
-      </button>
-
-      {expanded ? (
-        <div className="w-full rounded-xl border border-white/10 bg-surface/90 p-2.5 text-[11.5px] font-mono text-muted-foreground max-h-48 overflow-y-auto no-scrollbar break-all">
-          <pre className="whitespace-pre-wrap">{cleanContent}</pre>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -122,10 +172,7 @@ export const ChatMessageItem = React.memo(
       if (parsedAttachment.meta) {
         return (
           <div className="flex flex-col items-end max-w-full">
-            <AttachmentBubble
-              meta={parsedAttachment.meta}
-              cleanContent={parsedAttachment.cleanContent}
-            />
+            <AttachmentBubble meta={parsedAttachment.meta} />
             <UserActions content={message.content} onEdit={() => onEdit(message.id)} />
           </div>
         );

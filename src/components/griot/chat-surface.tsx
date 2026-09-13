@@ -1592,50 +1592,37 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
   async function attach(file: File) {
     if (!conversationId) return;
     try {
-      const isImg = isImageFile(file);
-      const isVid = file.type.startsWith("video/");
-      const isAud = file.type.startsWith("audio/");
-      const kind = isImg ? "photo" : isVid ? "video" : isAud ? "audio" : "document";
-      const saved = await saveCapture({
-        kind,
-        note: file.name,
-        file,
-        fileName: file.name,
-        fileType: file.type,
-        userId,
-      });
+      const userNote = draft.trim();
+      if (userNote) setDraft("");
 
-      if (isImg) {
-        let imgUrl =
-          saved && saved.storage_path ? await captureUrl(saved.storage_path, saved) : null;
-        if (!imgUrl && saved?.id) {
-          imgUrl = `local://${saved.id}`;
-        }
-        if (!imgUrl) {
-          try {
-            imgUrl = URL.createObjectURL(file);
-          } catch {}
-        }
-        if (imgUrl) {
-          const userNote = draft.trim();
-          if (userNote) setDraft("");
-          toast.success(t("Imagem anexada à conversa."));
-          void send(`![${file.name}](${imgUrl})\n\n${userNote ? `${userNote}\n\n` : ""}Por favor analisa esta imagem.`);
-          return;
-        }
-      }
-
-      // Ficheiros de dados, código, arquivos ZIP, checksums, logs, etc.
       const isZip = isZipFile(file);
+      const isImg = isImageFile(file);
       const toastId = isZip
         ? toast.loading(t("A descompactar e analisar arquivo ZIP..."))
-        : null;
+        : isImg
+          ? toast.loading(t("A processar imagem..."))
+          : null;
+
+      // Grava em captures em background para histórico local
+      void (async () => {
+        try {
+          const isVid = file.type.startsWith("video/");
+          const isAud = file.type.startsWith("audio/");
+          const kind = isImg ? "photo" : isVid ? "video" : isAud ? "audio" : "document";
+          await saveCapture({
+            kind,
+            note: file.name,
+            file,
+            fileName: file.name,
+            fileType: file.type,
+            userId,
+          });
+        } catch {}
+      })();
 
       try {
-        const userNote = draft.trim();
         const processed = await processFileAttachment(file, userNote || undefined);
         if (toastId) toast.dismiss(toastId);
-        if (userNote) setDraft("");
         toast.success(t(processed.summary));
         void send(processed.textToSend);
         return;

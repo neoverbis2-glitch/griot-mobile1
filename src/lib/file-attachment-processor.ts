@@ -15,7 +15,8 @@ import JSZip from "jszip";
 export interface AttachmentMetadata {
   fileName: string;
   fileSize: string;
-  kind: "zip" | "text" | "binary" | "image";
+  kind: "zip" | "text" | "binary" | "image" | "audio" | "video" | "document" | "code";
+  mimeType?: string;
   fileCount?: number;
   folderCount?: number;
   userNote?: string;
@@ -23,7 +24,7 @@ export interface AttachmentMetadata {
 }
 
 export interface AttachmentProcessResult {
-  kind: "text" | "zip" | "image" | "media" | "binary";
+  kind: "text" | "zip" | "image" | "media" | "binary" | "audio" | "video" | "document" | "code";
   textToSend: string;
   summary: string;
   fileCount?: number;
@@ -148,6 +149,23 @@ export function isVideoFile(file: { name: string; type?: string }): boolean {
   return (
     type.startsWith("video/") ||
     /\.(mp4|webm|mov|mkv|avi)$/i.test(name)
+  );
+}
+
+/** Verifica se é documento estruturado (PDF, Word, Excel, PowerPoint, etc.) */
+export function isDocumentFile(file: { name: string; type?: string }): boolean {
+  const name = file.name.toLowerCase();
+  const type = (file.type || "").toLowerCase();
+  return (
+    type.includes("pdf") ||
+    type.includes("word") ||
+    type.includes("officedocument") ||
+    type.includes("document") ||
+    type.includes("sheet") ||
+    type.includes("excel") ||
+    type.includes("powerpoint") ||
+    type.includes("presentation") ||
+    /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf)$/i.test(name)
   );
 }
 
@@ -333,6 +351,169 @@ Na tua resposta:
   };
 }
 
+/** Processa imagens com compressão ideal para visão computacional */
+export async function processImageAttachment(
+  file: File,
+  userNote?: string,
+): Promise<AttachmentProcessResult> {
+  let dataUrl = "";
+  try {
+    const { compressImageForVision } = await import("./multimodal-vision");
+    const compressed = await compressImageForVision(file);
+    dataUrl = compressed.dataUrl;
+  } catch (err) {
+    console.warn("Falha ao comprimir imagem para visão:", err);
+    try {
+      const reader = new FileReader();
+      dataUrl = await new Promise((resolve) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(file);
+      });
+    } catch {}
+  }
+
+  const metadata: AttachmentMetadata = {
+    fileName: file.name,
+    fileSize: formatBytes(file.size),
+    kind: "image",
+    mimeType: file.type || "image/jpeg",
+    userNote: userNote?.trim() || "",
+    summary: `Imagem "${file.name}" (${formatBytes(file.size)})`,
+  };
+
+  const parts: string[] = [];
+  parts.push(`<!--GRIOT_ATTACHMENT_META:${JSON.stringify(metadata)}-->`);
+
+  if (dataUrl) {
+    parts.push(`![${file.name}](${dataUrl})`);
+  }
+
+  if (userNote?.trim()) {
+    parts.push(`**Mensagem do Utilizador:** ${userNote.trim()}`);
+    parts.push("");
+  }
+
+  parts.push("Por favor analisa detalhadamente esta imagem.");
+
+  return {
+    kind: "image",
+    textToSend: parts.join("\n\n"),
+    summary: `Imagem "${file.name}" anexada à conversa.`,
+    metadata,
+  };
+}
+
+/** Processa ficheiros de áudio e voz */
+export async function processAudioAttachment(
+  file: File,
+  userNote?: string,
+): Promise<AttachmentProcessResult> {
+  const metadata: AttachmentMetadata = {
+    fileName: file.name,
+    fileSize: formatBytes(file.size),
+    kind: "audio",
+    mimeType: file.type || "audio/mpeg",
+    userNote: userNote?.trim() || "",
+    summary: `Áudio "${file.name}" (${formatBytes(file.size)})`,
+  };
+
+  const parts: string[] = [];
+  parts.push(`<!--GRIOT_ATTACHMENT_META:${JSON.stringify(metadata)}-->`);
+
+  if (userNote?.trim()) {
+    parts.push(`**Mensagem do Utilizador:** ${userNote.trim()}`);
+    parts.push("");
+  }
+
+  parts.push(
+    `🎙️ **[Ficheiro de Áudio Anexado: ${file.name}]** (Tamanho: ${formatBytes(file.size)}, Tipo: ${file.type || "audio/mpeg"})`,
+  );
+  parts.push("Por favor analisa este ficheiro de áudio com base no contexto e metadados.");
+
+  return {
+    kind: "audio",
+    textToSend: parts.join("\n\n"),
+    summary: `Áudio "${file.name}" anexado à conversa.`,
+    metadata,
+  };
+}
+
+/** Processa ficheiros de vídeo */
+export async function processVideoAttachment(
+  file: File,
+  userNote?: string,
+): Promise<AttachmentProcessResult> {
+  const metadata: AttachmentMetadata = {
+    fileName: file.name,
+    fileSize: formatBytes(file.size),
+    kind: "video",
+    mimeType: file.type || "video/mp4",
+    userNote: userNote?.trim() || "",
+    summary: `Vídeo "${file.name}" (${formatBytes(file.size)})`,
+  };
+
+  const parts: string[] = [];
+  parts.push(`<!--GRIOT_ATTACHMENT_META:${JSON.stringify(metadata)}-->`);
+
+  if (userNote?.trim()) {
+    parts.push(`**Mensagem do Utilizador:** ${userNote.trim()}`);
+    parts.push("");
+  }
+
+  parts.push(
+    `🎬 **[Ficheiro de Vídeo Anexado: ${file.name}]** (Tamanho: ${formatBytes(file.size)}, Tipo: ${file.type || "video/mp4"})`,
+  );
+  parts.push("Por favor analisa este ficheiro de vídeo com base no contexto e metadados.");
+
+  return {
+    kind: "video",
+    textToSend: parts.join("\n\n"),
+    summary: `Vídeo "${file.name}" anexado à conversa.`,
+    metadata,
+  };
+}
+
+/** Processa documentos estruturados (PDF, Word, Excel, PowerPoint, etc.) */
+export async function processDocumentAttachment(
+  file: File,
+  userNote?: string,
+): Promise<AttachmentProcessResult> {
+  const hex = await getHexPreview(file, 24);
+  const metadata: AttachmentMetadata = {
+    fileName: file.name,
+    fileSize: formatBytes(file.size),
+    kind: "document",
+    mimeType: file.type || "application/pdf",
+    userNote: userNote?.trim() || "",
+    summary: `Documento "${file.name}" (${formatBytes(file.size)})`,
+  };
+
+  const parts: string[] = [];
+  parts.push(`<!--GRIOT_ATTACHMENT_META:${JSON.stringify(metadata)}-->`);
+
+  if (userNote?.trim()) {
+    parts.push(`**Mensagem do Utilizador:** ${userNote.trim()}`);
+    parts.push("");
+  }
+
+  parts.push(
+    `📑 **[Documento Anexado: ${file.name}]** (Tamanho: ${formatBytes(file.size)}, Tipo: ${file.type || "documento"})`,
+  );
+  if (hex) {
+    parts.push(`- **Assinatura (Magic Bytes):** \`${hex}\``);
+  }
+  parts.push("");
+  parts.push("Por favor analisa este documento com base no tipo e metadados descritos.");
+
+  return {
+    kind: "document",
+    textToSend: parts.join("\n\n"),
+    summary: `Documento "${file.name}" anexado à conversa.`,
+    metadata,
+  };
+}
+
 /**
  * Processador principal de qualquer ficheiro anexado.
  * Retorna o texto formatado para envio e resumo de notificação.
@@ -349,12 +530,34 @@ export async function processFileAttachment(
       return await processZipArchive(file, userNote);
     } catch (zipErr) {
       console.warn("Falha ao descompactar ZIP com JSZip:", zipErr);
-      // Fallback para tratamento binário se o ZIP estiver corrompido
     }
   }
 
-  // 2. Ficheiros de Texto / Código / Checksums (.sha256, .md5, etc.)
-  // Tenta ler como texto se tiver extensão conhecida ou se a deteção revelar UTF-8 limpo
+  // 2. Imagens
+  if (isImageFile(file)) {
+    try {
+      return await processImageAttachment(file, userNote);
+    } catch (imgErr) {
+      console.warn("Falha ao processar imagem:", imgErr);
+    }
+  }
+
+  // 3. Ficheiros de Áudio
+  if (isAudioFile(file)) {
+    return await processAudioAttachment(file, userNote);
+  }
+
+  // 4. Ficheiros de Vídeo
+  if (isVideoFile(file)) {
+    return await processVideoAttachment(file, userNote);
+  }
+
+  // 5. Documentos estruturados (PDF, DOC, DOCX, XLSX, etc.)
+  if (isDocumentFile(file) && !lowerName.endsWith(".csv") && !lowerName.endsWith(".tsv")) {
+    return await processDocumentAttachment(file, userNote);
+  }
+
+  // 6. Ficheiros de Texto / Código / Checksums (.sha256, .md5, etc.)
   let textContent: string | null = null;
   let isLikelyText = isTextExtension(file.name) || (file.type && file.type.startsWith("text/"));
 
@@ -375,11 +578,12 @@ export async function processFileAttachment(
     const maxChars = 40000;
     const isTruncated = textContent.length > maxChars;
     const body = textContent.slice(0, maxChars);
+    const isCode = lang !== "text" && lang !== "markdown";
 
     const metadata: AttachmentMetadata = {
       fileName: file.name,
       fileSize: formatBytes(file.size),
-      kind: "text",
+      kind: isCode ? "code" : "text",
       userNote: userNote?.trim() || "",
       summary: `Ficheiro "${file.name}" (${formatBytes(file.size)})`,
     };
@@ -415,21 +619,21 @@ export async function processFileAttachment(
     }
 
     return {
-      kind: "text",
+      kind: isCode ? "code" : "text",
       textToSend: parts.join("\n"),
       summary: `Ficheiro "${file.name}" anexado à conversa.`,
       metadata,
     };
   }
 
-  // 3. Ficheiros Binários e PDFs
+  // 7. Ficheiros Binários e Outros
   const hex = await getHexPreview(file, 24);
   const metadata: AttachmentMetadata = {
     fileName: file.name,
     fileSize: formatBytes(file.size),
     kind: "binary",
     userNote: userNote?.trim() || "",
-    summary: `Ficheiro binário "${file.name}" (${formatBytes(file.size)})`,
+    summary: `Ficheiro "${file.name}" (${formatBytes(file.size)})`,
   };
 
   const parts: string[] = [];
@@ -454,7 +658,7 @@ export async function processFileAttachment(
   return {
     kind: "binary",
     textToSend: parts.join("\n"),
-    summary: `Ficheiro binário "${file.name}" adicionado à conversa.`,
+    summary: `Ficheiro "${file.name}" adicionado à conversa.`,
     metadata,
   };
 }
@@ -512,6 +716,91 @@ export function parseAttachmentMeta(content: string): {
         fileSize: textFileMatch[2]!.trim(),
         kind: "text",
         summary: `Ficheiro "${textFileMatch[1]!.trim()}"`,
+      },
+      cleanContent: content,
+    };
+  }
+
+  // Fallback 3: Ficheiros Binários gravados no formato anterior
+  const binFileMatch = content.match(
+    /📎 \*\*\[Ficheiro Binário Anexado:\s*([^\]]+)\]\*\*/,
+  );
+  if (binFileMatch) {
+    const sizeMatch = content.match(/- \*\*Tamanho:\*\*\s*([^\n]+)/);
+    return {
+      meta: {
+        fileName: binFileMatch[1]!.trim(),
+        fileSize: sizeMatch ? sizeMatch[1]!.trim() : "Ficheiro",
+        kind: "binary",
+        summary: `Ficheiro "${binFileMatch[1]!.trim()}"`,
+      },
+      cleanContent: content,
+    };
+  }
+
+  // Fallback 4: Imagens Markdown com DataURL base64 ou URL (ex.: envio anterior com textão base64)
+  const mdImgMatch = content.match(
+    /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+_-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/[^\s)]+|blob:[^\s)]+|local:\/\/[^\s)]+)\)/,
+  );
+  if (mdImgMatch) {
+    const rawNote = content
+      .replace(mdImgMatch[0], "")
+      .replace(/Por favor analisa esta imagem\.?/gi, "")
+      .replace(/\*\*Mensagem do Utilizador:\*\*/gi, "")
+      .trim();
+
+    let sizeStr = "Imagem";
+    if (mdImgMatch[2].startsWith("data:")) {
+      const b64Len = mdImgMatch[2].length - mdImgMatch[2].indexOf(",") - 1;
+      const bytes = Math.round((b64Len * 3) / 4);
+      sizeStr = formatBytes(bytes);
+    }
+
+    return {
+      meta: {
+        fileName: mdImgMatch[1] || "imagem.jpg",
+        fileSize: sizeStr,
+        kind: "image",
+        userNote: rawNote || undefined,
+        summary: `Imagem "${mdImgMatch[1] || "imagem.jpg"}"`,
+      },
+      cleanContent: rawNote,
+    };
+  }
+
+  // Fallback 5: Data URLs de imagem soltos gigantes (capturas não envolvidas em markdown)
+  const rawDataUrlMatch = content.match(
+    /data:image\/([a-zA-Z0-9.+_-]+);base64,[A-Za-z0-9+/=]{100,}/,
+  );
+  if (rawDataUrlMatch) {
+    const b64Len = rawDataUrlMatch[0].length;
+    const bytes = Math.round((b64Len * 3) / 4);
+    const cleanNote = content
+      .replace(rawDataUrlMatch[0], "")
+      .replace(/Por favor analisa esta imagem\.?/gi, "")
+      .replace(/[!\[\]()]/g, "")
+      .trim();
+    return {
+      meta: {
+        fileName: `imagem.${rawDataUrlMatch[1] || "jpg"}`,
+        fileSize: formatBytes(bytes),
+        kind: "image",
+        userNote: cleanNote || undefined,
+        summary: "Imagem anexada",
+      },
+      cleanContent: cleanNote,
+    };
+  }
+
+  // Fallback 6: Ficheiro anexado genérico com Anexei o ficheiro "..."
+  const attachedFileTextMatch = content.match(/Anexei o ficheiro "([^"]+)"/);
+  if (attachedFileTextMatch) {
+    return {
+      meta: {
+        fileName: attachedFileTextMatch[1],
+        fileSize: "Ficheiro",
+        kind: "text",
+        summary: `Ficheiro "${attachedFileTextMatch[1]}"`,
       },
       cleanContent: content,
     };

@@ -79,23 +79,72 @@ export function captureTitle(capture: CaptureRow) {
 
 /** Texto que representa a captura quando é enviada para uma conversa. */
 export async function captureAsText(capture: CaptureRow) {
+  const isImg = capture.mime_type?.startsWith("image/") || capture.kind === "photo";
+  const isAud = capture.mime_type?.startsWith("audio/") || capture.kind === "audio";
+  const isVid = capture.mime_type?.startsWith("video/") || capture.kind === "video";
+  const isDoc = capture.kind === "document";
+
+  let url = await captureUrl(capture.storage_path, capture);
+  if (!url && isImg) {
+    url = `local://${capture.id}`;
+  }
+
+  const title = captureTitle(capture);
+  const note = capture.note?.trim();
+
+  if (isImg && url) {
+    const meta = {
+      fileName: capture.file_name || `${title}.jpg`,
+      fileSize: "Imagem",
+      kind: "image" as const,
+      userNote: note || undefined,
+      summary: `Captura de imagem "${title}"`,
+    };
+    return `<!--GRIOT_ATTACHMENT_META:${JSON.stringify(meta)}-->\n\n![${meta.fileName}](${url})\n\n${note ? `**Mensagem do Utilizador:** ${note}\n\n` : ""}Por favor analisa esta imagem.`;
+  }
+
+  if (isAud) {
+    const meta = {
+      fileName: capture.file_name || `${title}.mp3`,
+      fileSize: "Áudio",
+      kind: "audio" as const,
+      userNote: note || undefined,
+      summary: `Captura de áudio "${title}"`,
+    };
+    return `<!--GRIOT_ATTACHMENT_META:${JSON.stringify(meta)}-->\n\n${note ? `**Mensagem do Utilizador:** ${note}\n\n` : ""}🎙️ **[Ficheiro de Áudio Anexado: ${meta.fileName}]**\n\nPor favor analisa este áudio.`;
+  }
+
+  if (isVid) {
+    const meta = {
+      fileName: capture.file_name || `${title}.mp4`,
+      fileSize: "Vídeo",
+      kind: "video" as const,
+      userNote: note || undefined,
+      summary: `Captura de vídeo "${title}"`,
+    };
+    return `<!--GRIOT_ATTACHMENT_META:${JSON.stringify(meta)}-->\n\n${note ? `**Mensagem do Utilizador:** ${note}\n\n` : ""}🎬 **[Ficheiro de Vídeo Anexado: ${meta.fileName}]**\n\nPor favor analisa este vídeo.`;
+  }
+
+  if (isDoc) {
+    const meta = {
+      fileName: capture.file_name || `${title}.pdf`,
+      fileSize: "Documento",
+      kind: "document" as const,
+      userNote: note || undefined,
+      summary: `Documento "${title}"`,
+    };
+    return `<!--GRIOT_ATTACHMENT_META:${JSON.stringify(meta)}-->\n\n${note ? `**Mensagem do Utilizador:** ${note}\n\n` : ""}📑 **[Documento Anexado: ${meta.fileName}]**\n\nPor favor analisa este documento.`;
+  }
+
   const lines = [`Capture (${capture.kind}) — ${exactDateTime(capture.created_at)}`];
-  if (capture.note?.trim()) lines.push(capture.note.trim());
+  if (note) lines.push(note);
   if (capture.latitude != null && capture.longitude != null) {
     lines.push(
       `Localização: https://www.google.com/maps?q=${capture.latitude},${capture.longitude}`,
     );
   }
-  let url = await captureUrl(capture.storage_path, capture);
-  if (!url && (capture.mime_type?.startsWith("image/") || capture.kind === "photo")) {
-    url = `local://${capture.id}`;
-  }
   if (url) {
-    if (capture.mime_type?.startsWith("image/") || capture.kind === "photo") {
-      lines.push(`![${captureTitle(capture)}](${url})`);
-    } else {
-      lines.push(url);
-    }
+    lines.push(url);
   }
   return lines.join("\n");
 }
