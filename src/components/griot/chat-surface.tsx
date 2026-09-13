@@ -54,6 +54,11 @@ import {
   setActiveProject,
   type GriotProject,
 } from "@/lib/project-service";
+import {
+  processFileAttachment,
+  isImageFile,
+  isZipFile,
+} from "@/lib/file-attachment-processor";
 
 import {
   ArrowUp,
@@ -1055,7 +1060,7 @@ export function ChatSurface({ userId }: { userId: string }) {
     }
 
     let sysInstruction =
-      "És o GRIOT, o assistente de engenharia de software e inteligência artificial de elite. Quando precisares de inspecionar ou modificar ficheiros ou executar comandos, utiliza as ferramentas disponíveis.";
+      "És o GRIOT, o assistente de engenharia de software e inteligência artificial de elite. Quando precisares de inspecionar ou modificar ficheiros ou executar comandos, utiliza as ferramentas disponíveis.\n\n[INSTRUÇÃO CRÍTICA DE FICHEIROS E ANEXOS]\nQuando o utilizador anexar ficheiros ou arquivos compactados (.zip, .sha256, .md5, scripts, códigos, logs, dados), o conteúdo e a estrutura completa deles são fornecidos diretamente na conversa sob os blocos [Ficheiro Anexado: ...] ou [Arquivo ZIP Descompactado: ...].\nNUNCA digas que não consegues aceder a ficheiros anexados ou que és um modelo de linguagem sem acesso a ficheiros. Analisa imediatamente os ficheiros fornecidos, verifica checksums, inspeciona código e responde com precisão técnica!";
 
     if (currentProject) {
       sysInstruction += `\n\n[PROJETO ATIVO GRIOT]
@@ -1573,7 +1578,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
   async function attach(file: File) {
     if (!conversationId) return;
     try {
-      const isImg = file.type.startsWith("image/");
+      const isImg = isImageFile(file);
       const isVid = file.type.startsWith("video/");
       const isAud = file.type.startsWith("audio/");
       const kind = isImg ? "photo" : isVid ? "video" : isAud ? "audio" : "document";
@@ -1598,25 +1603,31 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           } catch {}
         }
         if (imgUrl) {
+          const userNote = draft.trim();
+          if (userNote) setDraft("");
           toast.success(t("Imagem anexada à conversa."));
-          void send(`![${file.name}](${imgUrl})\n\nPor favor analisa esta imagem.`);
+          void send(`![${file.name}](${imgUrl})\n\n${userNote ? `${userNote}\n\n` : ""}Por favor analisa esta imagem.`);
           return;
         }
       }
 
-      if (
-        file.type.startsWith("text/") ||
-        file.type.includes("json") ||
-        /\.(txt|json|md|ts|tsx|js|jsx|py|csv|html|css|yaml|yml|sql|sh)$/i.test(file.name)
-      ) {
-        try {
-          const content = await file.text();
-          toast.success(t("Ficheiro anexado à conversa."));
-          void send(
-            `[Ficheiro: ${file.name}]\n\`\`\`\n${content.slice(0, 12000)}\n\`\`\`\nPor favor analisa este ficheiro.`,
-          );
-          return;
-        } catch {}
+      // Ficheiros de dados, código, arquivos ZIP, checksums, logs, etc.
+      const isZip = isZipFile(file);
+      const toastId = isZip
+        ? toast.loading(t("A descompactar e analisar arquivo ZIP..."))
+        : null;
+
+      try {
+        const userNote = draft.trim();
+        const processed = await processFileAttachment(file, userNote || undefined);
+        if (toastId) toast.dismiss(toastId);
+        if (userNote) setDraft("");
+        toast.success(t(processed.summary));
+        void send(processed.textToSend);
+        return;
+      } catch (procErr: any) {
+        if (toastId) toast.dismiss(toastId);
+        console.warn("Falha no processador de anexos:", procErr);
       }
 
       toast.success(t("Adicionado à conversa."));

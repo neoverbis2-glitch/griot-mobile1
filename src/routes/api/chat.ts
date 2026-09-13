@@ -41,7 +41,7 @@ export const Route = createFileRoute("/api/chat")({
         }
 
         const lastUserMessage = [...rawMessages].reverse().find((m) => m.role === "user");
-        const prompt = sanitizeInput(lastUserMessage?.content || "", 20000);
+        const prompt = sanitizeInput(lastUserMessage?.content || "", 120000);
         if (!prompt) {
           return new Response("Mensagem vazia", { status: 400, headers: SECURITY_HEADERS });
         }
