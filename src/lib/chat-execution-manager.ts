@@ -27,6 +27,8 @@ export interface ChatMessageRow {
   feedback?: string | null;
 }
 
+export type ExecutionPhase = "idle" | "reading" | "searching" | "editing" | "writing" | "thinking";
+
 export interface ExecutionState {
   conversationId: string;
   scope: "main" | "quick";
@@ -34,6 +36,8 @@ export interface ExecutionState {
   streaming: string;
   reasoning: string;
   steps: number;
+  currentPhase?: ExecutionPhase;
+  currentActionDetail?: string;
   error?: string | null;
 }
 
@@ -160,7 +164,8 @@ class ChatExecutionManager {
     }
 
     const isFastMode = effort === "low" || scope === "quick";
-    const executionTimeoutMs = isFastMode ? 60000 : 120000;
+    // Limite de segurança de 1 hora (3600000 ms) para análises completas, ou 10 minutos em modo rápido
+    const executionTimeoutMs = isFastMode ? 600000 : 3600000;
     const controller = new AbortController();
     const hardTimeoutTimer = setTimeout(() => {
       if (!controller.signal.aborted) {
@@ -169,11 +174,19 @@ class ChatExecutionManager {
         );
         try {
           controller.abort(
-            new Error(`Tempo limite de execução atingido (${executionTimeoutMs / 1000}s).`),
+            new Error(`Tempo limite de execução atingido (${Math.round(executionTimeoutMs / 60000)} minutos).`),
           );
         } catch {}
       }
     }, executionTimeoutMs);
+
+    const hasAttachment =
+      userPrompt.includes("[Arquivo ZIP Descompactado:") ||
+      userPrompt.includes("[Ficheiro Anexado:") ||
+      userPrompt.includes("<!--GRIOT_ATTACHMENT_META:");
+
+    const initialPhase: ExecutionPhase = hasAttachment ? "reading" : "thinking";
+    const initialDetail = hasAttachment ? "A ler ficheiros anexados..." : "A analisar pedido...";
 
     const active: ActiveExecution = {
       controller,
@@ -184,6 +197,8 @@ class ChatExecutionManager {
         streaming: "",
         reasoning: "",
         steps: 0,
+        currentPhase: initialPhase,
+        currentActionDetail: initialDetail,
       },
       listeners: new Set(),
       startedAt: Date.now(),
@@ -254,12 +269,16 @@ class ChatExecutionManager {
               if (controller.signal.aborted) return;
               answer += tok;
               active.state.streaming = answer;
+              active.state.currentPhase = "writing";
+              active.state.currentActionDetail = "A compor resposta...";
               this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
               if (controller.signal.aborted) return;
               fullReasoning += r;
               active.state.reasoning = fullReasoning;
+              active.state.currentPhase = "thinking";
+              active.state.currentActionDetail = "A analisar...";
               this.notify(conversationId, { ...active.state });
             },
           },
@@ -288,17 +307,43 @@ class ChatExecutionManager {
               if (controller.signal.aborted) return;
               answer += tok;
               active.state.streaming = answer;
+              active.state.currentPhase = "writing";
+              active.state.currentActionDetail = "A compor resposta...";
               this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
               if (controller.signal.aborted) return;
               fullReasoning += r;
               active.state.reasoning = fullReasoning;
+              active.state.currentPhase = "thinking";
+              active.state.currentActionDetail = "A ponderar alternativas...";
               this.notify(conversationId, { ...active.state });
             },
             onStepChange: (st) => {
               if (controller.signal.aborted) return;
               active.state.steps = st;
+              this.notify(conversationId, { ...active.state });
+            },
+            onActionStart: (action) => {
+              if (controller.signal.aborted) return;
+              if (action.type.startsWith("fs.read")) {
+                active.state.currentPhase = "reading";
+                active.state.currentActionDetail = (action.params as any)?.path
+                  ? `A ler ${(action.params as any).path}...`
+                  : "A ler ficheiros...";
+              } else if (action.type.startsWith("search")) {
+                active.state.currentPhase = "searching";
+                active.state.currentActionDetail = (action.params as any)?.query
+                  ? `A pesquisar "${(action.params as any).query}"...`
+                  : "A pesquisar código...";
+              } else if (action.type.startsWith("fs.write") || action.type.startsWith("fs.patch")) {
+                active.state.currentPhase = "editing";
+                active.state.currentActionDetail = (action.params as any)?.path
+                  ? `A editar ${(action.params as any).path}...`
+                  : "A editar código...";
+              } else {
+                active.state.currentPhase = "thinking";
+              }
               this.notify(conversationId, { ...active.state });
             },
           },
@@ -340,7 +385,10 @@ class ChatExecutionManager {
       if (is403) {
         answer = `⚠️ **Permissão Negada na API Google Gemini (Erro 403)**\n\nA chave de API Google Gemini configurada não tem permissão para aceder aos modelos de IA.\n\n**Como resolver:**\n1. Ativa a **Generative Language API** no teu projeto Google Cloud Console.\n2. Verifica se a chave não tem restrições de IP ou domínio que bloqueiem o acesso.\n3. Ou obtém uma nova chave gratuita em **[Google AI Studio](https://aistudio.google.com/)** e atualiza-a em **Definições → Chaves de API**.`;
       } else {
-        answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${isTimeout ? `A execução excedeu o limite de segurança de ${executionTimeoutMs / 1000}s.` : err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Tenta novamente ou verifica a tua chave em **Definições → Chave Google Gemini**.`;
+        const timeoutDisplay = Math.round(executionTimeoutMs / 60000) >= 60
+          ? `${Math.round(executionTimeoutMs / 3600000)}h`
+          : `${Math.round(executionTimeoutMs / 60000)} min`;
+        answer = `⚠️ **Não foi possível obter resposta do modelo ${mLabel}.**\n\n${isTimeout ? `A execução excedeu o limite de segurança de ${timeoutDisplay}.` : err?.message || "Ocorreu uma falha na ligação com o fornecedor de IA."}\n\n👉 Tenta novamente ou verifica a tua chave em **Definições → Chave Google Gemini**.`;
       }
     } finally {
       clearTimeout(hardTimeoutTimer);

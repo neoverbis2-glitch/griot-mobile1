@@ -1,4 +1,4 @@
-﻿/**
+/**
  * GRIOT Universal File Attachment Processor
  *
  * Processa qualquer ficheiro anexado pelo utilizador no chat mobile:
@@ -12,11 +12,22 @@
 
 import JSZip from "jszip";
 
+export interface AttachmentMetadata {
+  fileName: string;
+  fileSize: string;
+  kind: "zip" | "text" | "binary" | "image";
+  fileCount?: number;
+  folderCount?: number;
+  userNote?: string;
+  summary: string;
+}
+
 export interface AttachmentProcessResult {
   kind: "text" | "zip" | "image" | "media" | "binary";
   textToSend: string;
   summary: string;
   fileCount?: number;
+  metadata?: AttachmentMetadata;
 }
 
 /** Formata bytes para leitura humana (B, KB, MB) */
@@ -265,8 +276,21 @@ export async function processZipArchive(
   // Montagem do payload estruturado
   const parts: string[] = [];
 
+  const metadata: AttachmentMetadata = {
+    fileName: file.name,
+    fileSize: formatBytes(file.size),
+    kind: "zip",
+    fileCount: totalFiles,
+    folderCount: totalDirs,
+    userNote: userNote?.trim() || "",
+    summary: `Arquivo ZIP "${file.name}" (${totalFiles} ficheiros, ${formatBytes(file.size)})`,
+  };
+
+  // Tag oculta de metadados para que o cliente renderize o Card Elegante e não o texto cru
+  parts.push(`<!--GRIOT_ATTACHMENT_META:${JSON.stringify(metadata)}-->`);
+
   if (userNote?.trim()) {
-    parts.push(userNote.trim());
+    parts.push(`**Mensagem do Utilizador:** ${userNote.trim()}`);
     parts.push("");
   }
 
@@ -281,7 +305,7 @@ export async function processZipArchive(
 
   if (extractedFiles.length > 0) {
     parts.push("");
-    parts.push("#### 📜 Conteúdo dos Ficheiros Extraídos:");
+    parts.push("#### 📜 Conteúdo dos Ficheiros Prioritários Extraídos:");
     for (const ef of extractedFiles) {
       parts.push(`##### 📄 \`${ef.path}\``);
       parts.push(`\`\`\`${ef.lang}`);
@@ -292,7 +316,12 @@ export async function processZipArchive(
 
   parts.push("");
   parts.push(
-    "Analisa a arquitetura, estrutura e o código deste arquivo ZIP. Tens acesso direto a todos os ficheiros listados acima.",
+    `[INSTRUÇÃO AO ASSISTENTE GRIOT]:
+O utilizador anexou este arquivo ZIP. Foi lida e catalogada a estrutura completa de pastas (${totalDirs}) e ficheiros (${totalFiles}), bem como o conteúdo dos ficheiros prioritários (README, manifestos de configuração).
+Na tua resposta:
+1. Confirma claramente que descompactaste e leste o arquivo ZIP "${file.name}" (${totalFiles} ficheiros, ${formatBytes(file.size)}).
+2. Apresenta um resumo conciso e objetivo da arquitetura e finalidade do projeto com base na árvore e manifests lidos.
+3. Informa o utilizador de que tens toda a estrutura em contexto e estás pronto para analisar em detalhe qualquer ficheiro ou módulo específico que ele deseje.`
   );
 
   return {
@@ -300,6 +329,7 @@ export async function processZipArchive(
     textToSend: parts.join("\n"),
     summary: `Arquivo ZIP "${file.name}" descompactado (${totalFiles} ficheiros).`,
     fileCount: totalFiles,
+    metadata,
   };
 }
 
@@ -346,9 +376,19 @@ export async function processFileAttachment(
     const isTruncated = textContent.length > maxChars;
     const body = textContent.slice(0, maxChars);
 
+    const metadata: AttachmentMetadata = {
+      fileName: file.name,
+      fileSize: formatBytes(file.size),
+      kind: "text",
+      userNote: userNote?.trim() || "",
+      summary: `Ficheiro "${file.name}" (${formatBytes(file.size)})`,
+    };
+
     const parts: string[] = [];
+    parts.push(`<!--GRIOT_ATTACHMENT_META:${JSON.stringify(metadata)}-->`);
+
     if (userNote?.trim()) {
-      parts.push(userNote.trim());
+      parts.push(`**Mensagem do Utilizador:** ${userNote.trim()}`);
       parts.push("");
     }
 
@@ -378,14 +418,25 @@ export async function processFileAttachment(
       kind: "text",
       textToSend: parts.join("\n"),
       summary: `Ficheiro "${file.name}" anexado à conversa.`,
+      metadata,
     };
   }
 
   // 3. Ficheiros Binários e PDFs
   const hex = await getHexPreview(file, 24);
+  const metadata: AttachmentMetadata = {
+    fileName: file.name,
+    fileSize: formatBytes(file.size),
+    kind: "binary",
+    userNote: userNote?.trim() || "",
+    summary: `Ficheiro binário "${file.name}" (${formatBytes(file.size)})`,
+  };
+
   const parts: string[] = [];
+  parts.push(`<!--GRIOT_ATTACHMENT_META:${JSON.stringify(metadata)}-->`);
+
   if (userNote?.trim()) {
-    parts.push(userNote.trim());
+    parts.push(`**Mensagem do Utilizador:** ${userNote.trim()}`);
     parts.push("");
   }
 
@@ -404,5 +455,67 @@ export async function processFileAttachment(
     kind: "binary",
     textToSend: parts.join("\n"),
     summary: `Ficheiro binário "${file.name}" adicionado à conversa.`,
+    metadata,
   };
+}
+
+/**
+ * Extrai os metadados do anexo a partir de uma mensagem (se houver).
+ * Permite que a UI mostre um card elegante e compacto em vez de despejar centenas de linhas.
+ */
+export function parseAttachmentMeta(content: string): {
+  meta: AttachmentMetadata | null;
+  cleanContent: string;
+} {
+  if (!content) return { meta: null, cleanContent: "" };
+
+  const match = content.match(/<!--GRIOT_ATTACHMENT_META:([\s\S]*?)-->/);
+  if (match) {
+    try {
+      const meta = JSON.parse(match[1]!) as AttachmentMetadata;
+      const cleanContent = content.replace(match[0], "").trim();
+      return { meta, cleanContent };
+    } catch {
+      // Ignora erro de JSON e avança para fallback
+    }
+  }
+
+  // Fallback 1: Arquivos ZIP gravados sem a tag explícita
+  const zipMatch = content.match(
+    /📦 \*\*\[Arquivo ZIP Descompactado:\s*([^\]]+)\]\*\*\s*\(Tamanho:\s*([^,]+),\s*(\d+)\s*ficheiros,\s*(\d+)\s*pastas\)/,
+  );
+  if (zipMatch) {
+    const rawNoteMatch = content.match(/^\*\*Mensagem do Utilizador:\*\*\s*([^\n]+)/);
+    const userNote = rawNoteMatch ? rawNoteMatch[1]?.trim() : undefined;
+    return {
+      meta: {
+        fileName: zipMatch[1]!.trim(),
+        fileSize: zipMatch[2]!.trim(),
+        kind: "zip",
+        fileCount: parseInt(zipMatch[3]!, 10),
+        folderCount: parseInt(zipMatch[4]!, 10),
+        userNote,
+        summary: `Arquivo ZIP "${zipMatch[1]!.trim()}"`,
+      },
+      cleanContent: content,
+    };
+  }
+
+  // Fallback 2: Ficheiros de texto / checksums gravados no formato anterior
+  const textFileMatch = content.match(
+    /📄 \*\*\[Ficheiro Anexado:\s*([^\]]+)\]\*\*\s*\(Tamanho:\s*([^)]+)\)/,
+  );
+  if (textFileMatch) {
+    return {
+      meta: {
+        fileName: textFileMatch[1]!.trim(),
+        fileSize: textFileMatch[2]!.trim(),
+        kind: "text",
+        summary: `Ficheiro "${textFileMatch[1]!.trim()}"`,
+      },
+      cleanContent: content,
+    };
+  }
+
+  return { meta: null, cleanContent: content };
 }

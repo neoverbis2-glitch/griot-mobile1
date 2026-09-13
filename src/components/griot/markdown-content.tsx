@@ -79,7 +79,13 @@ export const MarkdownContent = React.memo(function MarkdownContent({
 
   // Se for mensagem do utilizador, renderiza simples com quebra preservada
   if (isUser) {
-    return <div className={`whitespace-pre-wrap break-words ${className}`}>{content}</div>;
+    return (
+      <div
+        className={`whitespace-pre-wrap break-words break-all max-w-full overflow-hidden ${className}`}
+      >
+        {content}
+      </div>
+    );
   }
 
   // Decomposição de blocos de código markdown (```lang ... ```)
@@ -107,7 +113,9 @@ export const MarkdownContent = React.memo(function MarkdownContent({
   }
 
   return (
-    <div className={`space-y-1.5 text-[15px] leading-relaxed text-foreground ${className}`}>
+    <div
+      className={`space-y-1.5 text-[15px] leading-relaxed text-foreground break-words max-w-full overflow-hidden ${className}`}
+    >
       {segments}
     </div>
   );
@@ -243,10 +251,30 @@ function renderFormattedText(text: string, keyPrefix: string): React.ReactNode {
       continue;
     }
 
+    // Bloco ou frase explícita com scroll horizontal controlado isolado
+    if (
+      (trimmed.startsWith("[scroll]") && trimmed.endsWith("[/scroll]")) ||
+      (trimmed.startsWith("<scroll>") && trimmed.endsWith("</scroll>"))
+    ) {
+      flushList(i);
+      const inner = trimmed
+        .replace(/^(\[scroll\]|<scroll>)/, "")
+        .replace(/(\[\/scroll\]|<\/scroll>)$/, "");
+      elements.push(
+        <div
+          key={`${keyPrefix}-${i}`}
+          className="my-2 max-w-full overflow-x-auto rounded-xl border border-hairline/60 bg-secondary/30 p-2.5 text-xs font-mono no-scrollbar"
+        >
+          <div className="w-max min-w-full whitespace-nowrap">{inner}</div>
+        </div>,
+      );
+      continue;
+    }
+
     // Parágrafo regular
     flushList(i);
     elements.push(
-      <p key={`${keyPrefix}-${i}`} className="leading-relaxed">
+      <p key={`${keyPrefix}-${i}`} className="leading-relaxed break-words">
         {renderInlineFormatting(line)}
       </p>,
     );
@@ -270,7 +298,7 @@ function renderInlineFormatting(text: string): React.ReactNode {
       return (
         <code
           key={index}
-          className="rounded-md border border-hairline/60 bg-secondary/60 px-1.5 py-0.5 font-mono text-[13px] text-foreground"
+          className="rounded-md border border-hairline/60 bg-secondary/60 px-1.5 py-0.5 font-mono text-[13px] text-foreground break-all inline-block max-w-full align-middle"
         >
           {code}
         </code>

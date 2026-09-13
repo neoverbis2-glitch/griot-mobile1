@@ -37,7 +37,7 @@ import {
 import { observerEngine, stripActionBlocks } from "@/lib/runtime";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
 import { getSavedApiKey, resolveProviderAndModel } from "@/lib/ai-client";
-import { chatExecutionManager } from "@/lib/chat-execution-manager";
+import { chatExecutionManager, type ExecutionPhase } from "@/lib/chat-execution-manager";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
 import {
   DELIBERATION_MISSIONS,
@@ -297,6 +297,8 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [reasoning, setReasoning] = useState("");
   const [steps, setSteps] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [executionPhase, setExecutionPhase] = useState<ExecutionPhase>("thinking");
+  const [actionDetail, setActionDetail] = useState("");
   const [model, setModel] = useState<string>(() => {
     if (typeof window !== "undefined") {
       const stored = window.localStorage.getItem("griot-default-model");
@@ -657,6 +659,8 @@ export function ChatSurface({ userId }: { userId: string }) {
       setStreaming(execState.streaming);
       setReasoning(execState.reasoning);
       setSteps(execState.steps);
+      setExecutionPhase(execState.currentPhase || "thinking");
+      setActionDetail(execState.currentActionDetail || "");
       if (!execState.busy && typeof window !== "undefined") {
         try {
           const rawStored = localStorage.getItem("griot_messages_" + conversationId);
@@ -886,7 +890,7 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, streaming, reasoning]);
+  }, [messages.length]);
 
   useEffect(() => {
     if (!recording) return;
@@ -2104,8 +2108,8 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       )}
 
       {/* Feed da conversa */}
-      <div className="no-scrollbar h-full overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(max(env(safe-area-inset-top,0px),24px)+52px)] pb-52">
+      <div className="no-scrollbar h-full overflow-y-auto overflow-x-hidden w-full max-w-full overscroll-contain">
+        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(max(env(safe-area-inset-top,0px),24px)+52px)] pb-52 overflow-x-hidden max-w-full">
           {/* Deliberation Bar no topo da lista quando há mensagens no modo Quick */}
           {scope === "quick" && !empty && (
             <div className="rounded-3xl bg-card border border-white/[0.08] p-2 shadow-md mb-2">
@@ -2150,7 +2154,15 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             />
           ))}
 
-          {busy ? <Thinking text={reasoning} active={!streaming} steps={steps} /> : null}
+          {busy ? (
+            <Thinking
+              text={reasoning}
+              active={!streaming}
+              steps={steps}
+              phase={executionPhase}
+              actionDetail={actionDetail}
+            />
+          ) : null}
 
           {streaming ? (
             scope === "quick" ? (
@@ -2917,8 +2929,12 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                           : getAiLogo(model.split(":")[0]);
                         return <Logo className="size-3.5 shrink-0 text-foreground" />;
                       })()}
-                    <span className="max-w-[130px] truncate">
-                      {availableModels.length === 0 ? t("+ Adicionar API") : modelLabel(model)}
+                    <span className="truncate">
+                      {(() => {
+                        if (availableModels.length === 0) return t("+ Adicionar API");
+                        const raw = modelLabel(model);
+                        return raw.length > 10 ? `${raw.slice(0, 10)}…` : raw;
+                      })()}
                     </span>
                     <ChevronDown
                       className={`size-4 ${
