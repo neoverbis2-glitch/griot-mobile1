@@ -282,7 +282,7 @@ class ChatExecutionManager {
           messages: effectiveMessages,
           systemInstruction: effectiveSystemInstruction,
           context,
-          maxIterations: 2,
+          maxIterations: 6,
           callbacks: {
             onToken: (tok) => {
               if (controller.signal.aborted) return;

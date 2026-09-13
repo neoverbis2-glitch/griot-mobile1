@@ -11,9 +11,81 @@ import { executeLocalAction } from "./local-harness";
 import type { GriotAction, GriotExecutionResult } from "./protocol";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { supabase } from "@/integrations/supabase/client";
+import { executeBatch1Connector } from "@/lib/connectors-batch1";
+import { getConnectedPlugins } from "@/lib/plugins-service";
 
 export class GriotActionExecutor {
   async execute(action: GriotAction): Promise<GriotExecutionResult> {
+    // 0. Conectores e Plugins externos (GitHub, GitLab, Vercel, Supabase, Firebase)
+    if (action.category === "connector" || action.type === "connector.execute") {
+      const startMs = Date.now();
+      const connectorName = String(
+        action.params.connector || action.params.plugin || action.params.name || "",
+      )
+        .toLowerCase()
+        .trim();
+      const actionName = String(action.params.action || "default");
+      const connectorParams = (action.params.params || action.params) as Record<string, unknown>;
+
+      // Recupera credenciais guardadas no ecrã de Plugins do GRIOT
+      const plugins = getConnectedPlugins();
+      const savedPlugin = plugins[connectorName];
+
+      const credential = String(
+        action.params.credential ||
+          action.params.token ||
+          action.params.apiKey ||
+          savedPlugin?.apiKey ||
+          "",
+      ).trim();
+
+      const account = String(
+        action.params.account ||
+          action.params.accountName ||
+          savedPlugin?.accountName ||
+          "",
+      ).trim();
+
+      const customEndpoint = String(
+        action.params.customEndpoint ||
+          action.params.endpoint ||
+          savedPlugin?.customEndpoint ||
+          "",
+      ).trim();
+
+      if (!savedPlugin?.connected && !credential) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: `⚠️ O conector "${connectorName.toUpperCase()}" não está configurado no GRIOT. Por favor, acede a Definições → Plugins e adiciona o teu token/chave para ${connectorName}.`,
+          durationMs: Date.now() - startMs,
+        };
+      }
+
+      const res = await executeBatch1Connector(connectorName, {
+        credential,
+        account: account || undefined,
+        action: actionName,
+        params: {
+          ...connectorParams,
+          ...(customEndpoint ? { customEndpoint } : {}),
+        },
+      });
+
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: res.success ? "success" : "failed",
+        exitCode: res.success ? 0 : 1,
+        stdout: res.summary || (res.data ? JSON.stringify(res.data, null, 2) : "Ação concluída."),
+        stderr: res.error || "",
+        durationMs: Date.now() - startMs,
+      };
+    }
+
     let workspaceId: string | null = null;
     try {
       const { data } = await supabase.auth.getUser();
@@ -24,8 +96,8 @@ export class GriotActionExecutor {
 
     const effectiveWsId = workspaceId || "local-default";
 
-    // 1. Operações de sistema de ficheiros (fs.*) e git.* são geridas no workspace local
-    if (action.category === "fs" || action.category === "git") {
+    // 1. Operações de sistema de ficheiros (fs.*), pesquisa (search.*) e git.* são geridas no workspace local
+    if (action.category === "fs" || action.category === "git" || action.category === "search") {
       return executeLocalAction(action, effectiveWsId);
     }
 

@@ -55,7 +55,7 @@ export const AI_OBSERVER_APPS: Record<string, AiChatAppConfig> = {
       codeInterpreter: true,
     },
     runtimeInstruction: `[GRIOT Observer Integration - OpenAI Adapter]
-You are connected to the GRIOT Mobile Observer Engine. You can inspect project files, execute terminal tasks, and run tests by wrapping commands in <griot_action type="action_type">...</griot_action> or \`\`\`griot:action blocks.`,
+You are connected to the GRIOT Mobile Observer Engine. You can search codebase (search.code, find_files), inspect files (fs.read_file with optional line ranges), apply surgical edits (fs.patch), execute terminal tasks, and invoke external connectors (call_connector for all 30 supported plugins: github, gitlab, vercel, supabase, firebase, neon, upstash, redis, mongodb, cloudflare, qdrant, linear, notion, slack, trello, sentry, stripe, google_sheets, google_drive, figma, docker, huggingface, gmail, outlook, dropbox, planetscale, azure, salesforce, google_colab, google_analytics, canva) via native tools or <griot_action type="connector.execute">{"connector":"...","action":"..."}</griot_action> blocks.`,
   },
   claude: {
     id: "claude",
@@ -80,7 +80,7 @@ You are connected to the GRIOT Mobile Observer Engine. You can inspect project f
       codeInterpreter: true,
     },
     runtimeInstruction: `[GRIOT Observer Integration - Anthropic Claude Adapter]
-You are connected to the GRIOT Mobile Observer Engine. When requesting code changes, diffs, terminal commands or file trees, output them formatted as GRIOT action blocks (<griot_action type="...">...</griot_action>).`,
+You are connected to the GRIOT Mobile Observer Engine. You can search the codebase (code_search, find_files), read line slices (fs_read_file), apply surgical code patches (fs_patch), and invoke external connectors (call_connector for all 30 supported plugins: github, gitlab, vercel, supabase, firebase, neon, upstash, redis, mongodb, cloudflare, qdrant, linear, notion, slack, trello, sentry, stripe, google_sheets, google_drive, figma, docker, huggingface, gmail, outlook, dropbox, planetscale, azure, salesforce, google_colab, google_analytics, canva) via tools or GRIOT action blocks (<griot_action type="connector.execute">{"connector":"...","action":"..."}</griot_action>).`,
   },
   gemini: {
     id: "gemini",
@@ -101,7 +101,7 @@ You are connected to the GRIOT Mobile Observer Engine. When requesting code chan
       codeInterpreter: true,
     },
     runtimeInstruction: `[GRIOT Observer Integration - Google Gemini Adapter]
-You are connected to the GRIOT Mobile Observer Engine. You have access to the local project workspace and command dispatcher via <griot_action type="shell.exec">...</griot_action> and <griot_action type="fs.write_file">...</griot_action>.`,
+You are connected to the GRIOT Mobile Observer Engine. You have access to code search (code_search, find_files), line slicing (fs_read_file), surgical patching (fs_patch), file management (fs_write_file), and external service connectors (call_connector for all 30 supported plugins: github, gitlab, vercel, supabase, firebase, neon, upstash, redis, mongodb, cloudflare, qdrant, linear, notion, slack, trello, sentry, stripe, google_sheets, google_drive, figma, docker, huggingface, gmail, outlook, dropbox, planetscale, azure, salesforce, google_colab, google_analytics, canva) via native tools or <griot_action> blocks.`,
   },
   deepseek: {
     id: "deepseek",
@@ -122,7 +122,7 @@ You are connected to the GRIOT Mobile Observer Engine. You have access to the lo
       codeInterpreter: true,
     },
     runtimeInstruction: `[GRIOT Observer Integration - DeepSeek Reasoner Adapter]
-DeepSeek R1 / V3 reasoning engine connected to GRIOT Observer. Output code modifications, git commands, and tests using standard \`\`\`griot:shell or \`\`\`griot:write syntax.`,
+DeepSeek R1 / V3 reasoning engine connected to GRIOT Observer. You can search the codebase with <griot_action type="search.code">, patch files with <griot_action type="fs.patch">, and output commands or code using \`\`\`griot:shell or \`\`\`griot:write syntax.`,
   },
   kimi: {
     id: "kimi",
@@ -143,7 +143,7 @@ DeepSeek R1 / V3 reasoning engine connected to GRIOT Observer. Output code modif
       codeInterpreter: true,
     },
     runtimeInstruction: `[GRIOT Observer Integration - Moonshot Kimi Adapter]
-Long-context Kimi agent connected to GRIOT Observer. You can manage project workspaces via <griot_action type="..."> tags.`,
+Long-context Kimi agent connected to GRIOT Observer. You can search codebase (search.code), patch files (fs.patch), and manage project workspaces via <griot_action type="..."> tags.`,
   },
   grok: {
     id: "grok",
@@ -164,7 +164,7 @@ Long-context Kimi agent connected to GRIOT Observer. You can manage project work
       codeInterpreter: true,
     },
     runtimeInstruction: `[GRIOT Observer Integration - xAI Grok Adapter]
-Real-time Grok 3 agent connected to GRIOT Mobile. Dispatch workspace commands with <griot_action type="shell.exec">...</griot_action>.`,
+Real-time Grok 3 agent connected to GRIOT Mobile. Search codebase (search.code), patch files (fs.patch), and dispatch workspace commands with <griot_action type="...">...</griot_action>.`,
   },
   perplexity: {
     id: "perplexity",
@@ -206,7 +206,7 @@ Perplexity search & research agent connected to GRIOT Observer. Return cited sol
       codeInterpreter: true,
     },
     runtimeInstruction: `[GRIOT Observer Integration - Mistral Le Chat Adapter]
-Mistral Large & Codestral connected to GRIOT Observer. Dispatch code modifications and commands using <griot_action> blocks.`,
+Mistral Large & Codestral connected to GRIOT Observer. Search codebase (search.code), patch files (fs.patch), and dispatch code modifications and commands using <griot_action> blocks.`,
   },
 };
 

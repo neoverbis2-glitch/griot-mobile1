@@ -108,6 +108,26 @@ export function SupabaseLogo({ className = "size-5", ...props }: IconProps) {
   );
 }
 
+/** Firebase (plugin) */
+export function FirebaseLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M5.62 25.17 14.15 9.25a.8.8 0 0 1 1.44.07l3.87 8.35L5.62 25.17Z"
+        fill="#FFA000"
+      />
+      <path
+        d="m16.5 4.35a.8.8 0 0 0-1.48-.34L4.85 24.3l9.3 5.2a3.2 3.2 0 0 0 3.1 0l9.9-5.55L16.5 4.35Z"
+        fill="#F57C00"
+      />
+      <path
+        d="m27.15 23.95-6.8-12.8a.8.8 0 0 0-1.45.02L5.62 25.17l11.62 6.5a3.2 3.2 0 0 0 3.1 0l6.81-7.72Z"
+        fill="#FFCA28"
+      />
+    </svg>
+  );
+}
+
 /** Cloudflare (plugin) */
 export function CloudflareLogo({ className = "size-5", ...props }: IconProps) {
   return (

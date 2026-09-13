@@ -150,6 +150,8 @@ export function AddApiModal({ open, onClose, onSuccess }: AddApiModalProps) {
   const [selectedProvider, setSelectedProvider] = useState<string>("gemini");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [apiLabelInput, setApiLabelInput] = useState("");
+  const [modelInput, setModelInput] = useState<string>("openrouter/auto");
+  const [customModelInput, setCustomModelInput] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
   if (!open) return null;
@@ -166,11 +168,20 @@ export function AddApiModal({ open, onClose, onSuccess }: AddApiModalProps) {
       const pInfo = PROVIDER_INFO[selectedProvider];
       const customLabel = apiLabelInput.trim() || undefined;
 
+      let finalModel: string | undefined = undefined;
+      if (selectedProvider === "openrouter") {
+        finalModel =
+          modelInput === "custom"
+            ? customModelInput.trim() || "openrouter/auto"
+            : modelInput || "openrouter/auto";
+      }
+
       // 1. Guarda na camada estruturada do utilizador (suporta ilimitadas chaves do mesmo provedor)
       const savedUserApi = await saveUserApi({
         providerId: selectedProvider,
         apiKey: secret,
         label: customLabel,
+        model: finalModel,
       });
 
       // 2. Guarda também nas credenciais da conta do workspace
@@ -179,6 +190,7 @@ export function AddApiModal({ open, onClose, onSuccess }: AddApiModalProps) {
           providerId: selectedProvider,
           secret,
           label: customLabel || pInfo?.label || selectedProvider,
+          model: finalModel,
         });
 
         if (saved.data?.credential?.id) {
@@ -284,6 +296,57 @@ export function AddApiModal({ open, onClose, onSuccess }: AddApiModalProps) {
             className="mt-1.5 w-full rounded-2xl border border-hairline bg-background px-4 py-2 text-[13.5px] outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
           />
         </div>
+
+        {/* Modelo OpenRouter (quando selecionado) */}
+        {selectedProvider === "openrouter" && (
+          <div className="mt-3.5 animate-in fade-in slide-in-from-top-1 duration-150">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                {t("Modelo OpenRouter")}
+              </label>
+              <span className="text-[11px] text-primary/80 font-medium">
+                {t("openrouter/auto (padrão)")}
+              </span>
+            </div>
+            <select
+              value={modelInput}
+              onChange={(e) => setModelInput(e.target.value)}
+              className="mt-1.5 w-full rounded-2xl border border-hairline bg-background px-3 py-2 text-[13px] outline-none focus:border-primary transition-colors text-foreground cursor-pointer"
+            >
+              <option value="openrouter/auto">
+                {t("openrouter/auto — Roteador Automático Oficial (Recomendado)")}
+              </option>
+              <option value="meta-llama/llama-3.3-70b-instruct">
+                meta-llama/llama-3.3-70b-instruct (Meta Llama 3.3)
+              </option>
+              <option value="google/gemini-2.5-flash">
+                google/gemini-2.5-flash (Google Gemini 2.5)
+              </option>
+              <option value="deepseek/deepseek-chat">
+                deepseek/deepseek-chat (DeepSeek V3)
+              </option>
+              <option value="anthropic/claude-3.5-sonnet">
+                anthropic/claude-3.5-sonnet (Claude 3.5 Sonnet)
+              </option>
+              <option value="nvidia/nemotron-4-340b-instruct">
+                nvidia/nemotron-4-340b-instruct (NVIDIA Nemotron)
+              </option>
+              <option value="custom">
+                {t("Outro modelo do catálogo OpenRouter...")}
+              </option>
+            </select>
+            {modelInput === "custom" && (
+              <input
+                type="text"
+                value={customModelInput}
+                onChange={(e) => setCustomModelInput(e.target.value)}
+                placeholder="Ex: mistralai/mistral-large-2411"
+                className="mt-2 w-full rounded-2xl border border-hairline bg-background px-4 py-2 text-[13px] outline-none placeholder:text-muted-foreground/50 focus:border-primary transition-colors"
+                autoFocus
+              />
+            )}
+          </div>
+        )}
 
         {/* Input da Chave */}
         <div className="mt-3.5">

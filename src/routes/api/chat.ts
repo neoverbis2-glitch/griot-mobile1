@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { GRIOT_SUPABASE_ANON_KEY, GRIOT_SUPABASE_URL } from "@/lib/griot-api";
 import { checkRateLimit, sanitizeInput, SECURITY_HEADERS } from "@/lib/security-headers";
+import { prepareMultimodalGeminiParts } from "@/lib/multimodal-vision";
 
 type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
@@ -81,10 +82,15 @@ export const Route = createFileRoute("/api/chat")({
               try {
                 const { generateContentStreamWithFallback, resolveModelChain } =
                   await import("@/lib/gemini.server");
-                const contents = rawMessages.slice(-20).map((m) => ({
-                  role: m.role === "assistant" ? "model" : "user",
-                  parts: [{ text: m.content }],
-                }));
+                const contents = await Promise.all(
+                  rawMessages.slice(-20).map(async (m) => ({
+                    role: (m.role === "assistant" ? "model" : "user") as "user" | "model",
+                    parts:
+                      m.role === "assistant"
+                        ? [{ text: m.content }]
+                        : await prepareMultimodalGeminiParts(m.content),
+                  })),
+                );
 
                 const modelsToTry = resolveModelChain(model);
 

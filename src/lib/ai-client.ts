@@ -9,6 +9,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import { GRIOT_SUPABASE_URL, GRIOT_SUPABASE_ANON_KEY } from "@/lib/griot-api";
 import type { GriotAction, GriotActionType } from "./runtime/protocol";
+import {
+  prepareMultimodalGeminiParts,
+  prepareMultimodalOpenAIContent,
+  prepareMultimodalAnthropicContent,
+} from "./multimodal-vision";
 
 export const GEMINI_MODELS_CASCADE = [
   "gemini-flash-latest",
@@ -50,14 +55,52 @@ export const GEMINI_TOOL_DECLARATIONS = [
     },
   },
   {
+    name: "code_search",
+    description: "Pesquisa símbolos, funções, variáveis ou texto em todos os ficheiros do projeto (grep). Devolve o caminho, linhas e trecho encontrado.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        query: { type: "STRING", description: "O termo ou expressão a procurar nos ficheiros." },
+        extension: { type: "STRING", description: "Filtro opcional por extensão (ex: ts, tsx, js, json)." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "find_files",
+    description: "Procura ficheiros no projeto pelo nome ou extensão (ex: .config, *.tsx, package.json).",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        pattern: { type: "STRING", description: "Padrão de busca ou nome parcial do ficheiro." },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
     name: "fs_read_file",
-    description: "Lê o conteúdo textual de um ficheiro no projeto.",
+    description: "Lê o conteúdo de um ficheiro no projeto. Para ficheiros grandes, permite especificar o intervalo de linhas.",
     parameters: {
       type: "OBJECT",
       properties: {
         path: { type: "STRING", description: "Caminho relativo do ficheiro (ex: src/App.tsx)." },
+        start_line: { type: "INTEGER", description: "Linha inicial opcional (1-indexado)." },
+        end_line: { type: "INTEGER", description: "Linha final opcional (inclusive)." },
       },
       required: ["path"],
+    },
+  },
+  {
+    name: "fs_patch",
+    description: "Substitui cirurgicamente um trecho exato de código por novo código num ficheiro existente, sem reescrever o ficheiro todo. Ideal para edições pontuais e seguras.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        path: { type: "STRING", description: "Caminho relativo do ficheiro a modificar." },
+        target: { type: "STRING", description: "O trecho exato e contíguo de código atual a substituir." },
+        replacement: { type: "STRING", description: "O novo trecho de código substituto." },
+      },
+      required: ["path", "target", "replacement"],
     },
   },
   {
@@ -90,6 +133,63 @@ export const GEMINI_TOOL_DECLARATIONS = [
       properties: {
         command: { type: "STRING", description: "Comando de teste (ex: npm test)." },
       },
+    },
+  },
+  {
+    name: "call_connector",
+    description: "Executa operações e integrações em serviços externos conectados no GRIOT (Total de 30 conectores suportados: github, gitlab, vercel, supabase, firebase, neon, upstash, redis, mongodb, cloudflare, qdrant, linear, notion, slack, trello, sentry, stripe, google_sheets, google_drive, figma, docker, huggingface, gmail, outlook, dropbox, planetscale, azure, salesforce, google_colab, google_analytics, canva). Permite gerir código, deploys, bancos SQL/NoSQL, cache, vetores, issues no Linear, páginas Notion, mensagens Slack, quadros Trello, erros Sentry, saldo Stripe, tabelas Google Sheets, ficheiros Google Drive, designs Figma, tags Docker, modelos de IA Hugging Face, emails Gmail e Outlook, reuniões, pastas Dropbox, branches PlanetScale, recursos Azure, CRM Salesforce, sessões Google Colab, relatórios Google Analytics e artes no Canva.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        connector: { type: "STRING", description: "Identificador do serviço: 'github', 'gitlab', 'vercel', 'supabase', 'firebase', 'neon', 'upstash', 'redis', 'mongodb', 'cloudflare', 'qdrant', 'linear', 'notion', 'slack', 'trello', 'sentry', 'stripe', 'google_sheets', 'google_drive', 'figma', 'docker', 'huggingface', 'gmail', 'outlook', 'dropbox', 'planetscale', 'azure', 'salesforce', 'google_colab', 'google_analytics' ou 'canva'." },
+        action: { type: "STRING", description: "Ação a executar (ex: 'list_repos' para github; 'get_model', 'run_inference' para huggingface; 'list_messages', 'send_email' para gmail; 'get_me', 'list_events' para outlook; 'list_folder', 'get_temporary_link' para dropbox; 'list_databases', 'create_branch' para planetscale; 'list_subscriptions', 'list_resources' para azure; 'query_soql', 'create_lead' para salesforce; 'get_status', 'run_command' para google_colab; 'run_realtime_report', 'run_report' para google_analytics; 'list_designs', 'create_design' para canva)." },
+        repo: { type: "STRING", description: "Nome do repositório no formato 'dono/repo' (opcional, para GitHub/GitLab)." },
+        title: { type: "STRING", description: "Título para criação de issue, cartão, página, planilha ou design Canva (opcional)." },
+        body: { type: "STRING", description: "Corpo ou descrição da issue, cartão, email ou mensagem (opcional)." },
+        text: { type: "STRING", description: "Texto da mensagem ou termo de busca (opcional)." },
+        subject: { type: "STRING", description: "Assunto do e-mail para Gmail ou Outlook (opcional)." },
+        to: { type: "STRING", description: "Destinatário do e-mail para Gmail ou Outlook (opcional)." },
+        channel: { type: "STRING", description: "Canal do Slack (ex: '#geral' ou 'C123456') (opcional)." },
+        path: { type: "STRING", description: "Caminho de ficheiro ou documento (opcional, para Dropbox ou GitHub)." },
+        folder_path: { type: "STRING", description: "Caminho da pasta no Dropbox (ex: '' ou '/Projetos') (opcional)." },
+        table: { type: "STRING", description: "Nome da tabela (opcional, para consultas no Supabase)." },
+        collection: { type: "STRING", description: "Nome da coleção (opcional, para Firebase, MongoDB ou Qdrant)." },
+        key: { type: "STRING", description: "Nome da chave de cache (opcional, para Upstash/Redis)." },
+        value: { type: "STRING", description: "Valor para salvar na chave de cache (opcional, para Upstash/Redis)." },
+        sql: { type: "STRING", description: "Consulta SQL para executar (opcional, para Cloudflare D1)." },
+        database: { type: "STRING", description: "Nome da base de dados (opcional, para MongoDB, Neon ou PlanetScale)." },
+        organization: { type: "STRING", description: "Nome da organização no PlanetScale (opcional)." },
+        branch_name: { type: "STRING", description: "Nome da nova branch para PlanetScale (opcional)." },
+        subscription_id: { type: "STRING", description: "ID da subscrição Azure (opcional)." },
+        resource_group: { type: "STRING", description: "Nome do Resource Group na Azure (opcional)." },
+        resource_id: { type: "STRING", description: "ID completo do recurso Azure (opcional)." },
+        soql: { type: "STRING", description: "Query SOQL para Salesforce (ex: 'SELECT Id, Name FROM Account') (opcional)." },
+        sobject: { type: "STRING", description: "Nome do objeto Salesforce (ex: 'Lead', 'Account') (opcional)." },
+        code: { type: "STRING", description: "Código Python ou comando para Google Colab (opcional)." },
+        property_id: { type: "STRING", description: "ID da propriedade GA4 (ex: '123456789' ou 'properties/123456789') (opcional)." },
+        start_date: { type: "STRING", description: "Data inicial para relatório GA4 (ex: '28daysAgo' ou '2026-01-01') (opcional)." },
+        end_date: { type: "STRING", description: "Data final para relatório GA4 (ex: 'yesterday' ou 'today') (opcional)." },
+        design_id: { type: "STRING", description: "ID do design no Canva (opcional)." },
+        project_id: { type: "STRING", description: "ID de projeto (opcional, para Neon, Cloudflare ou Sentry)." },
+        board_id: { type: "STRING", description: "ID de quadro Kanban do Trello (opcional)." },
+        list_id: { type: "STRING", description: "ID de coluna/lista do Trello (opcional)." },
+        page_id: { type: "STRING", description: "ID de página do Notion (opcional)." },
+        database_id: { type: "STRING", description: "ID de banco de dados do Notion (opcional)." },
+        issue_id: { type: "STRING", description: "ID de issue no Sentry ou Linear (opcional)." },
+        message_id: { type: "STRING", description: "ID de mensagem no Gmail (opcional)." },
+        spreadsheet_id: { type: "STRING", description: "ID ou link da folha de cálculo do Google Sheets (opcional)." },
+        range: { type: "STRING", description: "Intervalo de células do Google Sheets (ex: 'A1:E20' ou 'A1') (opcional)." },
+        file_id: { type: "STRING", description: "ID de ficheiro no Google Drive (opcional)." },
+        file_key: { type: "STRING", description: "Chave ou link do ficheiro de design no Figma (opcional)." },
+        node_ids: { type: "STRING", description: "IDs de nós/frames no Figma separados por vírgula (opcional)." },
+        namespace: { type: "STRING", description: "Namespace ou organização no Docker Hub (ex: 'library' ou 'usuario') (opcional)." },
+        repository: { type: "STRING", description: "Nome do repositório/imagem no Docker Hub (ex: 'redis' ou 'usuario/app') (opcional)." },
+        payment_intent_id: { type: "STRING", description: "ID do Payment Intent no Stripe (ex: 'pi_3M...') (opcional)." },
+        model_id: { type: "STRING", description: "ID do modelo no Hugging Face (ex: 'meta-llama/Llama-3-8B') (opcional)." },
+        inputs: { type: "STRING", description: "Entrada ou prompt de texto para inferência no Hugging Face (opcional)." },
+        limit: { type: "INTEGER", description: "Quantidade máxima de registos a devolver (opcional, padrão 10)." },
+      },
+      required: ["connector", "action"],
     },
   },
 ];
@@ -212,14 +312,22 @@ export function resolveProviderAndModel(modelId: string): {
   if (userApi) {
     const prov = userApi.providerId;
     let mName = "gemini-flash-latest";
-    if (prov === "openai") mName = "gpt-4o";
-    else if (prov === "claude" || prov === "anthropic") mName = "claude-3-5-sonnet-latest";
-    else if (prov === "deepseek") mName = "deepseek-chat";
-    else if (prov === "groq") mName = "llama-3.3-70b-versatile";
-    else if (prov === "openrouter") mName = userApi.model || "google/gemini-flash-latest";
-    else if (prov === "mistral") mName = "mistral-large-latest";
-    else if (prov === "perplexity") mName = "sonar-pro";
-    else if (prov === "grok" || prov === "xai") mName = "grok-2-latest";
+    if (prov === "openai") mName = userApi.model || "gpt-4o";
+    else if (prov === "claude" || prov === "anthropic") mName = userApi.model || "claude-3-5-sonnet-latest";
+    else if (prov === "deepseek") mName = userApi.model || "deepseek-chat";
+    else if (prov === "groq") mName = userApi.model || "llama-3.3-70b-versatile";
+    else if (prov === "openrouter") {
+      const declared = userApi.model?.trim();
+      mName = (!declared || declared.includes("gemini-flash-latest"))
+        ? "openrouter/auto"
+        : declared;
+    }
+    else if (prov === "mistral") mName = userApi.model || "mistral-large-latest";
+    else if (prov === "perplexity") mName = userApi.model || "sonar-pro";
+    else if (prov === "grok" || prov === "xai") mName = userApi.model || "grok-2-latest";
+    else if (prov === "kimi") mName = userApi.model || "moonshot-v1-auto";
+    else if (prov === "qwen") mName = userApi.model || "qwen-plus";
+    else if (prov === "ollama") mName = userApi.model || "llama3";
     else if (prov === "gemini") {
       const declared = (userApi.model || "").toLowerCase();
       if (declared.includes("3.7")) mName = "gemini-3.7-flash";
@@ -240,7 +348,7 @@ export function resolveProviderAndModel(modelId: string): {
       return {
         provider: anyKey.provider,
         modelName:
-          anyKey.modelName || (anyKey.provider === "gemini" ? "gemini-flash-latest" : "gpt-4o"),
+          anyKey.modelName || (anyKey.provider === "gemini" ? "gemini-flash-latest" : anyKey.provider === "openrouter" ? "openrouter/auto" : "gpt-4o"),
         specificApiKey: anyKey.apiKey,
       };
     }
@@ -276,7 +384,14 @@ export function resolveProviderAndModel(modelId: string): {
     return { provider: "groq", modelName: "llama-3.3-70b-versatile" };
   }
   if (m.includes("openrouter")) {
-    return { provider: "openrouter", modelName: "google/gemini-2.5-flash" };
+    if (modelId.includes(":") || (modelId.includes("/") && !modelId.startsWith("openrouter/auto"))) {
+      const parts = modelId.split(/[:/]/);
+      const customModel = parts.slice(1).join("/").trim();
+      if (customModel && !customModel.includes("gemini-flash-latest")) {
+        return { provider: "openrouter", modelName: customModel };
+      }
+    }
+    return { provider: "openrouter", modelName: "openrouter/auto" };
   }
   if (m.includes("grok") || m.includes("xai")) {
     return { provider: "xai", modelName: "grok-2-latest" };
@@ -286,6 +401,15 @@ export function resolveProviderAndModel(modelId: string): {
   }
   if (m.includes("perplexity")) {
     return { provider: "perplexity", modelName: "sonar-pro" };
+  }
+  if (m.includes("kimi")) {
+    return { provider: "kimi", modelName: "moonshot-v1-auto" };
+  }
+  if (m.includes("qwen")) {
+    return { provider: "qwen", modelName: "qwen-plus" };
+  }
+  if (m.includes("ollama")) {
+    return { provider: "ollama", modelName: "llama3" };
   }
   return { provider: "gemini", modelName: "gemini-2.5-flash" };
 }
@@ -520,7 +644,48 @@ export async function streamDirectAI(params: {
     });
   }
 
-  // 10. Fallback para Supabase Edge Function se autenticado
+  // 10. Chamada direta ao Moonshot Kimi
+  if (activeProvider === "kimi") {
+    return streamOpenAIDirect({
+      apiKey: effectiveKey,
+      baseUrl: "https://api.moonshot.cn/v1",
+      modelName: activeModelName || "moonshot-v1-auto",
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 11. Chamada direta ao Alibaba Qwen (DashScope)
+  if (activeProvider === "qwen") {
+    return streamOpenAIDirect({
+      apiKey: effectiveKey,
+      baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      modelName: activeModelName || "qwen-plus",
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 12. Chamada direta ao Ollama Local
+  if (activeProvider === "ollama") {
+    const rawUrl = effectiveKey.startsWith("http") ? effectiveKey.replace(/\/$/, "") : "http://localhost:11434";
+    const endpoint = rawUrl.endsWith("/v1") ? rawUrl : `${rawUrl}/v1`;
+    return streamOpenAIDirect({
+      apiKey: "ollama",
+      baseUrl: endpoint,
+      modelName: activeModelName || "llama3",
+      messages,
+      systemInstruction,
+      callbacks,
+      signal,
+    });
+  }
+
+  // 13. Fallback para Supabase Edge Function se autenticado
   return streamSupabaseOrchestratorFallback({
     provider: activeProvider,
     modelName: activeModelName,
@@ -600,6 +765,53 @@ export function sanitizeGeminiContents(
   return result;
 }
 
+/** Sanitiza e coalesça mensagens para a API Gemini com suporte a Visão Multimodal real (inlineData) */
+export async function sanitizeGeminiContentsMultimodal(
+  messages: ChatMessage[],
+): Promise<
+  Array<{
+    role: "user" | "model";
+    parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
+  }>
+> {
+  const filtered = messages.filter(
+    (m) => m.role !== "system" && m.content && m.content.trim().length > 0,
+  );
+
+  if (filtered.length === 0) {
+    return [{ role: "user", parts: [{ text: "Olá" }] }];
+  }
+
+  const result: Array<{
+    role: "user" | "model";
+    parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
+  }> = [];
+
+  for (const m of filtered) {
+    const role = (m.role === "assistant" ? "model" : "user") as "user" | "model";
+    const parts =
+      role === "user"
+        ? await prepareMultimodalGeminiParts(m.content)
+        : [{ text: m.content.trim() }];
+
+    const last = result[result.length - 1];
+    if (last && last.role === role) {
+      last.parts.push(...parts);
+    } else {
+      result.push({
+        role,
+        parts,
+      });
+    }
+  }
+
+  if (result.length > 0 && result[0].role !== "user") {
+    result.unshift({ role: "user", parts: [{ text: "Iniciar conversa." }] });
+  }
+
+  return result;
+}
+
 /** Sanitiza e coalesça mensagens para a API Anthropic Claude (garantindo alternância estrita user -> assistant -> user) */
 export function sanitizeAnthropicMessages(
   messages: ChatMessage[],
@@ -625,6 +837,55 @@ export function sanitizeAnthropicMessages(
       result.push({
         role: item.role,
         content: item.content,
+      });
+    }
+  }
+
+  if (result.length > 0 && result[0].role !== "user") {
+    result.unshift({ role: "user", content: "Iniciar conversa." });
+  }
+
+  return result;
+}
+
+/** Sanitiza e coalesça mensagens para a API Anthropic Claude com suporte a Visão Multimodal real */
+export async function sanitizeAnthropicMessagesMultimodal(
+  messages: ChatMessage[],
+): Promise<Array<{ role: "user" | "assistant"; content: any }>> {
+  const filtered = messages.filter(
+    (m) => m.role !== "system" && m.content && m.content.trim().length > 0,
+  );
+
+  if (filtered.length === 0) {
+    return [{ role: "user", content: "Olá" }];
+  }
+
+  const result: Array<{ role: "user" | "assistant"; content: any }> = [];
+
+  for (const m of filtered) {
+    const role = (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant";
+    const content =
+      role === "user"
+        ? await prepareMultimodalAnthropicContent(m.content)
+        : m.content.trim();
+
+    const last = result[result.length - 1];
+    if (last && last.role === role) {
+      if (typeof last.content === "string" && typeof content === "string") {
+        last.content += "\n\n" + content;
+      } else {
+        const lastArr = Array.isArray(last.content)
+          ? last.content
+          : [{ type: "text", text: last.content }];
+        const currArr = Array.isArray(content)
+          ? content
+          : [{ type: "text", text: content }];
+        last.content = [...lastArr, ...currArr];
+      }
+    } else {
+      result.push({
+        role,
+        content,
       });
     }
   }
@@ -706,6 +967,31 @@ async function fetchGeminiDirectSync(params: {
         ...params,
         modelName: targetModel,
         body: bodyClean,
+        attemptIndex: attemptIndex + 1,
+      });
+    }
+
+    // 2.1 Se erro 400 e continha partes multimodais (inlineData), retenta apenas com texto
+    const hasInlineData =
+      Array.isArray(body.contents) &&
+      (body.contents as any[]).some(
+        (c) => Array.isArray(c.parts) && c.parts.some((p: any) => p.inlineData),
+      );
+    if (res.status === 400 && hasInlineData && attemptIndex < 4) {
+      console.warn(
+        "[GRIOT_DEBUG] Gemini erro 400 com inlineData multimodal. Recorrendo a texto...",
+      );
+      const textOnlyContents = (body.contents as any[]).map((c) => ({
+        ...c,
+        parts:
+          c.parts.filter((p: any) => !p.inlineData).length > 0
+            ? c.parts.filter((p: any) => !p.inlineData)
+            : [{ text: "[Imagem anexada]" }],
+      }));
+      return fetchGeminiDirectSync({
+        ...params,
+        modelName: targetModel,
+        body: { ...body, contents: textOnlyContents },
         attemptIndex: attemptIndex + 1,
       });
     }
@@ -801,8 +1087,8 @@ async function streamGeminiDirect(params: {
     throw new DOMException("Operação cancelada pelo utilizador.", "AbortError");
   }
 
-  // Converte mensagens para o formato do Gemini com alternância estrita garantida
-  const contents = sanitizeGeminiContents(messages);
+  // Converte mensagens para o formato do Gemini com alternância estrita garantida e suporte multimodal
+  const contents = await sanitizeGeminiContentsMultimodal(messages);
 
   // Ferramentas só são ativadas se o utilizador solicitar explicitamente operações de ficheiro/shell
   const needsTools = messages.some((m) => {
@@ -1128,7 +1414,16 @@ async function fetchOpenAIDirectSync(params: {
     modelName.includes("o3");
 
   const needsTools = formattedMessages.some((m) => {
-    const c = (m.content || "").toLowerCase();
+    const rawContent =
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content
+              .filter((c: any) => c.type === "text")
+              .map((c: any) => c.text || "")
+              .join(" ")
+          : "";
+    const c = rawContent.toLowerCase();
     return (
       c.includes("ficheiro") ||
       c.includes("arquivo") ||
@@ -1150,15 +1445,21 @@ async function fetchOpenAIDirectSync(params: {
     reqBody.tools = OPENAI_TOOLS;
   }
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (baseUrl.includes("openrouter.ai")) {
+    headers["HTTP-Referer"] = "https://griot.app";
+    headers["X-Title"] = "GRIOT Mobile";
+  }
+
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
   let res: Response;
   try {
     res = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify(reqBody),
       signal: safeSignal,
     });
@@ -1168,6 +1469,43 @@ async function fetchOpenAIDirectSync(params: {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
+    // Fallback resiliente para openrouter/auto se a OpenRouter rejeitar o ID do modelo
+    if (
+      baseUrl.includes("openrouter.ai") &&
+      modelName !== "openrouter/auto" &&
+      (res.status === 400 || res.status === 404)
+    ) {
+      console.warn(
+        `[GRIOT] OpenRouter rejeitou o modelo ${modelName} (${res.status}). Recorrendo a openrouter/auto...`,
+      );
+      return fetchOpenAIDirectSync({
+        ...params,
+        modelName: "openrouter/auto",
+      });
+    }
+
+    // Fallback se o provedor rejeitar formato multimodal de imagens
+    const hasMultimodal = formattedMessages.some((m) => Array.isArray(m.content));
+    if (res.status === 400 && hasMultimodal) {
+      console.warn(
+        "[GRIOT] Provedor rejeitou formato multimodal (400). Re-tentando com texto limpo...",
+      );
+      const textOnlyMessages = formattedMessages.map((m) => ({
+        role: m.role,
+        content: Array.isArray(m.content)
+          ? m.content
+              .filter((c: any) => c.type === "text")
+              .map((c: any) => c.text)
+              .join("\n") || "[Imagem anexada]"
+          : m.content,
+      }));
+      return fetchOpenAIDirectSync({
+        ...params,
+        formattedMessages: textOnlyMessages,
+        withoutTools,
+      });
+    }
+
     if (res.status === 400 && !withoutTools) {
       console.warn("[GRIOT] Provedor retornou 400. Re-tentando sem ferramentas...");
       return fetchOpenAIDirectSync({ ...params, withoutTools: true });
@@ -1245,7 +1583,12 @@ async function streamOpenAIDirect(params: {
     formattedMessages.push({ role: "system", content: systemInstruction });
   }
   for (const m of messages) {
-    formattedMessages.push({ role: m.role, content: m.content });
+    if (m.role === "user") {
+      const content = await prepareMultimodalOpenAIContent(m.content);
+      formattedMessages.push({ role: m.role, content });
+    } else {
+      formattedMessages.push({ role: m.role, content: m.content });
+    }
   }
 
   const endpoint = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
@@ -1288,7 +1631,16 @@ async function streamOpenAIDirect(params: {
   }
 
   const needsTools = formattedMessages.some((m) => {
-    const c = (m.content || "").toLowerCase();
+    const rawContent =
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content
+              .filter((c: any) => c.type === "text")
+              .map((c: any) => c.text || "")
+              .join(" ")
+          : "";
+    const c = rawContent.toLowerCase();
     return (
       c.includes("ficheiro") ||
       c.includes("arquivo") ||
@@ -1310,14 +1662,20 @@ async function streamOpenAIDirect(params: {
     streamBody.tools = OPENAI_TOOLS;
   }
 
+  const streamHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  if (baseUrl.includes("openrouter.ai")) {
+    streamHeaders["HTTP-Referer"] = "https://griot.app";
+    streamHeaders["X-Title"] = "GRIOT Mobile";
+  }
+
   let response: Response;
   try {
     response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: streamHeaders,
       body: JSON.stringify(streamBody),
       signal: streamAbortController.signal,
     });
@@ -1343,6 +1701,22 @@ async function streamOpenAIDirect(params: {
   if (!response.ok) {
     if (signal) signal.removeEventListener("abort", onParentAbort);
     const errorText = await response.text().catch(() => "");
+
+    // Fallback resiliente para openrouter/auto se a OpenRouter rejeitar o ID do modelo
+    if (
+      baseUrl.includes("openrouter.ai") &&
+      modelName !== "openrouter/auto" &&
+      (response.status === 400 || response.status === 404)
+    ) {
+      console.warn(
+        `[GRIOT_DEBUG] OpenRouter rejeitou o modelo ${modelName} (${response.status}). Recorrendo a openrouter/auto...`,
+      );
+      return streamOpenAIDirect({
+        ...params,
+        modelName: "openrouter/auto",
+      });
+    }
+
     if (
       response.status === 400 &&
       (errorText.includes("tool") || errorText.includes("function") || isReasoning)
@@ -1544,7 +1918,7 @@ async function fetchAnthropicDirectSync(params: {
   const { apiKey, modelName, messages, systemInstruction, callbacks, signal } = params;
   const endpoint = "https://api.anthropic.com/v1/messages";
 
-  const anthropicMessages = sanitizeAnthropicMessages(messages);
+  const anthropicMessages = await sanitizeAnthropicMessagesMultimodal(messages);
 
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
   let res: Response;
@@ -1609,7 +1983,7 @@ async function streamAnthropicDirect(params: {
     throw new DOMException("Operação cancelada pelo utilizador.", "AbortError");
   }
 
-  const anthropicMessages = sanitizeAnthropicMessages(messages);
+  const anthropicMessages = await sanitizeAnthropicMessagesMultimodal(messages);
 
   // No WebView móvel nativo (Android Capacitor/iOS), streams SSE por chunked transfer sofrem buffering agressivo no Chromium.
   // Recorrer a REST direto (/v1/messages) com síntese de streaming de tokens a 6ms garante resposta imediata sem travamentos e poupa créditos.
@@ -1900,14 +2274,29 @@ async function streamSupabaseOrchestratorFallback(params: {
 
 function mapFunctionNameToActionType(name: string): GriotActionType {
   switch (name) {
+    case "call_connector":
+    case "execute_connector":
+    case "connector_execute":
+      return "connector.execute";
     case "shell_exec":
       return "shell.exec";
     case "fs_read_file":
       return "fs.read_file";
     case "fs_write_file":
       return "fs.write_file";
+    case "fs_patch":
+    case "replace_file_content":
+      return "fs.patch";
+    case "fs_delete_file":
+      return "fs.delete_file";
     case "fs_read_tree":
       return "fs.read_tree";
+    case "code_search":
+    case "grep_search":
+      return "search.code";
+    case "find_files":
+    case "find_by_name":
+      return "search.files";
     case "test_run":
       return "test.run";
     default:

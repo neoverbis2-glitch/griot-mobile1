@@ -48,7 +48,7 @@ export type ObserverEvent = {
   metadata?: Record<string, unknown>;
 };
 
-export type GriotActionCategory = "fs" | "git" | "shell" | "test";
+export type GriotActionCategory = "fs" | "git" | "shell" | "test" | "search" | "connector";
 
 export type GriotActionType =
   // File System
@@ -57,6 +57,9 @@ export type GriotActionType =
   | "fs.write_file"
   | "fs.patch"
   | "fs.delete_file"
+  // Search & Navigation
+  | "search.code"
+  | "search.files"
   // Git
   | "git.status"
   | "git.diff"
@@ -72,7 +75,9 @@ export type GriotActionType =
   // Test Runner
   | "test.run"
   | "test.verify"
-  | "test.coverage";
+  | "test.coverage"
+  // Conectores Externos (Plugins)
+  | "connector.execute";
 
 export type RiskLevel = "safe" | "sensitive" | "dangerous";
 

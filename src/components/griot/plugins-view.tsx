@@ -161,14 +161,18 @@ export function PluginsView({ onBack }: PluginsViewProps) {
         <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
           {(
             [
-              { id: "all", label: t("Todos"), count: PLUGINS_LIST.length },
-              { id: "dev_cloud", label: t("Dev & Cloud"), count: 8 },
-              { id: "database", label: t("Bases de Dados"), count: 6 },
-              { id: "productivity", label: t("Produtividade"), count: 11 },
-              { id: "ai_tools", label: t("IA & Design"), count: 5 },
+              { id: "all", label: t("Todos") },
+              { id: "dev_cloud", label: t("Dev & Cloud") },
+              { id: "database", label: t("Bases de Dados") },
+              { id: "productivity", label: t("Produtividade") },
+              { id: "ai_tools", label: t("IA & Design") },
             ] as const
           ).map((cat) => {
             const active = selectedCategory === cat.id;
+            const count =
+              cat.id === "all"
+                ? PLUGINS_LIST.length
+                : PLUGINS_LIST.filter((p) => p.category === cat.id).length;
             return (
               <button
                 key={cat.id}
@@ -179,7 +183,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                     : "bg-surface border border-hairline/70 text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {cat.label} <span className="opacity-70">({cat.count})</span>
+                {cat.label} <span className="opacity-70">({count})</span>
               </button>
             );
           })}

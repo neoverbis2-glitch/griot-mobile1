@@ -26,16 +26,71 @@ export interface WorkspaceCommit {
 
 const STORAGE_PREFIX = "griot_ws_";
 const memoryStorageCache = new Map<string, string>();
+const IDB_NAME = "griot_workspace_db";
+const IDB_STORE = "workspace_store";
+
+/** Abertura resiliente de IndexedDB para ultrapassar o limite de 5MB do localStorage */
+function openWorkspaceDB(): Promise<IDBDatabase | null> {
+  if (typeof window === "undefined" || !window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const req = window.indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function persistToIndexedDB(key: string, value: string): void {
+  openWorkspaceDB().then((db) => {
+    if (!db) return;
+    try {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(value, key);
+    } catch (e) {
+      console.warn("[GRIOT Harness] Erro ao persistir em IndexedDB:", e);
+    }
+  });
+}
+
+// Hidratação assíncrona inicial de IndexedDB para a cache em memória
+if (typeof window !== "undefined" && window.indexedDB) {
+  openWorkspaceDB().then((db) => {
+    if (!db) return;
+    try {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest).result;
+        if (cursor) {
+          if (!memoryStorageCache.has(cursor.key as string)) {
+            memoryStorageCache.set(cursor.key as string, cursor.value as string);
+          }
+          cursor.continue();
+        }
+      };
+    } catch {}
+  });
+}
 
 function safeSetItem(key: string, value: string): void {
+  memoryStorageCache.set(key, value);
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(key, value);
-    memoryStorageCache.set(key, value);
-  } catch (err) {
-    console.warn("[GRIOT Harness] Quota de armazenamento local atingida. Mantido em memória:", err);
-    memoryStorageCache.set(key, value);
+  } catch {
+    // Quota do localStorage ultrapassada; IndexedDB trata do armazenamento de alta capacidade
   }
+  persistToIndexedDB(key, value);
 }
 
 function safeGetItem(key: string): string | null {
@@ -192,15 +247,155 @@ export async function executeLocalAction(
         };
       }
 
+      const allLines = found.content.split("\n");
+      const hasLineRange = params.start_line !== undefined || params.end_line !== undefined;
+      let outputContent = found.content;
+
+      if (hasLineRange) {
+        const startLine = Math.max(1, Number(params.start_line) || 1);
+        const endLine = Math.min(allLines.length, Number(params.end_line) || allLines.length);
+        const sliced = allLines.slice(startLine - 1, endLine);
+        outputContent = sliced.map((l, idx) => `${startLine + idx}: ${l}`).join("\n");
+      }
+
       return {
         actionId: action.id,
         actionType: action.type,
         status: "success",
         exitCode: 0,
-        stdout: found.content,
+        stdout: outputContent,
         stderr: "",
         durationMs: Date.now() - start,
-        data: { path: found.path, size: found.size },
+        data: {
+          path: found.path,
+          size: found.size,
+          totalLines: allLines.length,
+          startLine: params.start_line,
+          endLine: params.end_line,
+        },
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    case "search.code": {
+      const query = String(params.query || "").trim();
+      const ext = params.extension ? String(params.extension).toLowerCase().replace(/^\./, "") : "";
+      if (!query) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: "Erro: Fornece um termo ou símbolo ('query') para pesquisar no código.",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const files = getWorkspaceFiles(workspaceId);
+      const matches: string[] = [];
+      const queryLower = query.toLowerCase();
+      let totalMatches = 0;
+      const MAX_MATCHES = 50;
+
+      for (const file of files) {
+        if (ext && !file.path.toLowerCase().endsWith(`.${ext}`)) continue;
+
+        const lines = file.content.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].toLowerCase().includes(queryLower)) {
+            totalMatches++;
+            if (matches.length < MAX_MATCHES) {
+              matches.push(`${file.path}:${i + 1}: ${lines[i].trim()}`);
+            }
+          }
+        }
+      }
+
+      if (matches.length === 0) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "success",
+          exitCode: 0,
+          stdout: `Nenhuma ocorrência encontrada para '${query}'${ext ? ` em ficheiros *.${ext}` : ""}.`,
+          stderr: "",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const out = [
+        `[GRIOT Grep] Encontradas ${totalMatches} ocorrência(s) de '${query}':`,
+        ...matches,
+        totalMatches > MAX_MATCHES
+          ? `... e mais ${totalMatches - MAX_MATCHES} ocorrências omitidas para poupar contexto.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: "success",
+        exitCode: 0,
+        stdout: out,
+        stderr: "",
+        durationMs: Date.now() - start,
+        data: { totalMatches, query },
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    case "search.files": {
+      const pattern = String(params.pattern || params.query || "").trim().toLowerCase();
+      const files = getWorkspaceFiles(workspaceId);
+
+      if (!pattern) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: "Erro: Fornece um padrão ou nome de ficheiro ('pattern').",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const cleanPat = pattern.replace(/^\*+/, "").replace(/\*+$/, "");
+      const matched = files.filter((f) => f.path.toLowerCase().includes(cleanPat));
+
+      if (matched.length === 0) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "success",
+          exitCode: 0,
+          stdout: `Nenhum ficheiro encontrado com o padrão '${pattern}'.`,
+          stderr: "",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const list = matched.map((f) => {
+        const sizeFormatted = f.size > 1024 ? `${(f.size / 1024).toFixed(1)} KB` : `${f.size} B`;
+        return `├── ${f.path} (${sizeFormatted})`;
+      });
+
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: "success",
+        exitCode: 0,
+        stdout: `[GRIOT Find] Ficheiros encontrados (${matched.length}):\n${list.join("\n")}`,
+        stderr: "",
+        durationMs: Date.now() - start,
+        data: { count: matched.length },
         timestamp: new Date().toISOString(),
       };
     }
@@ -276,6 +471,19 @@ export async function executeLocalAction(
         };
       }
 
+      if (!target) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: `Erro: O parâmetro 'target' (código original a substituir) não pode ser vazio.`,
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       if (!file.content.includes(target)) {
         return {
           actionId: action.id,
@@ -283,7 +491,21 @@ export async function executeLocalAction(
           status: "failed",
           exitCode: 1,
           stdout: "",
-          stderr: `Erro: Trecho alvo não encontrado no ficheiro '${path}'.`,
+          stderr: `Erro: O trecho 'target' não foi encontrado no ficheiro '${path}'. Certifica-te de que o código original coincide com exatidão (incluindo quebras de linha e indentação).`,
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const occurrences = file.content.split(target).length - 1;
+      if (occurrences > 1) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: `Erro: O trecho alvo aparece ${occurrences} vezes no ficheiro '${path}'. Inclui mais linhas circundantes de contexto no 'target' para garantir substituição unívoca.`,
           durationMs: Date.now() - start,
           timestamp: new Date().toISOString(),
         };
@@ -292,12 +514,15 @@ export async function executeLocalAction(
       const patchedContent = file.content.replace(target, replacement);
       saveWorkspaceFile(path, patchedContent, workspaceId);
 
+      const targetLines = target.split("\n").length;
+      const repLines = replacement.split("\n").length;
+
       return {
         actionId: action.id,
         actionType: action.type,
         status: "success",
         exitCode: 0,
-        stdout: `[GRIOT Workspace] Patch aplicado com sucesso a ${path}.`,
+        stdout: `[GRIOT Workspace] Patch cirúrgico aplicado com sucesso a ${path} (-${targetLines} / +${repLines} linhas).`,
         stderr: "",
         durationMs: Date.now() - start,
         timestamp: new Date().toISOString(),

@@ -117,7 +117,7 @@ export function parseGriotActions(text: string): GriotAction[] {
       }
     }
 
-    const category = (typeStr.split(".")[0] || "shell") as "fs" | "git" | "shell" | "test";
+    const category = (typeStr.split(".")[0] || "shell") as GriotActionCategory;
     const risk = calculateRisk(typeStr, params);
 
     actions.push({

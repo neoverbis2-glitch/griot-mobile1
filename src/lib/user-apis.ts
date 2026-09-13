@@ -11,7 +11,24 @@ import { saveGriotCredential, verifyGriotCredential, deleteGriotCredential } fro
 
 export interface UserSavedApi {
   id: string;
-  providerId: "gemini" | "openai" | "claude" | "deepseek" | "groq" | "anthropic" | "elevenlabs";
+  providerId:
+    | "gemini"
+    | "openai"
+    | "claude"
+    | "deepseek"
+    | "groq"
+    | "anthropic"
+    | "elevenlabs"
+    | "openrouter"
+    | "grok"
+    | "xai"
+    | "perplexity"
+    | "mistral"
+    | "kimi"
+    | "qwen"
+    | "ollama"
+    | "meta"
+    | string;
   label: string;
   apiKey: string;
   model?: string;
@@ -31,6 +48,33 @@ const PROVIDER_DEFAULT_NAMES: Record<string, string> = {
   deepseek: "DeepSeek",
   groq: "Groq Llama",
   elevenlabs: "ElevenLabs Voz",
+  openrouter: "OpenRouter",
+  grok: "xAI Grok",
+  xai: "xAI Grok",
+  perplexity: "Perplexity",
+  mistral: "Mistral AI",
+  kimi: "Moonshot Kimi",
+  qwen: "Alibaba Qwen",
+  ollama: "Ollama Local",
+  meta: "Meta Llama",
+};
+
+export const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
+  openrouter: "openrouter/auto",
+  gemini: "gemini-2.5-flash",
+  openai: "gpt-4o",
+  claude: "claude-3-5-sonnet-latest",
+  anthropic: "claude-3-5-sonnet-latest",
+  deepseek: "deepseek-chat",
+  groq: "llama-3.3-70b-versatile",
+  grok: "grok-2-latest",
+  xai: "grok-2-latest",
+  perplexity: "sonar-pro",
+  mistral: "mistral-large-latest",
+  kimi: "moonshot-v1-auto",
+  qwen: "qwen-plus",
+  ollama: "llama3",
+  meta: "llama-3.3-70b-versatile",
 };
 
 /** Carrega todas as APIs guardadas pelo utilizador */
@@ -50,8 +94,24 @@ export function getUserSavedApis(): UserSavedApi[] {
     console.warn("Erro ao ler griot_user_apis:", err);
   }
 
+  // Higienização / Auto-cura de credenciais OpenRouter existentes (ex.: 'Dam')
+  let changed = false;
+  for (const api of list) {
+    if (api.providerId === "openrouter") {
+      if (!api.model || api.model.includes("gemini-flash-latest")) {
+        api.model = "openrouter/auto";
+        changed = true;
+      }
+    }
+  }
+  if (changed && typeof window !== "undefined") {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    } catch {}
+  }
+
   // Migração/compatibilidade com chaves unitárias legadas (se não estiverem na lista)
-  const legacyProviders = ["gemini", "openai", "claude", "deepseek", "groq", "elevenlabs"];
+  const legacyProviders = ["gemini", "openai", "claude", "deepseek", "groq", "elevenlabs", "openrouter"];
   for (const prov of legacyProviders) {
     const legacyVal =
       localStorage.getItem(`griot_api_key_${prov}`) ||
@@ -65,6 +125,7 @@ export function getUserSavedApis(): UserSavedApi[] {
           providerId: prov as any,
           label: `${PROVIDER_DEFAULT_NAMES[prov] || prov} Principal`,
           apiKey: legacyVal.trim(),
+          model: prov === "openrouter" ? "openrouter/auto" : undefined,
           secretHint: `••••${legacyVal.trim().slice(-4)}`,
           status: "active",
           createdAt: new Date().toISOString(),
@@ -78,7 +139,7 @@ export function getUserSavedApis(): UserSavedApi[] {
 
 /** Guarda ou adiciona uma nova API */
 export async function saveUserApi(input: {
-  providerId: "gemini" | "openai" | "claude" | "deepseek" | "groq" | "anthropic" | "elevenlabs";
+  providerId: string;
   apiKey: string;
   label?: string;
   model?: string;
@@ -92,12 +153,20 @@ export async function saveUserApi(input: {
   const defaultLabel = `${PROVIDER_DEFAULT_NAMES[provider] || provider} #${existingCount + 1}`;
   const finalLabel = input.label?.trim() || defaultLabel;
 
+  // Determina modelo padrão caso não venha informado
+  let model = input.model?.trim();
+  if (!model && PROVIDER_DEFAULT_MODELS[provider]) {
+    model = PROVIDER_DEFAULT_MODELS[provider];
+  } else if (provider === "openrouter" && (!model || model.includes("gemini-flash-latest"))) {
+    model = "openrouter/auto";
+  }
+
   const newApi: UserSavedApi = {
     id: `api_${provider}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     providerId: provider,
     label: finalLabel,
     apiKey: trimmedKey,
-    model: input.model,
+    model,
     secretHint: `••••${trimmedKey.slice(-4)}`,
     status: "error",
     createdAt: new Date().toISOString(),
@@ -212,7 +281,15 @@ export function findApiByIdOrProvider(idOrProvider: string): UserSavedApi | null
       ((normalized.includes("claude") || normalized.includes("anthropic")) &&
         (a.providerId === "claude" || a.providerId === "anthropic")) ||
       (normalized.includes("deepseek") && a.providerId === "deepseek") ||
-      (normalized.includes("groq") && a.providerId === "groq"),
+      (normalized.includes("groq") && a.providerId === "groq") ||
+      (normalized.includes("openrouter") && a.providerId === "openrouter") ||
+      ((normalized.includes("grok") || normalized.includes("xai")) &&
+        (a.providerId === "grok" || a.providerId === "xai")) ||
+      (normalized.includes("mistral") && a.providerId === "mistral") ||
+      (normalized.includes("perplexity") && a.providerId === "perplexity") ||
+      (normalized.includes("kimi") && a.providerId === "kimi") ||
+      (normalized.includes("qwen") && a.providerId === "qwen") ||
+      (normalized.includes("ollama") && a.providerId === "ollama"),
   );
   if (byProvider) return byProvider;
 

@@ -1,11 +1,11 @@
 /**
- * GRIOT Connectors Hub - Batch 1 (Dev & Cloud)
- * Real execution for:
- * 1. GitHub (repos, issues, pull requests, file contents)
- * 2. GitLab (projects, issues, repository tree)
- * 3. Vercel (projects, deployments, aliases)
- * 4. Supabase (projects, query/tables via PostgREST, health)
- * 5. Firebase (Firestore documents, project info)
+ * GRIOT Connectors Hub - Batch 1 (Desenvolvimento & Código)
+ * Implementação de Produção Completa e Resiliente para:
+ * 1. GitHub (repos, detalhes, issues, criação de issues, pull requests, commits, ficheiros de código)
+ * 2. GitLab (projetos, detalhes, issues, criação de issues, pipelines CI/CD, commits)
+ * 3. Vercel (projetos, detalhes, deployments com status em tempo real, logs)
+ * 4. Supabase (Management API para projetos e PostgREST para consulta e esquema de tabelas)
+ * 5. Firebase (Firestore documents, coleções, leitura estruturada e status do projeto)
  */
 
 export interface ConnectorExecutionContext {
@@ -22,14 +22,53 @@ export interface ConnectorResult {
   summary: string;
 }
 
-const USER_AGENT = { "User-Agent": "Griot-Connector-Runner/1.0" };
+const USER_AGENT = { "User-Agent": "Griot-Connector-Runner/2.0 (Mobile/Web)" };
+
+/**
+ * Trata respostas de erro HTTP com explicações claras em português e diagnósticos acionáveis
+ */
+async function handleHttpError(res: Response, serviceName: string): Promise<string> {
+  let body = "";
+  try {
+    body = await res.text();
+  } catch {
+    body = res.statusText;
+  }
+
+  if (res.status === 401) {
+    return `${serviceName}: Autenticação falhou (Código 401). O token fornecido é inválido, expirou ou foi revogado. Verifica a credencial em Definições → Plugins.`;
+  }
+  if (res.status === 403) {
+    if (body.toLowerCase().includes("rate limit") || body.toLowerCase().includes("secondary rate")) {
+      return `${serviceName}: Limite de requisições excedido (Rate Limit - Código 403). Aguarda alguns momentos antes de tentar novamente.`;
+    }
+    return `${serviceName}: Acesso negado (Código 403). A tua credencial não possui permissões suficientes (scopes) para esta ação.`;
+  }
+  if (res.status === 404) {
+    return `${serviceName}: Recurso não encontrado (Código 404). Verifica se o repositório, projeto ou caminho especificado está correto e acessível.`;
+  }
+  if (res.status === 429) {
+    return `${serviceName}: Demasiados pedidos (Código 429). Aguarda alguns segundos antes de voltar a tentar.`;
+  }
+  if (res.status >= 500) {
+    return `${serviceName}: O servidor remoto respondeu com erro interno (${res.status}). Detalhes: ${body.slice(0, 300)}`;
+  }
+
+  return `${serviceName} erro (${res.status}): ${body.slice(0, 300)}`;
+}
 
 // ==========================================
-// 1. GITHUB RUNNER
+// 1. GITHUB CONNECTOR
 // ==========================================
 export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<ConnectorResult> {
   const token = ctx.credential.trim();
-  if (!token) return { success: false, error: "Token GitHub não fornecido.", summary: "Falha de autenticação" };
+  if (!token) {
+    return {
+      success: false,
+      error: "Token GitHub não configurado.",
+      summary: "⚠️ **GitHub Não Conectado**: Adiciona o teu Personal Access Token (PAT) em Definições → Plugins → GitHub.",
+    };
+  }
 
   const headers = {
     ...USER_AGENT,
@@ -37,266 +76,712 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
     Accept: "application/vnd.github.v3+json",
   };
 
-  const action = ctx.action || "list_repos";
+  const action = (ctx.action || "list_repos").toLowerCase();
   const p = ctx.params || {};
 
   try {
-    if (action === "list_repos" || action === "repos") {
-      const perPage = Number(p.limit || 10);
-      const res = await fetch(`https://api.github.com/user/repos?sort=updated&per_page=${perPage}`, { headers });
-      if (!res.ok) throw new Error(`GitHub respondeu ${res.status}: ${await res.text()}`);
-      const repos = (await res.json()) as Array<{ name: string; full_name: string; private: boolean; html_url: string; stargazers_count: number; updated_at: string; description: string | null }>;
+    // 1.1 Listar Repositórios
+    if (action === "list_repos" || action === "repos" || action === "list_repositories") {
+      const perPage = Math.min(Math.max(Number(p.limit || 15), 1), 50);
+      const sort = String(p.sort || "updated");
+      const visibility = p.visibility ? `&visibility=${encodeURIComponent(String(p.visibility))}` : "";
+      const res = await fetch(`https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}${visibility}`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+
+      const repos = (await res.json()) as Array<{
+        name: string;
+        full_name: string;
+        private: boolean;
+        html_url: string;
+        stargazers_count: number;
+        forks_count: number;
+        language: string | null;
+        updated_at: string;
+        description: string | null;
+        default_branch: string;
+      }>;
+
       const list = repos.map((r) => ({
         name: r.name,
         full_name: r.full_name,
         private: r.private,
         url: r.html_url,
         stars: r.stargazers_count,
-        updated: r.updated_at,
+        forks: r.forks_count,
+        language: r.language || "N/A",
+        updated: new Date(r.updated_at).toLocaleDateString("pt-PT"),
         description: r.description || "Sem descrição",
+        default_branch: r.default_branch,
       }));
+
       return {
         success: true,
         data: list,
-        summary: `Foram encontrados ${list.length} repositórios no GitHub:\n` + list.map(r => `• ${r.full_name} (${r.private ? "Privado" : "Público"}) - ${r.description} (${r.url})`).join("\n"),
+        summary: list.length
+          ? `📦 **Repositórios GitHub (${list.length} encontrados):**\n` +
+            list
+              .map(
+                (r) =>
+                  `• **[${r.full_name}](${r.url})** ${r.private ? "🔒 Privado" : "🌐 Público"} ` +
+                  `| ⭐ ${r.stars} | 🍴 ${r.forks} | ${r.language} | Atualizado: ${r.updated}\n  _${r.description}_`,
+              )
+              .join("\n\n")
+          : "Nenhum repositório encontrado para este utilizador.",
       };
     }
 
-    if (action === "get_repo") {
-      const repo = String(p.repo || p.full_name || ctx.account || "");
-      if (!repo.includes("/")) throw new Error("Parâmetro repo deve ser 'dono/nome-do-repo'.");
+    // 1.2 Detalhes de um Repositório Específico
+    if (action === "get_repo" || action === "repo_details") {
+      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+      if (!repo.includes("/")) {
+        throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo' (ex: facebook/react).");
+      }
       const res = await fetch(`https://api.github.com/repos/${repo}`, { headers });
-      if (!res.ok) throw new Error(`GitHub respondeu ${res.status}: ${await res.text()}`);
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+
       const data = await res.json();
       return {
         success: true,
         data,
-        summary: `Repositório ${data.full_name}: ⭐ ${data.stargazers_count} stars, 🍴 ${data.forks_count} forks, branch padrão: ${data.default_branch}. URL: ${data.html_url}`,
+        summary:
+          `📦 **Repositório GitHub: [${data.full_name}](${data.html_url})**\n` +
+          `• Descrição: ${data.description || "Sem descrição"}\n` +
+          `• Visibilidade: ${data.private ? "Privado 🔒" : "Público 🌐"}\n` +
+          `• Branch Padrão: \`${data.default_branch}\`\n` +
+          `• Estatísticas: ⭐ ${data.stargazers_count} stars | 🍴 ${data.forks_count} forks | 🐛 ${data.open_issues_count} issues abertas\n` +
+          `• Linguagem Principal: ${data.language || "Não especificada"}\n` +
+          `• Licença: ${data.license?.name || "Nenhuma licença detetada"}\n` +
+          `• Clone URL: \`${data.clone_url}\``,
       };
     }
 
+    // 1.3 Listar Issues
     if (action === "list_issues" || action === "issues") {
-      const repo = String(p.repo || p.full_name || ctx.account || "");
-      if (!repo.includes("/")) throw new Error("Parâmetro repo deve ser 'dono/nome-do-repo'.");
+      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+      if (!repo.includes("/")) {
+        throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
+      }
       const state = String(p.state || "open");
-      const res = await fetch(`https://api.github.com/repos/${repo}/issues?state=${state}&per_page=10`, { headers });
-      if (!res.ok) throw new Error(`GitHub respondeu ${res.status}: ${await res.text()}`);
-      const issues = (await res.json()) as Array<{ number: number; title: string; state: string; html_url: string; user: { login: string } }>;
+      const perPage = Math.min(Math.max(Number(p.limit || 10), 1), 30);
+      const res = await fetch(`https://api.github.com/repos/${repo}/issues?state=${state}&per_page=${perPage}`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+
+      const issues = (await res.json()) as Array<{
+        number: number;
+        title: string;
+        state: string;
+        html_url: string;
+        user: { login: string };
+        created_at: string;
+        comments: number;
+        pull_request?: unknown;
+      }>;
+
+      // Filtra apenas issues reais (a API do GitHub por padrão mistura PRs com issues)
+      const pureIssues = issues.filter((i) => !i.pull_request);
+
       return {
         success: true,
-        data: issues,
-        summary: issues.length ? `Issues em ${repo}:\n` + issues.map(i => `• #${i.number} [${i.state}] ${i.title} por @${i.user?.login} (${i.html_url})`).join("\n") : `Nenhuma issue encontrada em ${repo}.`,
+        data: pureIssues,
+        summary: pureIssues.length
+          ? `🐛 **Issues em [${repo}](https://github.com/${repo}/issues) (${pureIssues.length} encontradas):**\n` +
+            pureIssues
+              .map(
+                (i) =>
+                  `• **[#${i.number} ${i.title}](${i.html_url})** [${i.state.toUpperCase()}]\n` +
+                  `  Por @${i.user?.login} em ${new Date(i.created_at).toLocaleDateString("pt-PT")} (${i.comments} comentários)`,
+              )
+              .join("\n")
+          : `Nenhuma issue aberta encontrada em **${repo}**.`,
       };
     }
 
+    // 1.4 Criar Issue
     if (action === "create_issue") {
-      const repo = String(p.repo || p.full_name || ctx.account || "");
-      if (!repo.includes("/")) throw new Error("Parâmetro repo deve ser 'dono/nome-do-repo'.");
+      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+      if (!repo.includes("/")) {
+        throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
+      }
       const title = String(p.title || "").trim();
-      if (!title) throw new Error("Título da issue é obrigatório.");
-      const body = String(p.body || p.content || "");
+      if (!title) throw new Error("Parâmetro 'title' é obrigatório para criar uma issue.");
+      const body = String(p.body || p.content || "").trim();
+      const labels = Array.isArray(p.labels) ? p.labels : undefined;
+
       const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ title, body }),
+        body: JSON.stringify({ title, body, labels }),
       });
-      if (!res.ok) throw new Error(`GitHub respondeu ${res.status}: ${await res.text()}`);
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+
       const data = await res.json();
       return {
         success: true,
         data,
-        summary: `Issue criada com sucesso: #${data.number} "${data.title}" em ${data.html_url}`,
+        summary: `✅ **Issue criada com sucesso!**\n• Título: **[#${data.number} ${data.title}](${data.html_url})**\n• Repositório: ${repo}\n• Estado: ${data.state}`,
       };
     }
 
-    if (action === "get_file") {
-      const repo = String(p.repo || p.full_name || ctx.account || "");
-      const path = String(p.path || "").trim();
-      if (!repo.includes("/") || !path) throw new Error("Requer 'repo' (dono/repo) e 'path' do ficheiro.");
-      const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}`, { headers });
-      if (!res.ok) throw new Error(`GitHub respondeu ${res.status}: ${await res.text()}`);
+    // 1.5 Ler Conteúdo de Ficheiro
+    if (action === "get_file" || action === "read_file" || action === "file_content") {
+      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+      const path = String(p.path || p.file || "").trim();
+      if (!repo.includes("/") || !path) {
+        throw new Error("Requer parâmetros 'repo' (dono/repo) e 'path' (ex: package.json ou src/index.ts).");
+      }
+      const ref = p.ref || p.branch ? `?ref=${encodeURIComponent(String(p.ref || p.branch))}` : "";
+      const res = await fetch(`https://api.github.com/repos/${repo}/contents/${path}${ref}`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+
       const data = await res.json();
-      const content = data.content ? Buffer.from(data.content, "base64").toString("utf-8") : "";
+      if (Array.isArray(data)) {
+        return {
+          success: true,
+          data,
+          summary: `📁 **O caminho '${path}' é uma pasta com ${data.length} itens:**\n` + data.map((item: any) => `• [${item.type}] ${item.name} (${item.path})`).join("\n"),
+        };
+      }
+
+      let content = "";
+      if (data.content && data.encoding === "base64") {
+        try {
+          content = Buffer.from(data.content.replace(/\n/g, ""), "base64").toString("utf-8");
+        } catch {
+          content = atob(data.content.replace(/\n/g, ""));
+        }
+      }
+
       return {
         success: true,
-        data: { name: data.name, path: data.path, size: data.size, content },
-        summary: `Ficheiro ${data.path} (${data.size} bytes):\n\n${content.slice(0, 4000)}`,
+        data: { name: data.name, path: data.path, size: data.size, sha: data.sha, content },
+        summary: `📄 **Ficheiro \`${data.path}\` em [${repo}](${data.html_url}) (${data.size} bytes):**\n\n\`\`\`\n${content.slice(0, 4000)}${content.length > 4000 ? "\n... (conteúdo truncado)" : ""}\n\`\`\``,
       };
     }
 
-    // Default: perfil do utilizador autenticado
+    // 1.6 Listar Pull Requests
+    if (action === "list_prs" || action === "pull_requests" || action === "prs") {
+      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+      if (!repo.includes("/")) {
+        throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
+      }
+      const state = String(p.state || "open");
+      const res = await fetch(`https://api.github.com/repos/${repo}/pulls?state=${state}&per_page=10`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+
+      const prs = (await res.json()) as Array<{
+        number: number;
+        title: string;
+        state: string;
+        html_url: string;
+        user: { login: string };
+        head: { ref: string };
+        base: { ref: string };
+        created_at: string;
+      }>;
+
+      return {
+        success: true,
+        data: prs,
+        summary: prs.length
+          ? `🔀 **Pull Requests em [${repo}](https://github.com/${repo}/pulls) (${prs.length}):**\n` +
+            prs
+              .map(
+                (pr) =>
+                  `• **[#${pr.number} ${pr.title}](${pr.html_url})** [${pr.state.toUpperCase()}]\n` +
+                  `  Branch: \`${pr.head.ref}\` → \`${pr.base.ref}\` | Por @${pr.user.login}`,
+              )
+              .join("\n")
+          : `Nenhum Pull Request ${state} encontrado em **${repo}**.`,
+      };
+    }
+
+    // 1.7 Listar Commits
+    if (action === "list_commits" || action === "commits") {
+      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+      if (!repo.includes("/")) {
+        throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
+      }
+      const branch = p.branch ? `?sha=${encodeURIComponent(String(p.branch))}` : "";
+      const res = await fetch(`https://api.github.com/repos/${repo}/commits${branch}`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+
+      const commits = (await res.json()) as Array<{
+        sha: string;
+        html_url: string;
+        commit: {
+          message: string;
+          author: { name: string; date: string };
+        };
+      }>;
+
+      const topCommits = commits.slice(0, 10);
+      return {
+        success: true,
+        data: topCommits,
+        summary: topCommits.length
+          ? `📝 **Últimos commits em [${repo}](https://github.com/${repo}/commits):**\n` +
+            topCommits
+              .map(
+                (c) =>
+                  `• [\`${c.sha.slice(0, 7)}\`](${c.html_url}) ${c.commit.message.split("\n")[0]} ` +
+                  `— _${c.commit.author.name}_ (${new Date(c.commit.author.date).toLocaleDateString("pt-PT")})`,
+              )
+              .join("\n")
+          : `Nenhum commit encontrado em **${repo}**.`,
+      };
+    }
+
+    // 1.8 Default: Perfil da Conta Autenticada
     const userRes = await fetch("https://api.github.com/user", { headers });
-    if (!userRes.ok) throw new Error(`GitHub respondeu ${userRes.status}: ${await userRes.text()}`);
+    if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitHub"));
     const user = await userRes.json();
+
     return {
       success: true,
       data: user,
-      summary: `Conta GitHub autenticada com sucesso: @${user.login} (${user.name || "Sem nome"}), repos públicos: ${user.public_repos}, URL: ${user.html_url}`,
+      summary:
+        `🐙 **Conta GitHub Conectada com Sucesso!**\n` +
+        `• Utilizador: **[@${user.login}](${user.html_url})** (${user.name || "Sem nome público"})\n` +
+        `• Email: ${user.email || "Privado"}\n` +
+        `• Repositórios: ${user.public_repos} públicos | ${user.total_private_repos || 0} privados\n` +
+        `• Bio: ${user.bio || "Sem biografia"}\n\n` +
+        `💡 _Podes pedir: "Griot, lista os meus repositórios", "Mostra os PRs de dono/repo" ou "Lê o ficheiro package.json do meu projeto"_`,
     };
   } catch (err: any) {
-    return { success: false, error: err.message, summary: `Erro no GitHub: ${err.message}` };
+    return {
+      success: false,
+      error: err.message,
+      summary: `❌ **Falha no Conector GitHub:** ${err.message}`,
+    };
   }
 }
 
 // ==========================================
-// 2. GITLAB RUNNER
+// 2. GITLAB CONNECTOR
 // ==========================================
 export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<ConnectorResult> {
   const token = ctx.credential.trim();
-  if (!token) return { success: false, error: "Token GitLab não fornecido.", summary: "Falha de autenticação" };
+  if (!token) {
+    return {
+      success: false,
+      error: "Token GitLab não configurado.",
+      summary: "⚠️ **GitLab Não Conectado**: Insere o teu Personal Access Token em Definições → Plugins → GitLab.",
+    };
+  }
 
   const headers = {
     ...USER_AGENT,
     "PRIVATE-TOKEN": token,
   };
 
-  const action = ctx.action || "list_projects";
+  const action = (ctx.action || "list_projects").toLowerCase();
   const p = ctx.params || {};
 
   try {
+    // 2.1 Listar Projetos
     if (action === "list_projects" || action === "projects") {
-      const perPage = Number(p.limit || 10);
-      const res = await fetch(`https://gitlab.com/api/v4/projects?membership=true&order_by=updated_at&per_page=${perPage}`, { headers });
-      if (!res.ok) throw new Error(`GitLab respondeu ${res.status}: ${await res.text()}`);
-      const projects = (await res.json()) as Array<{ id: number; name: string; path_with_namespace: string; web_url: string; description: string | null }>;
+      const perPage = Math.min(Math.max(Number(p.limit || 15), 1), 50);
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects?membership=true&order_by=updated_at&per_page=${perPage}`,
+        { headers },
+      );
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab"));
+
+      const projects = (await res.json()) as Array<{
+        id: number;
+        name: string;
+        path_with_namespace: string;
+        web_url: string;
+        visibility: string;
+        description: string | null;
+        star_count: number;
+        last_activity_at: string;
+      }>;
+
       return {
         success: true,
         data: projects,
-        summary: projects.length ? `Projetos GitLab encontrados (${projects.length}):\n` + projects.map(pr => `• [ID ${pr.id}] ${pr.path_with_namespace} - ${pr.web_url}`).join("\n") : "Nenhum projeto encontrado.",
+        summary: projects.length
+          ? `🦊 **Projetos GitLab Encontrados (${projects.length}):**\n` +
+            projects
+              .map(
+                (pr) =>
+                  `• **[${pr.path_with_namespace}](${pr.web_url})** [ID: \`${pr.id}\`] (${pr.visibility})\n` +
+                  `  _${pr.description || "Sem descrição"}_ | Última atividade: ${new Date(pr.last_activity_at).toLocaleDateString("pt-PT")}`,
+              )
+              .join("\n\n")
+          : "Nenhum projeto encontrado no GitLab com esta conta.",
       };
     }
 
+    // 2.2 Detalhes de um Projeto
+    if (action === "get_project" || action === "project_details") {
+      const projectId = p.project_id || p.id || ctx.account;
+      if (!projectId) throw new Error("Parâmetro 'project_id' (ID numérico ou caminho 'grupo/projeto') obrigatório.");
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}`,
+        { headers },
+      );
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab"));
+
+      const pr = await res.json();
+      return {
+        success: true,
+        data: pr,
+        summary:
+          `🦊 **Projeto GitLab: [${pr.name_with_namespace}](${pr.web_url})**\n` +
+          `• ID: \`${pr.id}\` | Visibilidade: ${pr.visibility}\n` +
+          `• Branch Padrão: \`${pr.default_branch}\`\n` +
+          `• Descrição: ${pr.description || "Sem descrição"}\n` +
+          `• SSH URL: \`${pr.ssh_url_to_repo}\`\n` +
+          `• HTTP URL: \`${pr.http_url_to_repo}\``,
+      };
+    }
+
+    // 2.3 Listar Issues
     if (action === "list_issues" || action === "issues") {
       const projectId = p.project_id || p.id || ctx.account;
       const url = projectId
-        ? `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/issues?per_page=10`
-        : `https://gitlab.com/api/v4/issues?scope=all&per_page=10`;
+        ? `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/issues?per_page=15`
+        : `https://gitlab.com/api/v4/issues?scope=all&per_page=15`;
       const res = await fetch(url, { headers });
-      if (!res.ok) throw new Error(`GitLab respondeu ${res.status}: ${await res.text()}`);
-      const issues = (await res.json()) as Array<{ id: number; iid: number; title: string; state: string; web_url: string }>;
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab"));
+
+      const issues = (await res.json()) as Array<{
+        id: number;
+        iid: number;
+        title: string;
+        state: string;
+        web_url: string;
+        author: { name: string; username: string };
+        created_at: string;
+      }>;
+
       return {
         success: true,
         data: issues,
-        summary: issues.length ? `Issues GitLab:\n` + issues.map(i => `• !${i.iid} [${i.state}] ${i.title} (${i.web_url})`).join("\n") : "Nenhuma issue encontrada.",
+        summary: issues.length
+          ? `🐛 **Issues GitLab (${issues.length}):**\n` +
+            issues
+              .map(
+                (i) =>
+                  `• **[!${i.iid} ${i.title}](${i.web_url})** [${i.state.toUpperCase()}]\n` +
+                  `  Por @${i.author?.username} em ${new Date(i.created_at).toLocaleDateString("pt-PT")}`,
+              )
+              .join("\n")
+          : "Nenhuma issue encontrada no GitLab.",
       };
     }
 
-    // Default: utilizador autenticado
+    // 2.4 Criar Issue
+    if (action === "create_issue") {
+      const projectId = p.project_id || p.id || ctx.account;
+      if (!projectId) throw new Error("Parâmetro 'project_id' obrigatório para criar issue no GitLab.");
+      const title = String(p.title || "").trim();
+      if (!title) throw new Error("Parâmetro 'title' é obrigatório.");
+      const description = String(p.description || p.body || "");
+
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/issues`,
+        {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ title, description }),
+        },
+      );
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab"));
+
+      const data = await res.json();
+      return {
+        success: true,
+        data,
+        summary: `✅ **Issue criada no GitLab:** [!${data.iid} ${data.title}](${data.web_url})`,
+      };
+    }
+
+    // 2.5 Listar Pipelines de CI/CD
+    if (action === "list_pipelines" || action === "pipelines") {
+      const projectId = p.project_id || p.id || ctx.account;
+      if (!projectId) throw new Error("Parâmetro 'project_id' é obrigatório para consultar pipelines.");
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/pipelines?per_page=10`,
+        { headers },
+      );
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab"));
+
+      const pipelines = (await res.json()) as Array<{
+        id: number;
+        status: string;
+        ref: string;
+        sha: string;
+        web_url: string;
+        created_at: string;
+      }>;
+
+      const statusEmoji = (st: string) => {
+        if (st === "success") return "✅";
+        if (st === "running") return "🔄";
+        if (st === "failed") return "❌";
+        if (st === "canceled") return "⏹️";
+        return "⏳";
+      };
+
+      return {
+        success: true,
+        data: pipelines,
+        summary: pipelines.length
+          ? `🚀 **Pipelines CI/CD no GitLab (${projectId}):**\n` +
+            pipelines
+              .map(
+                (pl) =>
+                  `• ${statusEmoji(pl.status)} **[Pipeline #${pl.id}](${pl.web_url})** [${pl.status.toUpperCase()}]\n` +
+                  `  Branch: \`${pl.ref}\` (\`${pl.sha.slice(0, 7)}\`) | Data: ${new Date(pl.created_at).toLocaleString("pt-PT")}`,
+              )
+              .join("\n")
+          : `Nenhum pipeline encontrado para o projeto ${projectId}.`,
+      };
+    }
+
+    // 2.6 Default: Perfil da Conta Autenticada
     const userRes = await fetch("https://gitlab.com/api/v4/user", { headers });
-    if (!userRes.ok) throw new Error(`GitLab respondeu ${userRes.status}: ${await userRes.text()}`);
+    if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitLab"));
     const user = await userRes.json();
+
     return {
       success: true,
       data: user,
-      summary: `Conta GitLab autenticada com sucesso: @${user.username} (${user.name}), ID: ${user.id}, URL: ${user.web_url}`,
+      summary:
+        `🦊 **Conta GitLab Conectada com Sucesso!**\n` +
+        `• Utilizador: **[@${user.username}](${user.web_url})** (${user.name})\n` +
+        `• ID: \`${user.id}\` | Email: ${user.email || "Privado"}\n` +
+        `• Estado: ${user.state}\n\n` +
+        `💡 _Podes pedir: "Griot, lista os meus projetos GitLab" ou "Verifica os pipelines do projeto ID"_`,
     };
   } catch (err: any) {
-    return { success: false, error: err.message, summary: `Erro no GitLab: ${err.message}` };
+    return {
+      success: false,
+      error: err.message,
+      summary: `❌ **Falha no Conector GitLab:** ${err.message}`,
+    };
   }
 }
 
 // ==========================================
-// 3. VERCEL RUNNER
+// 3. VERCEL CONNECTOR
 // ==========================================
 export async function executeVercel(ctx: ConnectorExecutionContext): Promise<ConnectorResult> {
   const token = ctx.credential.trim();
-  if (!token) return { success: false, error: "Token Vercel não fornecido.", summary: "Falha de autenticação" };
+  if (!token) {
+    return {
+      success: false,
+      error: "Token Vercel não configurado.",
+      summary: "⚠️ **Vercel Não Conectada**: Configura o teu Personal Access Token em Definições → Plugins → Vercel.",
+    };
+  }
 
   const headers = {
     ...USER_AGENT,
     Authorization: `Bearer ${token}`,
   };
 
-  const action = ctx.action || "list_projects";
+  const action = (ctx.action || "list_projects").toLowerCase();
   const p = ctx.params || {};
 
   try {
+    // 3.1 Listar Projetos
     if (action === "list_projects" || action === "projects") {
-      const res = await fetch("https://api.vercel.com/v9/projects?limit=15", { headers });
-      if (!res.ok) throw new Error(`Vercel respondeu ${res.status}: ${await res.text()}`);
+      const res = await fetch("https://api.vercel.com/v9/projects?limit=20", { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Vercel"));
+
       const data = await res.json();
       const list = (data.projects || []).map((proj: any) => ({
         id: proj.id,
         name: proj.name,
-        framework: proj.framework || "outro",
-        updatedAt: proj.updatedAt,
-        targets: proj.targets?.production?.url ? `https://${proj.targets.production.url}` : null,
+        framework: proj.framework || "custom",
+        productionUrl: proj.targets?.production?.url ? `https://${proj.targets.production.url}` : null,
+        updatedAt: proj.updatedAt ? new Date(proj.updatedAt).toLocaleDateString("pt-PT") : "N/A",
       }));
+
       return {
         success: true,
         data: list,
-        summary: list.length ? `Projetos Vercel encontrados (${list.length}):\n` + list.map((pr: any) => `• ${pr.name} [${pr.framework}] → ${pr.targets || "Sem produção"}`).join("\n") : "Nenhum projeto encontrado na Vercel.",
+        summary: list.length
+          ? `▲ **Projetos Vercel (${list.length} encontrados):**\n` +
+            list
+              .map(
+                (pr: any) =>
+                  `• **${pr.name}** [${pr.framework}] → ${pr.productionUrl ? `[${pr.productionUrl}](${pr.productionUrl})` : "Sem deploy de produção"}\n` +
+                  `  ID: \`${pr.id}\` | Atualizado: ${pr.updatedAt}`,
+              )
+              .join("\n\n")
+          : "Nenhum projeto encontrado nesta conta Vercel.",
       };
     }
 
+    // 3.2 Listar Deployments
     if (action === "list_deployments" || action === "deployments") {
-      const projectId = p.project_id || p.projectId || p.name;
+      const projectId = p.project_id || p.projectId || p.name || ctx.account;
       const url = projectId
-        ? `https://api.vercel.com/v6/deployments?projectId=${encodeURIComponent(String(projectId))}&limit=10`
-        : "https://api.vercel.com/v6/deployments?limit=10";
+        ? `https://api.vercel.com/v6/deployments?projectId=${encodeURIComponent(String(projectId))}&limit=12`
+        : "https://api.vercel.com/v6/deployments?limit=12";
       const res = await fetch(url, { headers });
-      if (!res.ok) throw new Error(`Vercel respondeu ${res.status}: ${await res.text()}`);
+      if (!res.ok) throw new Error(await handleHttpError(res, "Vercel"));
+
       const data = await res.json();
       const list = (data.deployments || []).map((d: any) => ({
         uid: d.uid,
         name: d.name,
         state: d.state,
         url: `https://${d.url}`,
+        creator: d.creator?.username || "sistema",
         created: new Date(d.created).toLocaleString("pt-PT"),
       }));
+
+      const stateBadge = (state: string) => {
+        if (state === "READY") return "🟢 READY";
+        if (state === "BUILDING") return "🟡 BUILDING";
+        if (state === "ERROR") return "🔴 ERROR";
+        if (state === "CANCELED") return "⚪ CANCELED";
+        return `ℹ️ ${state}`;
+      };
+
       return {
         success: true,
         data: list,
-        summary: list.length ? `Últimos deploys na Vercel:\n` + list.map((d: any) => `• [${d.state}] ${d.name} (${d.created}): ${d.url}`).join("\n") : "Nenhum deployment registado.",
+        summary: list.length
+          ? `▲ **Últimos Deployments na Vercel:**\n` +
+            list
+              .map(
+                (d: any) =>
+                  `• ${stateBadge(d.state)} **[${d.name}](${d.url})**\n` +
+                  `  URL: ${d.url} | Por: @${d.creator} | Data: ${d.created}`,
+              )
+              .join("\n\n")
+          : "Nenhum deployment registado na Vercel.",
       };
     }
 
-    // Default: dados da conta/token
+    // 3.3 Detalhes de um Deployment
+    if (action === "get_deployment" || action === "deployment_details") {
+      const deploymentId = p.deployment_id || p.id || p.uid;
+      if (!deploymentId) throw new Error("Parâmetro 'deployment_id' obrigatório.");
+      const res = await fetch(`https://api.vercel.com/v13/deployments/${encodeURIComponent(String(deploymentId))}`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Vercel"));
+
+      const d = await res.json();
+      return {
+        success: true,
+        data: d,
+        summary:
+          `▲ **Deployment Vercel: [${d.name}](https://${d.url})**\n` +
+          `• Estado: **${d.readyState || d.status}**\n` +
+          `• URL Principal: https://${d.url}\n` +
+          `• Criado em: ${new Date(d.createdAt).toLocaleString("pt-PT")}\n` +
+          `• Framework: ${d.projectSettings?.framework || "Automático"}\n` +
+          `• Regiões: ${d.regions?.join(", ") || "iad1"}`,
+      };
+    }
+
+    // 3.4 Default: Dados do Utilizador e Conta
     const userRes = await fetch("https://api.vercel.com/v2/user", { headers });
-    if (!userRes.ok) throw new Error(`Vercel respondeu ${userRes.status}: ${await userRes.text()}`);
+    if (!userRes.ok) throw new Error(await handleHttpError(userRes, "Vercel"));
     const userData = await userRes.json();
+    const user = userData.user;
+
     return {
       success: true,
-      data: userData.user,
-      summary: `Conta Vercel ligada com sucesso: ${userData.user.username || userData.user.email} (ID: ${userData.user.id})`,
+      data: user,
+      summary:
+        `▲ **Conta Vercel Conectada com Sucesso!**\n` +
+        `• Utilizador: **@${user.username || user.email}**\n` +
+        `• Nome: ${user.name || "Sem nome"}\n` +
+        `• Email: ${user.email}\n` +
+        `• ID da Conta: \`${user.id}\`\n\n` +
+        `💡 _Podes pedir: "Griot, lista os meus projetos na Vercel" ou "Verifica o estado do último deploy"_`,
     };
   } catch (err: any) {
-    return { success: false, error: err.message, summary: `Erro na Vercel: ${err.message}` };
+    return {
+      success: false,
+      error: err.message,
+      summary: `❌ **Falha no Conector Vercel:** ${err.message}`,
+    };
   }
 }
 
 // ==========================================
-// 4. SUPABASE RUNNER
+// 4. SUPABASE CONNECTOR
 // ==========================================
 export async function executeSupabase(ctx: ConnectorExecutionContext): Promise<ConnectorResult> {
   const token = ctx.credential.trim();
-  if (!token) return { success: false, error: "Credencial Supabase não fornecida.", summary: "Falha de autenticação" };
+  if (!token) {
+    return {
+      success: false,
+      error: "Credencial Supabase não configurada.",
+      summary: "⚠️ **Supabase Não Conectado**: Insere o teu Management Access Token (`sbp_...`) ou Service Role / Anon Key em Definições → Plugins → Supabase.",
+    };
+  }
 
-  const action = ctx.action || "health";
+  const action = (ctx.action || "health").toLowerCase();
   const p = ctx.params || {};
 
-  // O token pode ser um Management Access Token (sbp_...) ou uma URL + Anon/Service Key
+  // Supabase Management API (Token começa por sbp_ ou não contém pontos como um JWT)
   const isManagementToken = token.startsWith("sbp_") || !token.includes(".");
 
   try {
     if (isManagementToken) {
-      // Management API da Supabase
       const headers = { ...USER_AGENT, Authorization: `Bearer ${token}` };
 
+      // 4.1 Listar Projetos da Conta (Management API)
       if (action === "list_projects" || action === "projects" || action === "health") {
         const res = await fetch("https://api.supabase.com/v1/projects", { headers });
-        if (!res.ok) throw new Error(`Supabase Management respondeu ${res.status}: ${await res.text()}`);
-        const projects = (await res.json()) as Array<{ id: string; name: string; region: string; status: string }>;
+        if (!res.ok) throw new Error(await handleHttpError(res, "Supabase Management"));
+
+        const projects = (await res.json()) as Array<{
+          id: string;
+          name: string;
+          region: string;
+          status: string;
+          created_at: string;
+        }>;
+
         return {
           success: true,
           data: projects,
-          summary: projects.length ? `Projetos Supabase activos (${projects.length}):\n` + projects.map(pr => `• ${pr.name} (Ref: ${pr.id}, Região: ${pr.region}, Estado: ${pr.status})`).join("\n") : "Nenhum projeto encontrado na conta Supabase.",
+          summary: projects.length
+            ? `⚡ **Projetos Supabase Ativos (${projects.length}):**\n` +
+              projects
+                .map(
+                  (pr) =>
+                    `• **${pr.name}** [Status: ${pr.status.toUpperCase()}]\n` +
+                    `  Ref: \`${pr.id}\` | Região: ${pr.region} | Criado: ${new Date(pr.created_at).toLocaleDateString("pt-PT")}`,
+                )
+                .join("\n\n")
+            : "Nenhum projeto encontrado nesta conta Supabase.",
+        };
+      }
+
+      // 4.2 Obter Detalhes de um Projeto
+      if (action === "get_project") {
+        const ref = String(p.ref || p.project_id || ctx.account || "").trim();
+        if (!ref) throw new Error("Parâmetro 'ref' (Project Reference ID) obrigatório.");
+        const res = await fetch(`https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}`, { headers });
+        if (!res.ok) throw new Error(await handleHttpError(res, "Supabase Management"));
+
+        const data = await res.json();
+        return {
+          success: true,
+          data,
+          summary:
+            `⚡ **Projeto Supabase: ${data.name}**\n` +
+            `• Ref: \`${data.id}\` | Estado: ${data.status}\n` +
+            `• Região: ${data.region} | Versão Postgres: ${data.database?.version || "15"}\n` +
+            `• Endpoint: https://${data.id}.supabase.co`,
         };
       }
     }
 
-    // PostgREST Query em Projeto Específico (usando ctx.account como project-ref ou URL)
-    let baseUrl = ctx.account || (p.project_url as string) || "";
+    // 4.3 Consulta a Tabelas via PostgREST (usando accountName como project-ref ou customEndpoint)
+    let baseUrl = ctx.account || (p.project_url as string) || (p.project_ref as string) || "";
     if (baseUrl && !baseUrl.startsWith("http")) {
       baseUrl = `https://${baseUrl}.supabase.co`;
     }
@@ -304,13 +789,18 @@ export async function executeSupabase(ctx: ConnectorExecutionContext): Promise<C
     if (!baseUrl) {
       return {
         success: true,
-        data: { tokenType: "Supabase Key", status: "valid" },
-        summary: "Credencial Supabase válida. Para consultar dados de tabelas, especifica a URL do projeto (ex: https://xyz.supabase.co) no Identificador do Workspace.",
+        data: { tokenType: isManagementToken ? "Management Token" : "JWT Key", status: "ready" },
+        summary:
+          `⚡ **Supabase Conectado!**\n` +
+          `A credencial é válida. Para consultar tabelas diretamente, adiciona o **Project Ref** ou **URL do Projeto** (ex: \`https://xyz.supabase.co\`) no campo de Identificador/Conta em Definições → Plugins.`,
       };
     }
 
-    const table = String(p.table || "health");
-    const restUrl = `${baseUrl.replace(/\/+$/, "")}/rest/v1/${table}?select=*&limit=10`;
+    const table = String(p.table || "health").trim();
+    const select = String(p.select || "*");
+    const limit = Math.min(Math.max(Number(p.limit || 10), 1), 50);
+
+    const restUrl = `${baseUrl.replace(/\/+$/, "")}/rest/v1/${encodeURIComponent(table)}?select=${encodeURIComponent(select)}&limit=${limit}`;
     const res = await fetch(restUrl, {
       headers: {
         ...USER_AGENT,
@@ -319,24 +809,37 @@ export async function executeSupabase(ctx: ConnectorExecutionContext): Promise<C
       },
     });
 
-    if (!res.ok) throw new Error(`Supabase PostgREST respondeu ${res.status}: ${await res.text()}`);
+    if (!res.ok) throw new Error(await handleHttpError(res, "Supabase PostgREST"));
+
     const rows = await res.json();
     return {
       success: true,
       data: rows,
-      summary: `Consulta Supabase na tabela '${table}' (${Array.isArray(rows) ? rows.length : 1} registos):\n` + JSON.stringify(rows, null, 2).slice(0, 3000),
+      summary:
+        `⚡ **Consulta Supabase na tabela \`${table}\` (${Array.isArray(rows) ? rows.length : 1} registos):**\n\n` +
+        `\`\`\`json\n${JSON.stringify(rows, null, 2).slice(0, 3500)}${JSON.stringify(rows).length > 3500 ? "\n... (dados truncados)" : ""}\n\`\`\``,
     };
   } catch (err: any) {
-    return { success: false, error: err.message, summary: `Erro no Supabase: ${err.message}` };
+    return {
+      success: false,
+      error: err.message,
+      summary: `❌ **Falha no Conector Supabase:** ${err.message}`,
+    };
   }
 }
 
 // ==========================================
-// 5. FIREBASE RUNNER
+// 5. FIREBASE CONNECTOR
 // ==========================================
 export async function executeFirebase(ctx: ConnectorExecutionContext): Promise<ConnectorResult> {
   const token = ctx.credential.trim();
-  if (!token) return { success: false, error: "Credencial Firebase não fornecida.", summary: "Falha de autenticação" };
+  if (!token) {
+    return {
+      success: false,
+      error: "Credencial Firebase não configurada.",
+      summary: "⚠️ **Firebase Não Conectado**: Insere a tua Web API Key ou Service Account Token em Definições → Plugins → Firebase.",
+    };
+  }
 
   const p = ctx.params || {};
   const projectId = String(ctx.account || p.project_id || p.projectId || "").trim();
@@ -346,15 +849,15 @@ export async function executeFirebase(ctx: ConnectorExecutionContext): Promise<C
       return {
         success: true,
         data: { status: "ready" },
-        summary: "Credencial Firebase guardada. Para consultar coleções do Firestore ou autenticação, adiciona o 'Project ID' (ex.: meu-app-prod) no campo Identificador de Conta.",
+        summary:
+          `🔥 **Credencial Firebase Guardada!**\n` +
+          `Para consultar coleções e documentos do Firestore, adiciona o teu **Project ID** do Firebase (ex: \`meu-app-prod\`) no campo Identificador de Conta em Definições → Plugins.`,
       };
     }
 
-    const action = ctx.action || "list_documents";
-    const collection = String(p.collection || "users");
+    const action = (ctx.action || "list_documents").toLowerCase();
+    const collection = String(p.collection || "users").trim();
 
-    // Endpoint Firestore REST v1
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}?pageSize=10`;
     const headers: Record<string, string> = { ...USER_AGENT };
     if (token.startsWith("ya29.") || token.length > 80) {
       headers["Authorization"] = `Bearer ${token}`;
@@ -362,39 +865,79 @@ export async function executeFirebase(ctx: ConnectorExecutionContext): Promise<C
       headers["x-goog-api-key"] = token;
     }
 
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      // Se não autenticou diretamente como Bearer, tenta inspeção do projeto
-      throw new Error(`Firebase Firestore respondeu ${res.status}: ${await res.text()}`);
+    // 5.1 Obter um Documento Específico
+    if (action === "get_document" || action === "document") {
+      const docPath = String(p.path || p.document_id || "").trim();
+      if (!docPath) throw new Error("Parâmetro 'path' ou 'document_id' obrigatório.");
+      const fullPath = docPath.includes("/") ? docPath : `${collection}/${docPath}`;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${fullPath}`;
+
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Firebase Firestore"));
+
+      const doc = await res.json();
+      return {
+        success: true,
+        data: doc,
+        summary:
+          `🔥 **Documento Firestore \`${fullPath}\` em \`${projectId}\`:**\n\n` +
+          `\`\`\`json\n${JSON.stringify(doc.fields || doc, null, 2)}\n\`\`\``,
+      };
     }
+
+    // 5.2 Listar Documentos de uma Coleção
+    const pageSize = Math.min(Math.max(Number(p.limit || 10), 1), 30);
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}?pageSize=${pageSize}`;
+
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error(await handleHttpError(res, "Firebase Firestore"));
 
     const data = await res.json();
     const docs = (data.documents || []).map((d: any) => ({
       name: d.name.split("/").pop(),
-      createTime: d.createTime,
-      fields: d.fields,
+      createTime: d.createTime ? new Date(d.createTime).toLocaleString("pt-PT") : "N/A",
+      fields: d.fields || {},
     }));
 
     return {
       success: true,
       data: docs,
       summary: docs.length
-        ? `Coleção Firestore '${collection}' em '${projectId}' (${docs.length} documentos):\n` + docs.map((doc: any) => `• ID ${doc.name} (Criado: ${doc.createTime})`).join("\n")
-        : `Nenhum documento encontrado na coleção '${collection}' do Firebase '${projectId}'.`,
+        ? `🔥 **Coleção Firestore \`${collection}\` no projeto \`${projectId}\` (${docs.length} documentos):**\n` +
+          docs
+            .map(
+              (doc: any) =>
+                `• **ID: \`${doc.name}\`** (Criado: ${doc.createTime})\n` +
+                `  Campos: ${Object.keys(doc.fields).join(", ") || "Sem campos"}`,
+            )
+            .join("\n\n")
+        : `Nenhum documento encontrado na coleção \`${collection}\` do Firebase \`${projectId}\`.`,
     };
   } catch (err: any) {
-    return { success: false, error: err.message, summary: `Erro no Firebase: ${err.message}` };
+    return {
+      success: false,
+      error: err.message,
+      summary: `❌ **Falha no Conector Firebase:** ${err.message}`,
+    };
   }
 }
 
 // ==========================================
-// DISPATCHER PRINCIPAL DO LOTE 1
+// DISPATCHER PRINCIPAL DOS CONECTORES
 // ==========================================
+import { executeBatch2Connector } from "./connectors-batch2.ts";
+import { executeBatch3Connector } from "./connectors-batch3.ts";
+import { executeBatch4Connector } from "./connectors-batch4.ts";
+import { executeBatch5Connector } from "./connectors-batch5.ts";
+import { executeBatch6Connector } from "./connectors-batch6.ts";
+
 export async function executeBatch1Connector(
   connectorId: string,
   ctx: ConnectorExecutionContext,
 ): Promise<ConnectorResult> {
-  switch (connectorId.toLowerCase()) {
+  const normId = connectorId.toLowerCase().trim();
+
+  switch (normId) {
     case "github":
       return executeGitHub(ctx);
     case "gitlab":
@@ -404,12 +947,97 @@ export async function executeBatch1Connector(
     case "supabase":
       return executeSupabase(ctx);
     case "firebase":
+    case "firestore":
       return executeFirebase(ctx);
+    case "neon":
+    case "neon_postgres":
+    case "neonpostgres":
+    case "upstash":
+    case "upstash_redis":
+    case "redis":
+    case "mongodb":
+    case "mongo":
+    case "mongodb_atlas":
+    case "cloudflare":
+    case "cf":
+    case "d1":
+    case "qdrant":
+    case "qdrant_vector":
+      return executeBatch2Connector(normId, {
+        credential: ctx.credential,
+        action: ctx.action,
+        params: ctx.params,
+        accountName: ctx.account,
+        customEndpoint: ctx.params.customEndpoint as string | undefined,
+      });
+    case "linear":
+    case "linear_app":
+    case "notion":
+    case "slack":
+    case "trello":
+    case "sentry":
+      return executeBatch3Connector(normId, {
+        credential: ctx.credential,
+        action: ctx.action,
+        params: ctx.params,
+        accountName: ctx.account,
+        customEndpoint: ctx.params.customEndpoint as string | undefined,
+      });
+    case "stripe":
+    case "google_sheets":
+    case "sheets":
+    case "googlesheets":
+    case "google_drive":
+    case "gdrive":
+    case "googledrive":
+    case "figma":
+    case "docker":
+    case "dockerhub":
+    case "docker_hub":
+      return executeBatch4Connector(normId, {
+        credential: ctx.credential,
+        action: ctx.action,
+        params: ctx.params,
+        accountName: ctx.account,
+        customEndpoint: ctx.params.customEndpoint as string | undefined,
+      });
+    case "huggingface":
+    case "hf":
+    case "gmail":
+    case "outlook":
+    case "microsoft_outlook":
+    case "dropbox":
+    case "planetscale":
+    case "pscale":
+      return executeBatch5Connector(normId, {
+        credential: ctx.credential,
+        action: ctx.action,
+        params: ctx.params,
+        accountName: ctx.account,
+        customEndpoint: ctx.params.customEndpoint as string | undefined,
+      });
+    case "azure":
+    case "microsoft_azure":
+    case "salesforce":
+    case "sfdc":
+    case "google_colab":
+    case "colab":
+    case "google_analytics":
+    case "analytics":
+    case "ga4":
+    case "canva":
+      return executeBatch6Connector(normId, {
+        credential: ctx.credential,
+        action: ctx.action,
+        params: ctx.params,
+        accountName: ctx.account,
+        customEndpoint: ctx.params.customEndpoint as string | undefined,
+      });
     default:
       return {
         success: false,
-        error: `Conector '${connectorId}' ainda não pertence ao Lote 1 ativo.`,
-        summary: `Conector ${connectorId} em fila para os próximos lotes.`,
+        error: `Conector '${connectorId}' não reconhecido.`,
+        summary: `⚠️ O conector **${connectorId}** não foi encontrado. Todos os 30 conectores suportados do GRIOT Mobile estão ativos: GitHub, GitLab, Vercel, Supabase, Firebase, Neon, Upstash, MongoDB, Cloudflare, Qdrant, Linear, Notion, Slack, Trello, Sentry, Stripe, Google Sheets, Google Drive, Figma, Docker Hub, Hugging Face, Gmail, Outlook, Dropbox, PlanetScale, Azure, Salesforce, Google Colab, Google Analytics e Canva.`,
       };
   }
 }

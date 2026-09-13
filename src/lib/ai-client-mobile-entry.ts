@@ -9,7 +9,9 @@ import {
   resolveProviderAndModel,
   isMobileOrCapacitor,
   sanitizeGeminiContents,
+  sanitizeGeminiContentsMultimodal,
   sanitizeAnthropicMessages,
+  sanitizeAnthropicMessagesMultimodal,
   streamDirectAI as streamCoreDirectAI,
 } from "./ai-client";
 
@@ -22,7 +24,9 @@ export {
   resolveProviderAndModel,
   isMobileOrCapacitor,
   sanitizeGeminiContents,
+  sanitizeGeminiContentsMultimodal,
   sanitizeAnthropicMessages,
+  sanitizeAnthropicMessagesMultimodal,
 };
 
 function createTimeoutSignal(ms: number, parentSignal?: AbortSignal) {

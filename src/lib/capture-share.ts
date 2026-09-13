@@ -86,9 +86,12 @@ export async function captureAsText(capture: CaptureRow) {
       `Localização: https://www.google.com/maps?q=${capture.latitude},${capture.longitude}`,
     );
   }
-  const url = await captureUrl(capture.storage_path, capture);
+  let url = await captureUrl(capture.storage_path, capture);
+  if (!url && (capture.mime_type?.startsWith("image/") || capture.kind === "photo")) {
+    url = `local://${capture.id}`;
+  }
   if (url) {
-    if (capture.mime_type?.startsWith("image/")) {
+    if (capture.mime_type?.startsWith("image/") || capture.kind === "photo") {
       lines.push(`![${captureTitle(capture)}](${url})`);
     } else {
       lines.push(url);

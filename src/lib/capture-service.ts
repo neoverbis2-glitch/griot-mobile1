@@ -259,6 +259,25 @@ export async function getCaptureMediaUrl(capture: StoredCapture): Promise<string
 }
 
 /**
+ * Obtém uma captura armazenada completa pelo seu ID a partir do IndexedDB.
+ */
+export async function getStoredCapture(id: string): Promise<StoredCapture | null> {
+  try {
+    const db = await openDb();
+    const full = await new Promise<StoredCapture | undefined>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readonly");
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(id);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return full || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Deletes a capture by ID from IndexedDB and localStorage.
  */
 export async function deleteStoredCapture(id: string): Promise<void> {

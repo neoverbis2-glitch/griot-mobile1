@@ -1587,8 +1587,16 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       });
 
       if (isImg) {
-        const imgUrl =
+        let imgUrl =
           saved && saved.storage_path ? await captureUrl(saved.storage_path, saved) : null;
+        if (!imgUrl && saved?.id) {
+          imgUrl = `local://${saved.id}`;
+        }
+        if (!imgUrl) {
+          try {
+            imgUrl = URL.createObjectURL(file);
+          } catch {}
+        }
         if (imgUrl) {
           toast.success(t("Imagem anexada à conversa."));
           void send(`![${file.name}](${imgUrl})\n\nPor favor analisa esta imagem.`);
@@ -2847,6 +2855,21 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       void send(draft);
+                    }
+                  }}
+                  onPaste={(event) => {
+                    const items = event.clipboardData?.items;
+                    if (items) {
+                      for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf("image") !== -1) {
+                          const file = items[i].getAsFile();
+                          if (file) {
+                            event.preventDefault();
+                            void attach(file);
+                            return;
+                          }
+                        }
+                      }
                     }
                   }}
                   placeholder={t("Escrever")}

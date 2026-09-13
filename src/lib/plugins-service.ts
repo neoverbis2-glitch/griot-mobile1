@@ -76,6 +76,17 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     docsUrl: "https://supabase.com/dashboard/account/tokens",
   },
   {
+    id: "firebase",
+    name: "Firebase",
+    logoName: "FirebaseLogo",
+    category: "dev_cloud",
+    categoryLabel: "Dev & Cloud",
+    description: "Cloud Firestore, autenticação de utilizadores, bases de dados e Cloud Functions.",
+    authType: "api_key",
+    placeholder: "AIza... ou Bearer token (Account ID = project-id)",
+    docsUrl: "https://console.firebase.google.com",
+  },
+  {
     id: "cloudflare",
     name: "Cloudflare",
     logoName: "CloudflareLogo",
