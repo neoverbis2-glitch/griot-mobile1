@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { DEFAULT_MODEL, getAvailableModels, modelLabel, isModelOS } from "@/lib/griot";
@@ -458,6 +458,7 @@ export function ChatSurface({ userId }: { userId: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const touchRef = useRef<{ x: number; y: number; edge: boolean } | null>(null);
   const dragMeta = useRef({ last: 0, time: 0, velocity: 0, active: false });
   const frame = useRef<number | null>(null);
@@ -530,20 +531,29 @@ export function ChatSurface({ userId }: { userId: string }) {
 
   useEffect(() => () => stopMeter(), []);
 
-  // Watchdog de segurança estrito para garantir que o chat nunca fica bloqueado > 22s em "A processar"
+  // Watchdog de segurança de 1 hora para garantir que a UI não fica travada indefinidamente caso ocorra falha irrecuperável
   useEffect(() => {
     if (!busy) return;
     const safetyTimer = setTimeout(() => {
       console.warn(
-        "[ChatSurface] Emergency UI watchdog: busy permaneceu ativo por 22s. Forçando desbloqueio da interface.",
+        "[ChatSurface] Emergency UI watchdog: busy permaneceu ativo por 1h. Forçando desbloqueio da interface.",
       );
       setBusy(false);
       setStreaming("");
       setReasoning("");
       setSteps(0);
-    }, 22000);
+    }, 3600000);
     return () => clearTimeout(safetyTimer);
   }, [busy]);
+
+  // Redimensionamento dinâmico síncrono da barra de texto (cresce suavemente até ~160px como o ChatGPT)
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const nextHeight = Math.min(Math.max(el.scrollHeight, 24), 160);
+    el.style.height = `${nextHeight}px`;
+  }, [draft]);
 
   const conversationId = conversation?.id ?? null;
 
@@ -2871,9 +2881,16 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             ) : (
               <>
                 <textarea
+                  ref={textareaRef}
                   rows={1}
                   value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    const el = event.currentTarget;
+                    el.style.height = "auto";
+                    const nextHeight = Math.min(Math.max(el.scrollHeight, 24), 160);
+                    el.style.height = `${nextHeight}px`;
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
@@ -2896,7 +2913,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                     }
                   }}
                   placeholder={t("Escrever")}
-                  className="max-h-36 w-full resize-none bg-transparent px-1.5 pb-2 text-[15.5px] outline-none placeholder:text-muted-foreground"
+                  className="max-h-40 w-full resize-none bg-transparent px-1.5 pb-2 text-[15.5px] outline-none placeholder:text-muted-foreground overflow-y-auto leading-relaxed transition-[height] duration-75"
                 />
                 <div className="flex items-center gap-2">
                   <button

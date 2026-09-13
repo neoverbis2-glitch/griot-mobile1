@@ -32,7 +32,14 @@ export {
 function createTimeoutSignal(ms: number, parentSignal?: AbortSignal) {
   const controller = new AbortController();
   const timer = setTimeout(
-    () => controller.abort(new Error(`Timeout após ${Math.round(ms / 1000)}s`)),
+    () =>
+      controller.abort(
+        new Error(
+          ms >= 3600000
+            ? `Timeout após ${Math.round(ms / 3600000)}h`
+            : `Timeout após ${Math.round(ms / 1000)}s`,
+        ),
+      ),
     ms,
   );
   const onAbort = () => {
@@ -115,7 +122,7 @@ async function streamMobileQuickBackend(params: {
     systemInstruction: systemInstruction.replace(/^\[GRIOT_FAST_PATH\]\s*/i, "").trim(),
   };
 
-  const timeoutMs = 60000;
+  const timeoutMs = 600000;
   const { signal: safeSignal, cleanup } = createTimeoutSignal(timeoutMs, signal);
   const startedAt = Date.now();
 
@@ -271,7 +278,7 @@ async function streamMobileOrchestrator(params: {
     promptChars: prompt.length,
   });
 
-  const timeoutMs = 120000;
+  const timeoutMs = 3600000;
   const { signal: safeSignal, cleanup } = createTimeoutSignal(timeoutMs, signal);
   let response: Response;
   const startedAt = Date.now();

@@ -701,7 +701,13 @@ function createSafeTimeoutSignal(
 ): { signal: AbortSignal; cleanup: () => void } {
   const ctrl = new AbortController();
   const timer = setTimeout(() => {
-    ctrl.abort(new Error(`Timeout após ${Math.round(ms / 1000)}s`));
+    ctrl.abort(
+      new Error(
+        ms >= 3600000
+          ? `Timeout após ${Math.round(ms / 3600000)}h`
+          : `Timeout após ${Math.round(ms / 1000)}s`,
+      ),
+    );
   }, ms);
 
   const onAbort = () => {
@@ -922,7 +928,7 @@ async function fetchGeminiDirectSync(params: {
     attempt: attemptIndex,
   });
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(14000, signal);
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(3600000, signal);
   let res: Response;
   try {
     res = await fetch(syncEndpoint, {
@@ -1454,7 +1460,7 @@ async function fetchOpenAIDirectSync(params: {
     headers["X-Title"] = "GRIOT Mobile";
   }
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(3600000, signal);
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -1615,9 +1621,9 @@ async function streamOpenAIDirect(params: {
   const streamAbortController = new AbortController();
   const overallTimeoutTimer = setTimeout(() => {
     try {
-      streamAbortController.abort(new Error("Timeout após 12s"));
+      streamAbortController.abort(new Error("Timeout após 1h"));
     } catch {}
-  }, 12000);
+  }, 3600000);
   const onParentAbort = () => {
     try {
       streamAbortController.abort();
@@ -1920,7 +1926,7 @@ async function fetchAnthropicDirectSync(params: {
 
   const anthropicMessages = await sanitizeAnthropicMessagesMultimodal(messages);
 
-  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(12000, signal);
+  const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(3600000, signal);
   let res: Response;
   try {
     res = await fetch(endpoint, {
@@ -1995,9 +2001,9 @@ async function streamAnthropicDirect(params: {
   const streamAbortController = new AbortController();
   const overallTimeoutTimer = setTimeout(() => {
     try {
-      streamAbortController.abort(new Error("Timeout após 12s"));
+      streamAbortController.abort(new Error("Timeout após 1h"));
     } catch {}
-  }, 12000);
+  }, 3600000);
   const onParentAbort = () => {
     try {
       streamAbortController.abort();
@@ -2161,7 +2167,7 @@ async function streamSupabaseOrchestratorFallback(params: {
 
   // 1. Tentar endpoint /api/chat SOMENTE se NÃO for Capacitor nativo
   if (typeof window !== "undefined" && !isCapacitorOrNative) {
-    const { signal: chatSignal, cleanup: cleanupChat } = createSafeTimeoutSignal(45000, signal);
+    const { signal: chatSignal, cleanup: cleanupChat } = createSafeTimeoutSignal(3600000, signal);
     try {
       const localChatRes = await fetch("/api/chat", {
         method: "POST",
@@ -2227,8 +2233,8 @@ async function streamSupabaseOrchestratorFallback(params: {
   const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
   const prompt = lastUserMsg?.content || "";
 
-  // Timeout estrito de 12 segundos para chamada remota
-  const { signal: edgeSignal, cleanup: cleanupEdge } = createSafeTimeoutSignal(12000, signal);
+  // Timeout alargado de 1 hora para processamento profundo e anexos volumosos
+  const { signal: edgeSignal, cleanup: cleanupEdge } = createSafeTimeoutSignal(3600000, signal);
 
   let response: Response;
   try {
