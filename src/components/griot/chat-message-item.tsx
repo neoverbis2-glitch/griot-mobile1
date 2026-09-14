@@ -230,17 +230,16 @@ export const ChatMessageItem = React.memo(
         return (
           <div className="flex flex-col items-end max-w-full">
             <AttachmentBubble meta={parsedAttachment.meta} />
-            <MessageReactionsList
-              reactions={message.reactions}
-              onReact={onReact}
-              messageId={message.id}
-              isUser
-            />
+            {scope === "quick" && (
+              <MessageReactionsList
+                reactions={message.reactions}
+                messageId={message.id}
+                isUser
+              />
+            )}
             <UserActions
               content={message.content}
               onEdit={() => onEdit(message.id)}
-              onReact={(emoji) => onReact?.(message.id, emoji)}
-              hasUserLiked={message.reactions?.some((r) => r.isUser)}
             />
           </div>
         );
@@ -251,17 +250,16 @@ export const ChatMessageItem = React.memo(
           <div className="max-w-[88%] rounded-3xl bg-primary px-4 py-2.5 text-[15.5px] leading-relaxed text-primary-foreground shadow-xs overflow-hidden">
             <MarkdownContent content={message.content} isUser />
           </div>
-          <MessageReactionsList
-            reactions={message.reactions}
-            onReact={onReact}
-            messageId={message.id}
-            isUser
-          />
+          {scope === "quick" && (
+            <MessageReactionsList
+              reactions={message.reactions}
+              messageId={message.id}
+              isUser
+            />
+          )}
           <UserActions
             content={message.content}
             onEdit={() => onEdit(message.id)}
-            onReact={(emoji) => onReact?.(message.id, emoji)}
-            hasUserLiked={message.reactions?.some((r) => r.isUser)}
           />
         </div>
       );
@@ -303,7 +301,6 @@ export const ChatMessageItem = React.memo(
             })}
             <MessageReactionsList
               reactions={message.reactions}
-              onReact={onReact}
               messageId={message.id}
             />
             <AssistantActions
@@ -311,8 +308,6 @@ export const ChatMessageItem = React.memo(
               feedback={message.feedback ?? null}
               onFeedback={(value) => onFeedback(message.id, value)}
               onRegenerate={() => onRegenerate(message.id)}
-              onReact={(emoji) => onReact?.(message.id, emoji)}
-              hasUserLiked={message.reactions?.some((r) => r.isUser)}
             />
           </div>
         );
@@ -346,7 +341,6 @@ export const ChatMessageItem = React.memo(
             </div>
             <MessageReactionsList
               reactions={message.reactions}
-              onReact={onReact}
               messageId={message.id}
             />
             <AssistantActions
@@ -354,8 +348,6 @@ export const ChatMessageItem = React.memo(
               feedback={message.feedback ?? null}
               onFeedback={(value) => onFeedback(message.id, value)}
               onRegenerate={() => onRegenerate(message.id)}
-              onReact={(emoji) => onReact?.(message.id, emoji)}
-              hasUserLiked={message.reactions?.some((r) => r.isUser)}
             />
           </div>
         </div>
@@ -397,18 +389,11 @@ export const ChatMessageItem = React.memo(
         ) : null}
 
         <MarkdownContent content={message.content} />
-        <MessageReactionsList
-          reactions={message.reactions}
-          onReact={onReact}
-          messageId={message.id}
-        />
         <AssistantActions
           content={message.content}
           feedback={message.feedback ?? null}
           onFeedback={(value) => onFeedback(message.id, value)}
           onRegenerate={() => onRegenerate(message.id)}
-          onReact={(emoji) => onReact?.(message.id, emoji)}
-          hasUserLiked={message.reactions?.some((r) => r.isUser)}
         />
       </div>
     );

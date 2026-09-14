@@ -6,7 +6,8 @@
  * Includes Reflection & Self-healing on tool failures.
  */
 
-import { streamDirectAI, type ChatMessage, type StreamCallbacks } from "@/lib/ai-client";
+import { streamDirectAI } from "@/lib/ai-client-mobile-entry";
+import type { ChatMessage, StreamCallbacks } from "@/lib/ai-client";
 import { defaultExecutor } from "./executors";
 import { parseGriotActions } from "./parser";
 import type { GriotAction, GriotExecutionResult } from "./protocol";

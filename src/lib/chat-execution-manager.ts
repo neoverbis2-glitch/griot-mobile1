@@ -299,7 +299,10 @@ class ChatExecutionManager {
 
     let answer = "";
     let fullReasoning = "";
-    let effectiveModelId = modelId;
+    let effectiveModelId =
+      modelId && modelId !== "Selecionar API"
+        ? modelId
+        : (getUserSavedApis()[0]?.id || "gemini");
     let effectiveSystemInstruction = systemInstruction;
 
     try {

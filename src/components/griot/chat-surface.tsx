@@ -95,6 +95,7 @@ import {
   CheckCircle2,
   Lightbulb,
   Sparkles,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   getAiLogo,
@@ -467,6 +468,8 @@ export function ChatSurface({ userId }: { userId: string }) {
       ) {
         setModel(availableModels[0].id);
       }
+    } else if (!model || model === "modelos" || model === "model-os") {
+      setModel("gemini");
     }
   }, [availableModels, model]);
 
@@ -517,6 +520,7 @@ export function ChatSurface({ userId }: { userId: string }) {
   // Callbacks da sessão de voz vivem para lá de um render: estes refs garantem
   // que cada turno usa o histórico e as funções mais recentes.
   const messagesRef = useRef<Row[]>([]);
+  messagesRef.current = messages;
   const conversationRef = useRef<Conversation | null>(null);
   conversationRef.current = conversation;
   const scopeRef = useRef<"main" | "quick">(scope);
@@ -1229,12 +1233,18 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       return;
     }
 
+    const effectiveModel =
+      model && model !== "Selecionar API"
+        ? model
+        : (availableModels[0]?.id || "gemini");
+
+    setBusy(true);
     try {
       await chatExecutionManager.startExecution({
         conversationId: targetConvId,
         scope: targetScope,
         userId,
-        modelId: model,
+        modelId: effectiveModel,
         messages: base,
         userPrompt: lastUserPrompt,
         effort: activeEffort,
