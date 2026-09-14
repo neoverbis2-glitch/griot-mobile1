@@ -18,6 +18,7 @@ import { modelLabel, isModelOS } from "@/lib/griot";
 import { observerEngine } from "@/lib/runtime";
 import { parseProposals } from "@/lib/capsule-proposals";
 import type { GriotProject } from "@/lib/project-service";
+import { buildConnectedPluginsSystemPrompt } from "@/lib/plugins-service";
 
 export interface ChatMessageRow {
   id: string;
@@ -239,6 +240,15 @@ class ChatExecutionManager {
     let fullReasoning = "";
     let effectiveModelId = modelId;
     let effectiveSystemInstruction = systemInstruction;
+
+    try {
+      const pluginsPrompt = buildConnectedPluginsSystemPrompt();
+      if (pluginsPrompt) {
+        effectiveSystemInstruction = `${effectiveSystemInstruction}\n\n${pluginsPrompt}`;
+      }
+    } catch (pluginPromptErr) {
+      console.warn("[GRIOT] Erro ao injetar prompt de plugins conectados:", pluginPromptErr);
+    }
 
     // Prepara mensagens garantindo que o prompt do utilizador está presente sem duplicar
     const effectiveMessages: ChatMessage[] = baseMessages.map((m) => ({

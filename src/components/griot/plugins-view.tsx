@@ -13,6 +13,8 @@ import {
   Key,
   ShieldCheck,
   Sparkles,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import {
   PLUGINS_LIST,
@@ -23,6 +25,7 @@ import {
   type PluginCategory,
   type ConnectedPluginData,
 } from "@/lib/plugins-service";
+import { validatePluginCredentials } from "@/lib/plugin-validators";
 import * as BrandIcons from "@/components/griot/brand-icons";
 import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 import { toast } from "sonner";
@@ -42,6 +45,9 @@ export function PluginsView({ onBack }: PluginsViewProps) {
   const [pluginToDisconnect, setPluginToDisconnect] = useState<PluginDefinition | null>(null);
   const [inputKey, setInputKey] = useState("");
   const [inputAccount, setInputAccount] = useState("");
+  const [inputEndpoint, setInputEndpoint] = useState("");
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const refreshConnections = () => {
     setConnectedMap(getConnectedPlugins());
@@ -76,25 +82,60 @@ export function PluginsView({ onBack }: PluginsViewProps) {
   const handleOpenConfig = (plugin: PluginDefinition) => {
     const existing = connectedMap[plugin.id];
     setInputKey(existing?.apiKey || "");
-    setInputAccount(existing?.accountName || "");
+    setInputAccount(existing?.accountName || existing?.projectRef || "");
+    setInputEndpoint(existing?.customEndpoint || "");
+    setValidationError(null);
+    setIsValidating(false);
     setConfiguringPlugin(plugin);
   };
 
-  const handleSaveConnection = () => {
+  const handleSaveConnection = async () => {
     if (!configuringPlugin) return;
     const key = inputKey.trim();
-    if (!key && configuringPlugin.authType !== "oauth") {
+    if (!key && configuringPlugin.authType !== "oauth" && configuringPlugin.id !== "slack") {
+      setValidationError(t("Insere uma chave de API ou token válido."));
       toast.error(t("Insere uma chave de API ou token válido."));
       return;
     }
 
-    connectPlugin(configuringPlugin.id, {
-      apiKey: key || "connected_oauth",
-      accountName: inputAccount.trim() || undefined,
-    });
-    toast.success(t(`${configuringPlugin.name} ligado com sucesso.`));
-    refreshConnections();
-    setConfiguringPlugin(null);
+    setIsValidating(true);
+    setValidationError(null);
+
+    try {
+      const result = await validatePluginCredentials(configuringPlugin.id, {
+        apiKey: key,
+        accountName: inputAccount.trim(),
+        customEndpoint: inputEndpoint.trim(),
+      });
+
+      if (!result.valid) {
+        setValidationError(result.message);
+        toast.error(result.message);
+        setIsValidating(false);
+        return;
+      }
+
+      connectPlugin(configuringPlugin.id, {
+        apiKey: key || "connected_oauth",
+        accountName: inputAccount.trim() || result.details?.username || undefined,
+        customEndpoint: inputEndpoint.trim() || result.details?.customEndpoint || undefined,
+        projectRef: result.details?.detectedRef || inputAccount.trim() || undefined,
+        projects: result.details?.projects,
+        verifiedAt: new Date().toISOString(),
+        validationStatus: "verified",
+        validationMessage: result.message,
+      });
+
+      toast.success(result.message || t(`${configuringPlugin.name} ligado e validado com sucesso!`));
+      refreshConnections();
+      setConfiguringPlugin(null);
+    } catch (err: any) {
+      const msg = err.message || "Erro inesperado ao validar credenciais.";
+      setValidationError(msg);
+      toast.error(msg);
+    } finally {
+      setIsValidating(false);
+    }
   };
 
   const handleDisconnect = (plugin: PluginDefinition) => {
@@ -242,16 +283,26 @@ export function PluginsView({ onBack }: PluginsViewProps) {
 
                     {/* Status hint if connected */}
                     {isConn && (
-                      <div className="mt-2 flex items-center gap-2 text-[11.5px] text-emerald-600 dark:text-emerald-400 font-medium">
-                        <Check className="size-3.5" />
-                        <span>{t("Conectado")}</span>
-                        {connData?.secretHint && (
-                          <span className="text-muted-foreground/70 font-mono text-[11px]">
-                            ({connData.secretHint})
-                          </span>
+                      <div className="mt-2 space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-emerald-600 dark:text-emerald-400 font-medium">
+                          <ShieldCheck className="size-3.5" />
+                          <span>{t("Ligado e Validado")}</span>
+                          {connData?.secretHint && (
+                            <span className="text-muted-foreground/70 font-mono text-[11px]">
+                              ({connData.secretHint})
+                            </span>
+                          )}
+                        </div>
+                        {(connData?.projectRef || connData?.accountName) && (
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
+                            <span className="opacity-70">Projeto / Ref:</span>
+                            <span className="font-semibold text-foreground/90">{connData.projectRef || connData.accountName}</span>
+                          </div>
                         )}
-                        {connData?.accountName && (
-                          <span className="text-muted-foreground/70">· {connData.accountName}</span>
+                        {connData?.projects && connData.projects.length > 0 && (
+                          <div className="text-[10.5px] text-muted-foreground/80">
+                            {connData.projects.length} {t("projeto(s) detetado(s) na conta")}
+                          </div>
                         )}
                       </div>
                     )}
@@ -312,6 +363,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                 </div>
               </div>
               <button
+                disabled={isValidating}
                 onClick={() => setConfiguringPlugin(null)}
                 className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground"
               >
@@ -324,30 +376,65 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                 {configuringPlugin.description}
               </p>
 
+              {/* Banner de Erro de Validação */}
+              {validationError && (
+                <div className="flex items-start gap-2.5 rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-destructive animate-fade-in text-[12.5px]">
+                  <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                  <div className="leading-snug flex-1">{validationError}</div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[12px] font-medium text-foreground mb-1.5">
-                  {configuringPlugin.authType === "webhook"
+                  {configuringPlugin.id === "supabase"
+                    ? t("Personal Access Token (sbp_...) ou Chave JWT")
+                    : configuringPlugin.authType === "webhook"
                     ? t("Webhook URL")
                     : t("Chave de API / Token de Acesso")}
                 </label>
                 <input
                   type="password"
                   value={inputKey}
-                  onChange={(e) => setInputKey(e.target.value)}
-                  placeholder={configuringPlugin.placeholder}
+                  onChange={(e) => {
+                    setInputKey(e.target.value);
+                    if (validationError) setValidationError(null);
+                  }}
+                  placeholder={
+                    configuringPlugin.id === "supabase"
+                      ? "sbp_xxxxxxxxxxxx (Recomendado) ou eyJhbGciOi..."
+                      : configuringPlugin.placeholder
+                  }
                   className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground font-mono"
                 />
+                {configuringPlugin.id === "supabase" && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {t("Dica: Usa o Personal Access Token (sbp_...) para permissão total de criação de tabelas e queries SQL PostgreSQL diretas.")}
+                  </p>
+                )}
               </div>
 
               <div>
                 <label className="block text-[12px] font-medium text-foreground mb-1.5">
-                  {t("Identificador da Conta ou Workspace (Opcional)")}
+                  {configuringPlugin.id === "supabase"
+                    ? t("Project Ref ou URL do Projeto (Opcional com token sbp_)")
+                    : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
+                    ? t("REST URL do Upstash / Redis (ex: https://xxx.upstash.io)")
+                    : t("Identificador da Conta ou Workspace (Opcional)")}
                 </label>
                 <input
                   type="text"
                   value={inputAccount}
-                  onChange={(e) => setInputAccount(e.target.value)}
-                  placeholder={t("Ex.: org-principal, equipa-dev")}
+                  onChange={(e) => {
+                    setInputAccount(e.target.value);
+                    if (validationError) setValidationError(null);
+                  }}
+                  placeholder={
+                    configuringPlugin.id === "supabase"
+                      ? t("Ex.: meu-projeto-ref ou https://xyz.supabase.co")
+                      : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
+                      ? "https://xxx.upstash.io"
+                      : t("Ex.: org-principal, equipa-dev")
+                  }
                   className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
                 />
               </div>
@@ -371,12 +458,13 @@ export function PluginsView({ onBack }: PluginsViewProps) {
               {Boolean(connectedMap[configuringPlugin.id]?.connected) && (
                 <button
                   type="button"
+                  disabled={isValidating}
                   onClick={() => {
                     const p = configuringPlugin;
                     setConfiguringPlugin(null);
                     setPluginToDisconnect(p);
                   }}
-                  className="mr-auto inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium text-destructive hover:bg-destructive/10 active:scale-95 transition-colors"
+                  className="mr-auto inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] font-medium text-destructive hover:bg-destructive/10 active:scale-95 transition-colors disabled:opacity-50"
                 >
                   <Trash2 className="size-3.5" />
                   <span>{t("Desligar")}</span>
@@ -384,17 +472,29 @@ export function PluginsView({ onBack }: PluginsViewProps) {
               )}
               <button
                 type="button"
+                disabled={isValidating}
                 onClick={() => setConfiguringPlugin(null)}
-                className="rounded-full px-4 py-2 text-[13px] font-medium text-muted-foreground hover:text-foreground"
+                className="rounded-full px-4 py-2 text-[13px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
                 {t("Cancelar")}
               </button>
               <button
                 type="button"
+                disabled={isValidating}
                 onClick={handleSaveConnection}
-                className="rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-xs transition-transform active:scale-95"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-xs transition-transform active:scale-95 disabled:opacity-50"
               >
-                {t("Guardar e Ligar")}
+                {isValidating ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    <span>{t("A Validar na API...")}</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="size-3.5" />
+                    <span>{t("Validar e Ligar")}</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

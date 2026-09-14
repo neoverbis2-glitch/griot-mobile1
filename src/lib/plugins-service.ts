@@ -25,6 +25,11 @@ export interface ConnectedPluginData {
   apiKey?: string;
   accountName?: string;
   customEndpoint?: string;
+  projectRef?: string;
+  projects?: Array<{ id: string; name: string; status?: string }>;
+  verifiedAt?: string;
+  validationStatus?: "verified" | "unverified" | "error";
+  validationMessage?: string;
 }
 
 const STORAGE_KEY = "griot_connected_plugins";
@@ -402,7 +407,16 @@ export function isPluginConnected(pluginId: string): boolean {
 /** Conecta e guarda a configuração de um plugin */
 export function connectPlugin(
   pluginId: string,
-  data?: { apiKey?: string; accountName?: string; customEndpoint?: string },
+  data?: {
+    apiKey?: string;
+    accountName?: string;
+    customEndpoint?: string;
+    projectRef?: string;
+    projects?: Array<{ id: string; name: string; status?: string }>;
+    verifiedAt?: string;
+    validationStatus?: "verified" | "unverified" | "error";
+    validationMessage?: string;
+  },
 ): void {
   if (typeof window === "undefined") return;
   const map = getConnectedPlugins();
@@ -415,6 +429,11 @@ export function connectPlugin(
     apiKey: trimmed,
     accountName: data?.accountName?.trim() || undefined,
     customEndpoint: data?.customEndpoint?.trim() || undefined,
+    projectRef: data?.projectRef?.trim() || undefined,
+    projects: data?.projects || undefined,
+    verifiedAt: data?.verifiedAt || new Date().toISOString(),
+    validationStatus: data?.validationStatus || "verified",
+    validationMessage: data?.validationMessage,
     secretHint: trimmed ? `••••${trimmed.slice(-4)}` : undefined,
   };
 
@@ -449,3 +468,82 @@ export function countConnectedPlugins(): number {
   const map = getConnectedPlugins();
   return Object.values(map).filter((p) => p.connected).length;
 }
+
+/**
+ * Constrói o bloco de prompt de sistema injetado em tempo real
+ * informando à IA quais conectores e serviços externos estão ATIVOS,
+ * AUTENTICADOS e VALIDADOS, com os seus IDs, referências e ferramentas exatas.
+ */
+export function buildConnectedPluginsSystemPrompt(): string {
+  const plugins = getConnectedPlugins();
+  const connectedList = Object.values(plugins).filter((p) => p.connected);
+
+  if (connectedList.length === 0) {
+    return `[CONECTORES EXTERNOS GRIOT]
+Nenhum conector externo está autenticado no momento. Se o utilizador solicitar ações com ferramentas externas (ex: Supabase, GitHub, Vercel), instrui-o a aceder a Definições → Plugins para autenticar o serviço desejado.`;
+  }
+
+  let prompt = `[PLUGINS E INTEGRAÇÕES EXTERNAS ATIVAS NO GRIOT (STATUS: 100% OPERACIONAIS E VALIDADOS)]\n`;
+  prompt += `O utilizador autenticou e validou com sucesso as seguintes integrações externas no dispositivo:\n\n`;
+
+  for (const cp of connectedList) {
+    const meta = PLUGINS_LIST.find((p) => p.id === cp.id);
+    const name = meta?.name || cp.id.toUpperCase();
+
+    if (cp.id === "supabase") {
+      const ref = cp.projectRef || cp.accountName || (cp.projects && cp.projects[0]?.id) || "auto-detectado";
+      const url = cp.customEndpoint || (ref ? `https://${ref}.supabase.co` : "Supabase API");
+      prompt += `• ⚡ **SUPABASE (POSTGRESQL & MANAGEMENT API)**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Project Ref: \`${ref}\`\n`;
+      prompt += `  - Endpoint: \`${url}\`\n`;
+      prompt += `  - Autenticação: ${cp.apiKey?.startsWith("sbp_") ? "Management Token (Acesso Total ao PostgreSQL)" : "Service Role / Anon Key"}\n`;
+      prompt += `  - FERRAMENTA A UTILIZAR: \`call_connector\` com \`connector: "supabase"\`\n`;
+      prompt += `  - AÇÕES SUPORTADAS:\n`;
+      prompt += `    * action: "execute_sql" ou "sql" -> Executa QUALQUER instrução SQL diretamente no PostgreSQL do Supabase (ex: CREATE TABLE ..., ALTER TABLE ..., INSERT ..., SELECT ...). Passa a instrução no parâmetro "sql".\n`;
+      prompt += `    * action: "list_tables" -> Devolve todas as tabelas e esquemas da base de dados.\n`;
+      prompt += `    * action: "describe_table" -> Devolve colunas e tipos de dados de uma tabela (parâmetro "table").\n`;
+      prompt += `    * action: "select" -> Consulta registos de uma tabela (parâmetros "table", "select", "limit").\n`;
+      prompt += `    * action: "insert" -> Insere dados numa tabela (parâmetros "table", "data").\n`;
+      prompt += `    * action: "list_projects" -> Lista os projetos da conta Supabase.\n`;
+      prompt += `  - DIRETRIZ CRÍTICA: A conexão com o Supabase é REAL. NUNCA digas que não tens ferramenta de SQL ou que vais simular. Dispara 'call_connector' imediatamente!\n\n`;
+    } else if (cp.id === "github") {
+      prompt += `• 📦 **GITHUB**: CONECTADO E VALIDADO! (Utilizador: ${cp.accountName || "autenticado"})\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "github"): 'list_repos', 'get_repo', 'create_issue', 'list_issues', 'get_file_content', 'list_commits'.\n\n`;
+    } else if (cp.id === "gitlab") {
+      prompt += `• 🦊 **GITLAB**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "gitlab"): 'list_projects', 'get_project', 'list_pipelines', 'create_issue'.\n\n`;
+    } else if (cp.id === "vercel") {
+      prompt += `• ▲ **VERCEL**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "vercel"): 'list_projects', 'get_project', 'list_deployments', 'get_deployment'.\n\n`;
+    } else if (cp.id === "firebase") {
+      prompt += `• 🔥 **FIREBASE**: CONECTADO E VALIDADO! (Projeto: ${cp.accountName || cp.projectRef || "ativo"})\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "firebase"): 'list_documents', 'get_document', 'create_document', 'delete_document'.\n\n`;
+    } else if (cp.id === "neon") {
+      prompt += `• 🐘 **NEON POSTGRES**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "neon"): 'list_projects', 'list_branches', 'create_branch', 'get_connection_uri'.\n\n`;
+    } else if (cp.id === "cloudflare") {
+      prompt += `• 🌐 **CLOUDFLARE**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "cloudflare"): 'execute_sql' (D1), 'list_zones', 'list_workers'.\n\n`;
+    } else if (cp.id === "upstash" || cp.id === "redis") {
+      prompt += `• ⚡ **${name.toUpperCase()}**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "${cp.id}"): 'get', 'set', 'del', 'ping', 'keys'.\n\n`;
+    } else if (cp.id === "linear") {
+      prompt += `• 📐 **LINEAR**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "linear"): 'list_issues', 'create_issue', 'list_teams', 'list_projects'.\n\n`;
+    } else if (cp.id === "notion") {
+      prompt += `• 📝 **NOTION**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Ações via \`call_connector\` (connector: "notion"): 'search', 'query_database', 'get_page', 'create_page'.\n\n`;
+    } else {
+      prompt += `• 🔌 **${name}**: CONECTADO E VALIDADO! (Identificador: ${cp.accountName || "padrão"})\n`;
+      prompt += `  - Invoca via \`call_connector\` com connector: "${cp.id}".\n\n`;
+    }
+  }
+
+  prompt += `[REGRAS ESTRITAS DE EXECUÇÃO]:
+1. Todos os serviços listados acima estão autenticados no dispositivo e têm permissões para executar ações reais.
+2. NUNCA alucines que "não tens ferramentas", que "precisas simular" ou instruas o utilizador a fazer manualmente algo que podes fazer via 'call_connector'.
+3. Invoca a ferramenta 'call_connector' com os parâmetros necessários sempre que o utilizador solicitar ações nestes serviços.`;
+
+  return prompt;
+}
+

@@ -726,14 +726,222 @@ export async function executeSupabase(ctx: ConnectorExecutionContext): Promise<C
 
   // Supabase Management API (Token começa por sbp_ ou não contém pontos como um JWT)
   const isManagementToken = token.startsWith("sbp_") || !token.includes(".");
+  const headers = {
+    ...USER_AGENT,
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
 
   try {
-    if (isManagementToken) {
-      const headers = { ...USER_AGENT, Authorization: `Bearer ${token}` };
+    // 1. Resolução do Project Ref e Base URL
+    let ref = String(
+      p.ref ||
+      p.project_id ||
+      p.projectId ||
+      p.project_ref ||
+      p.projectRef ||
+      ctx.account ||
+      (p.customEndpoint as string) ||
+      "",
+    ).trim();
 
-      // 4.1 Listar Projetos da Conta (Management API)
-      if (action === "list_projects" || action === "projects" || action === "health") {
-        const res = await fetch("https://api.supabase.com/v1/projects", { headers });
+    // Se o ref tiver o URL completo (ex: https://abcdefg.supabase.co), extrai apenas o subdomínio
+    if (ref.includes(".supabase.co")) {
+      const match = ref.match(/https?:\/\/([^.]+)\.supabase\.co/);
+      if (match) ref = match[1];
+    }
+
+    // Se for token de gestão e ainda não tivermos o ref, descobre automaticamente
+    let cachedProjects: Array<{ id: string; name: string; status: string }> = [];
+    if (!ref && isManagementToken) {
+      try {
+        const prjRes = await fetch("https://api.supabase.com/v1/projects", {
+          headers: { ...USER_AGENT, Authorization: `Bearer ${token}` },
+        });
+        if (prjRes.ok) {
+          cachedProjects = await prjRes.json();
+          if (cachedProjects.length > 0) {
+            ref = cachedProjects[0].id;
+          }
+        }
+      } catch {
+        // Fallback para outros métodos
+      }
+    }
+
+    let baseUrl = (p.customEndpoint as string) || (ref ? `https://${ref}.supabase.co` : "") || ctx.account || "";
+    if (baseUrl && !baseUrl.startsWith("http")) {
+      baseUrl = `https://${baseUrl}.supabase.co`;
+    }
+
+    // ==========================================
+    // 2. AÇÃO: EXECUTE_SQL / SQL / CREATE_TABLE / QUERY (Execução Real no PostgreSQL)
+    // ==========================================
+    if (
+      action === "execute_sql" ||
+      action === "sql" ||
+      action === "query" ||
+      action === "run_sql" ||
+      action === "create_table" ||
+      action === "create_schema"
+    ) {
+      const sqlQuery = String(
+        p.sql || p.query || p.command || p.code || p.body || "",
+      ).trim();
+
+      if (!sqlQuery) {
+        throw new Error("Comando SQL ausente. Fornece a query ou comando no parâmetro 'sql'.");
+      }
+
+      if (isManagementToken) {
+        if (!ref) {
+          throw new Error(
+            "Nenhum projeto Supabase encontrado nesta conta. Cria um projeto em supabase.com antes de executar comandos SQL.",
+          );
+        }
+
+        const queryUrl = `https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}/database/query`;
+        const res = await fetch(queryUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ query: sqlQuery }),
+        });
+
+        if (!res.ok) {
+          throw new Error(await handleHttpError(res, "Supabase Postgres SQL"));
+        }
+
+        const rows = await res.json();
+        const isDdl = /^\s*(create|alter|drop|truncate|grant|revoke)\b/i.test(sqlQuery);
+
+        return {
+          success: true,
+          data: rows,
+          summary: isDdl
+            ? `⚡ **Estrutura SQL executada com sucesso no PostgreSQL do Supabase!**\n` +
+              `• Projeto Ref: \`${ref}\`\n` +
+              `• Endpoint: \`${baseUrl || `https://${ref}.supabase.co`}\`\n` +
+              `• Comando Executado:\n\`\`\`sql\n${sqlQuery}\n\`\`\`\n` +
+              `• Estado: Tabelas e esquemas sincronizados com sucesso no banco de dados.`
+            : `⚡ **Query SQL executada com sucesso no PostgreSQL do Supabase!**\n` +
+              `• Projeto Ref: \`${ref}\`\n` +
+              `• Query:\n\`\`\`sql\n${sqlQuery}\n\`\`\`\n` +
+              `• Registos retornados (${Array.isArray(rows) ? rows.length : 1}):\n\`\`\`json\n${JSON.stringify(rows, null, 2).slice(0, 3500)}\n\`\`\``,
+        };
+      }
+
+      // Se for Service Role ou Anon Key, tenta RPC se configurado ou orienta o utilizador
+      if (baseUrl) {
+        const rpcRes = await fetch(`${baseUrl.replace(/\/+$/, "")}/rest/v1/rpc/exec_sql`, {
+          method: "POST",
+          headers: {
+            ...USER_AGENT,
+            apikey: token,
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query: sqlQuery }),
+        });
+
+        if (rpcRes.ok) {
+          const rpcData = await rpcRes.json();
+          return {
+            success: true,
+            data: rpcData,
+            summary: `⚡ **Comando SQL executado via RPC no Supabase!**\n\`\`\`json\n${JSON.stringify(rpcData, null, 2).slice(0, 3000)}\n\`\`\``,
+          };
+        }
+      }
+
+      throw new Error(
+        "Para executar comandos DDL diretos (como CREATE TABLE), é necessário ligar o Supabase com o Personal Access Token (`sbp_...`) gerado em supabase.com/dashboard/account/tokens.",
+      );
+    }
+
+    // ==========================================
+    // 3. AÇÃO: LIST_TABLES / TABLES / SCHEMA
+    // ==========================================
+    if (action === "list_tables" || action === "tables" || action === "schema") {
+      if (isManagementToken && ref) {
+        const queryUrl = `https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}/database/query`;
+        const res = await fetch(queryUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query:
+              "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;",
+          }),
+        });
+
+        if (res.ok) {
+          const tables = (await res.json()) as Array<{ table_name: string; table_type: string }>;
+          return {
+            success: true,
+            data: tables,
+            summary: tables.length
+              ? `⚡ **Tabelas encontradas no esquema público do Supabase (${tables.length}):**\n` +
+                tables.map((t) => `• **${t.table_name}** (${t.table_type})`).join("\n")
+              : "Nenhuma tabela encontrada no esquema público deste banco de dados.",
+          };
+        }
+      }
+
+      // Fallback para PostgREST OpenAPI schema
+      if (baseUrl) {
+        const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/rest/v1/`, {
+          headers: { ...USER_AGENT, apikey: token, Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const schema = await res.json();
+          const tableNames = Object.keys(schema.definitions || {});
+          return {
+            success: true,
+            data: tableNames,
+            summary: tableNames.length
+              ? `⚡ **Tabelas disponíveis via PostgREST (${tableNames.length}):**\n` +
+                tableNames.map((n) => `• **${n}**`).join("\n")
+              : "Nenhuma tabela pública detetada no esquema PostgREST.",
+          };
+        }
+      }
+    }
+
+    // ==========================================
+    // 4. AÇÃO: DESCRIBE_TABLE
+    // ==========================================
+    if (action === "describe_table") {
+      const table = String(p.table || p.name || "").trim();
+      if (!table) throw new Error("Parâmetro 'table' obrigatório.");
+
+      if (isManagementToken && ref) {
+        const queryUrl = `https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}/database/query`;
+        const res = await fetch(queryUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query: `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${table.replace(/'/g, "''")}' ORDER BY ordinal_position;`,
+          }),
+        });
+
+        if (res.ok) {
+          const cols = await res.json();
+          return {
+            success: true,
+            data: cols,
+            summary: `⚡ **Estrutura da Tabela \`${table}\` no Supabase:**\n\`\`\`json\n${JSON.stringify(cols, null, 2)}\n\`\`\``,
+          };
+        }
+      }
+    }
+
+    // ==========================================
+    // 5. AÇÃO: LIST_PROJECTS / HEALTH
+    // ==========================================
+    if (action === "list_projects" || action === "projects" || action === "health") {
+      if (isManagementToken) {
+        const res = await fetch("https://api.supabase.com/v1/projects", {
+          headers: { ...USER_AGENT, Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) throw new Error(await handleHttpError(res, "Supabase Management"));
 
         const projects = (await res.json()) as Array<{
@@ -760,39 +968,79 @@ export async function executeSupabase(ctx: ConnectorExecutionContext): Promise<C
         };
       }
 
-      // 4.2 Obter Detalhes de um Projeto
-      if (action === "get_project") {
-        const ref = String(p.ref || p.project_id || ctx.account || "").trim();
-        if (!ref) throw new Error("Parâmetro 'ref' (Project Reference ID) obrigatório.");
-        const res = await fetch(`https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}`, { headers });
-        if (!res.ok) throw new Error(await handleHttpError(res, "Supabase Management"));
-
-        const data = await res.json();
+      if (baseUrl) {
         return {
           success: true,
-          data,
-          summary:
-            `⚡ **Projeto Supabase: ${data.name}**\n` +
-            `• Ref: \`${data.id}\` | Estado: ${data.status}\n` +
-            `• Região: ${data.region} | Versão Postgres: ${data.database?.version || "15"}\n` +
-            `• Endpoint: https://${data.id}.supabase.co`,
+          data: { baseUrl, status: "ready" },
+          summary: `⚡ **Supabase PostgREST Conectado!** Endpoint: ${baseUrl}`,
         };
       }
     }
 
-    // 4.3 Consulta a Tabelas via PostgREST (usando accountName como project-ref ou customEndpoint)
-    let baseUrl = ctx.account || (p.project_url as string) || (p.project_ref as string) || "";
-    if (baseUrl && !baseUrl.startsWith("http")) {
-      baseUrl = `https://${baseUrl}.supabase.co`;
+    // ==========================================
+    // 6. AÇÃO: GET_PROJECT
+    // ==========================================
+    if (action === "get_project") {
+      if (!ref) throw new Error("Parâmetro 'ref' (Project Reference ID) obrigatório.");
+      const res = await fetch(`https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}`, {
+        headers: { ...USER_AGENT, Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Supabase Management"));
+
+      const data = await res.json();
+      return {
+        success: true,
+        data,
+        summary:
+          `⚡ **Projeto Supabase: ${data.name}**\n` +
+          `• Ref: \`${data.id}\` | Estado: ${data.status}\n` +
+          `• Região: ${data.region} | Versão Postgres: ${data.database?.version || "15"}\n` +
+          `• Endpoint: https://${data.id}.supabase.co`,
+      };
     }
 
+    // ==========================================
+    // 7. AÇÃO: INSERT / INSERT_ROWS
+    // ==========================================
+    if (action === "insert" || action === "insert_rows") {
+      const table = String(p.table || "").trim();
+      if (!table) throw new Error("Parâmetro 'table' obrigatório para inserção.");
+      const data = p.data || p.row || p.body;
+      if (!data) throw new Error("Parâmetro 'data' com o objeto ou registo a inserir é obrigatório.");
+
+      if (baseUrl) {
+        const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/rest/v1/${encodeURIComponent(table)}`, {
+          method: "POST",
+          headers: {
+            ...USER_AGENT,
+            apikey: token,
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Prefer: "return=representation",
+          },
+          body: JSON.stringify(data),
+        });
+
+        if (!res.ok) throw new Error(await handleHttpError(res, "Supabase PostgREST Insert"));
+        const inserted = await res.json();
+        return {
+          success: true,
+          data: inserted,
+          summary: `⚡ **Registo inserido com sucesso na tabela \`${table}\` do Supabase!**\n\`\`\`json\n${JSON.stringify(inserted, null, 2)}\n\`\`\``,
+        };
+      }
+    }
+
+    // ==========================================
+    // 8. AÇÃO: SELECT / CONSULTA A TABELAS
+    // ==========================================
     if (!baseUrl) {
       return {
         success: true,
-        data: { tokenType: isManagementToken ? "Management Token" : "JWT Key", status: "ready" },
+        data: { tokenType: isManagementToken ? "Management Token" : "JWT Key", status: "ready", ref },
         summary:
           `⚡ **Supabase Conectado!**\n` +
-          `A credencial é válida. Para consultar tabelas diretamente, adiciona o **Project Ref** ou **URL do Projeto** (ex: \`https://xyz.supabase.co\`) no campo de Identificador/Conta em Definições → Plugins.`,
+          `A credencial é válida (Ref: \`${ref || "detetado"}\`). Podes executar instruções SQL usando a ação 'execute_sql' ou consultar tabelas diretamente.`,
       };
     }
 

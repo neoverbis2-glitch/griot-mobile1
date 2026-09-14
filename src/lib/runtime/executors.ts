@@ -42,7 +42,9 @@ export class GriotActionExecutor {
       const account = String(
         action.params.account ||
           action.params.accountName ||
+          action.params.ref ||
           savedPlugin?.accountName ||
+          savedPlugin?.projectRef ||
           "",
       ).trim();
 
@@ -50,6 +52,15 @@ export class GriotActionExecutor {
         action.params.customEndpoint ||
           action.params.endpoint ||
           savedPlugin?.customEndpoint ||
+          "",
+      ).trim();
+
+      const projectRef = String(
+        action.params.ref ||
+          action.params.projectRef ||
+          action.params.project_id ||
+          savedPlugin?.projectRef ||
+          account ||
           "",
       ).trim();
 
@@ -67,10 +78,11 @@ export class GriotActionExecutor {
 
       const res = await executeBatch1Connector(connectorName, {
         credential,
-        account: account || undefined,
+        account: account || projectRef || undefined,
         action: actionName,
         params: {
           ...connectorParams,
+          ...(projectRef ? { ref: projectRef, projectRef, project_id: projectRef } : {}),
           ...(customEndpoint ? { customEndpoint } : {}),
         },
       });
