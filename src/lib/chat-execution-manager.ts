@@ -18,7 +18,26 @@ import { modelLabel, isModelOS } from "@/lib/griot";
 import { observerEngine } from "@/lib/runtime";
 import { parseProposals } from "@/lib/capsule-proposals";
 import type { GriotProject } from "@/lib/project-service";
-import { buildConnectedPluginsSystemPrompt } from "@/lib/plugins-service";
+import { buildConnectedPluginsSystemPrompt, PLUGINS_LIST } from "@/lib/plugins-service";
+import { GRIOT_CHART_SYSTEM_PROMPT } from "@/lib/chart-system-prompt";
+
+export interface ExecutionStepItem {
+  id: string;
+  type: "thinking" | "reading" | "searching" | "editing" | "writing" | "plugin";
+  label: string;
+  detail?: string;
+  pluginId?: string;
+  status: "running" | "done" | "error";
+  timestamp: number;
+}
+
+export interface MessageReaction {
+  emoji: string;
+  by?: string;
+  modelId?: string;
+  roleId?: string;
+  isUser?: boolean;
+}
 
 export interface ChatMessageRow {
   id: string;
@@ -26,9 +45,15 @@ export interface ChatMessageRow {
   content: string;
   created_at: string;
   feedback?: string | null;
+  model?: string;
+  reasoning?: string;
+  steps?: number;
+  stepsList?: ExecutionStepItem[];
+  reactions?: MessageReaction[];
+  metadata?: Record<string, unknown>;
 }
 
-export type ExecutionPhase = "idle" | "reading" | "searching" | "editing" | "writing" | "thinking";
+export type ExecutionPhase = "idle" | "reading" | "searching" | "editing" | "writing" | "thinking" | "plugin";
 
 export interface ExecutionState {
   conversationId: string;
@@ -39,6 +64,8 @@ export interface ExecutionState {
   steps: number;
   currentPhase?: ExecutionPhase;
   currentActionDetail?: string;
+  currentPluginId?: string;
+  stepsList?: ExecutionStepItem[];
   error?: string | null;
 }
 
@@ -186,8 +213,41 @@ class ChatExecutionManager {
       userPrompt.includes("[Ficheiro Anexado:") ||
       userPrompt.includes("<!--GRIOT_ATTACHMENT_META:");
 
+    let attachmentName = "";
+    const nameMatch = userPrompt.match(/\[Ficheiro Anexado:\s*([^\]\n]+)\]/);
+    if (nameMatch) {
+      attachmentName = nameMatch[1].trim();
+    } else {
+      const zipMatch = userPrompt.match(/\[Arquivo ZIP Descompactado:\s*([^\]\n]+)\]/);
+      if (zipMatch) attachmentName = zipMatch[1].trim();
+    }
+
+    const stepsList: ExecutionStepItem[] = [];
+
+    if (hasAttachment) {
+      stepsList.push({
+        id: "step-attach",
+        type: "reading",
+        label: attachmentName ? `A ler ficheiro ${attachmentName}` : "A ler ficheiros e anexos",
+        detail: "Análise de conteúdo",
+        status: "done",
+        timestamp: Date.now(),
+      });
+    }
+
+    stepsList.push({
+      id: "step-think-init",
+      type: "thinking",
+      label: "A pensar na resposta",
+      detail: "Interpretação e plano de ação",
+      status: "running",
+      timestamp: Date.now(),
+    });
+
     const initialPhase: ExecutionPhase = hasAttachment ? "reading" : "thinking";
-    const initialDetail = hasAttachment ? "A ler ficheiros anexados..." : "A analisar pedido...";
+    const initialDetail = hasAttachment
+      ? (attachmentName ? `A ler ficheiro ${attachmentName}...` : "A ler ficheiros anexados...")
+      : "A pensar...";
 
     const active: ActiveExecution = {
       controller,
@@ -197,9 +257,10 @@ class ChatExecutionManager {
         busy: true,
         streaming: "",
         reasoning: "",
-        steps: 0,
+        steps: stepsList.length,
         currentPhase: initialPhase,
         currentActionDetail: initialDetail,
+        stepsList: [...stepsList],
       },
       listeners: new Set(),
       startedAt: Date.now(),
@@ -250,6 +311,10 @@ class ChatExecutionManager {
       console.warn("[GRIOT] Erro ao injetar prompt de plugins conectados:", pluginPromptErr);
     }
 
+    if (!effectiveSystemInstruction?.includes("[FERRAMENTA NATIVA DE GRÁFICOS")) {
+      effectiveSystemInstruction = `${effectiveSystemInstruction || ""}\n\n${GRIOT_CHART_SYSTEM_PROMPT}`;
+    }
+
     // Prepara mensagens garantindo que o prompt do utilizador está presente sem duplicar
     const effectiveMessages: ChatMessage[] = baseMessages.map((m) => ({
       role: m.role as "user" | "assistant" | "system",
@@ -281,6 +346,22 @@ class ChatExecutionManager {
               active.state.streaming = answer;
               active.state.currentPhase = "writing";
               active.state.currentActionDetail = "A compor resposta...";
+
+              for (const s of stepsList) {
+                if (s.status === "running") s.status = "done";
+              }
+              if (!stepsList.some((s) => s.type === "writing")) {
+                stepsList.push({
+                  id: "step-writing",
+                  type: "writing",
+                  label: "A escrever resposta",
+                  detail: "Geração de texto",
+                  status: "running",
+                  timestamp: Date.now(),
+                });
+              }
+              active.state.stepsList = [...stepsList];
+              active.state.steps = stepsList.length;
               this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
@@ -288,7 +369,7 @@ class ChatExecutionManager {
               fullReasoning += r;
               active.state.reasoning = fullReasoning;
               active.state.currentPhase = "thinking";
-              active.state.currentActionDetail = "A analisar...";
+              active.state.currentActionDetail = "A pensar...";
               this.notify(conversationId, { ...active.state });
             },
           },
@@ -319,6 +400,22 @@ class ChatExecutionManager {
               active.state.streaming = answer;
               active.state.currentPhase = "writing";
               active.state.currentActionDetail = "A compor resposta...";
+
+              for (const s of stepsList) {
+                if (s.status === "running") s.status = "done";
+              }
+              if (!stepsList.some((s) => s.type === "writing")) {
+                stepsList.push({
+                  id: "step-writing",
+                  type: "writing",
+                  label: "A escrever resposta",
+                  detail: "Geração de texto",
+                  status: "running",
+                  timestamp: Date.now(),
+                });
+              }
+              active.state.stepsList = [...stepsList];
+              active.state.steps = stepsList.length;
               this.notify(conversationId, { ...active.state });
             },
             onReasoning: (r) => {
@@ -331,29 +428,87 @@ class ChatExecutionManager {
             },
             onStepChange: (st) => {
               if (controller.signal.aborted) return;
-              active.state.steps = st;
+              active.state.steps = Math.max(st, stepsList.length);
               this.notify(conversationId, { ...active.state });
             },
             onActionStart: (action) => {
               if (controller.signal.aborted) return;
-              if (action.type.startsWith("fs.read")) {
-                active.state.currentPhase = "reading";
-                active.state.currentActionDetail = (action.params as any)?.path
-                  ? `A ler ${(action.params as any).path}...`
-                  : "A ler ficheiros...";
-              } else if (action.type.startsWith("search")) {
-                active.state.currentPhase = "searching";
-                active.state.currentActionDetail = (action.params as any)?.query
-                  ? `A pesquisar "${(action.params as any).query}"...`
-                  : "A pesquisar código...";
-              } else if (action.type.startsWith("fs.write") || action.type.startsWith("fs.patch")) {
-                active.state.currentPhase = "editing";
-                active.state.currentActionDetail = (action.params as any)?.path
-                  ? `A editar ${(action.params as any).path}...`
-                  : "A editar código...";
-              } else {
-                active.state.currentPhase = "thinking";
+              for (const s of stepsList) {
+                if (s.status === "running") s.status = "done";
               }
+
+              let stepType: ExecutionStepItem["type"] = "thinking";
+              let label = "A executar ação...";
+              let detail: string | undefined;
+              let pluginId: string | undefined;
+
+              if (action.type === "connector.execute" || action.category === "connector") {
+                const connId = (action.params as any)?.connector || action.type.split(".")[0];
+                const connAction = (action.params as any)?.action || action.type;
+                const def = PLUGINS_LIST.find((p) => p.id === connId);
+                const pName = def?.name || connId;
+                stepType = "plugin";
+                pluginId = connId;
+                label = `A consultar plugin ${pName}`;
+                detail = connAction;
+                active.state.currentPhase = "plugin";
+                active.state.currentPluginId = connId;
+                active.state.currentActionDetail = `A consultar ${pName}...`;
+              } else if (action.type.startsWith("fs.read")) {
+                const path = (action.params as any)?.path || "ficheiro";
+                stepType = "reading";
+                label = `A ler ficheiro ${path}`;
+                detail = "Leitura no projeto";
+                active.state.currentPhase = "reading";
+                active.state.currentActionDetail = `A ler ${path}...`;
+              } else if (action.type.startsWith("search")) {
+                const q = (action.params as any)?.query || "código";
+                stepType = "searching";
+                label = `A pesquisar "${q}"`;
+                detail = "Busca no repositório";
+                active.state.currentPhase = "searching";
+                active.state.currentActionDetail = `A pesquisar "${q}"...`;
+              } else if (action.type.startsWith("fs.write") || action.type.startsWith("fs.patch")) {
+                const path = (action.params as any)?.path || "código";
+                stepType = "editing";
+                label = `A editar ${path}`;
+                detail = "Modificação de ficheiro";
+                active.state.currentPhase = "editing";
+                active.state.currentActionDetail = `A editar ${path}...`;
+              } else if (action.type.startsWith("terminal")) {
+                const cmd = (action.params as any)?.command || "";
+                stepType = "editing";
+                label = `A executar ${cmd}`;
+                detail = "Comando de terminal";
+                active.state.currentPhase = "editing";
+                active.state.currentActionDetail = `A executar ${cmd}...`;
+              } else {
+                label = "A ponderar alternativas...";
+                active.state.currentPhase = "thinking";
+                active.state.currentActionDetail = "A pensar...";
+              }
+
+              stepsList.push({
+                id: `step-action-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                type: stepType,
+                label,
+                detail,
+                pluginId,
+                status: "running",
+                timestamp: Date.now(),
+              });
+
+              active.state.stepsList = [...stepsList];
+              active.state.steps = stepsList.length;
+              this.notify(conversationId, { ...active.state });
+            },
+            onActionCompleted: (_action, result) => {
+              if (controller.signal.aborted) return;
+              const last = stepsList[stepsList.length - 1];
+              if (last && last.status === "running") {
+                last.status = result.status === "failed" || result.exitCode !== 0 ? "error" : "done";
+              }
+              active.state.stepsList = [...stepsList];
               this.notify(conversationId, { ...active.state });
             },
           },
@@ -444,11 +599,17 @@ class ChatExecutionManager {
           console.warn("[ChatExecutionManager] Observer non-critical:", obsErr);
         }
 
+        for (const s of stepsList) {
+          if (s.status === "running") s.status = "done";
+        }
+
         await this.finalizeAssistantMessage(
           conversationId,
           cleaned,
           userId,
           isModelOS(modelId) ? "modelos" : modelId,
+          stepsList,
+          fullReasoning,
         );
       }
 
@@ -462,6 +623,7 @@ class ChatExecutionManager {
         streaming: "",
         reasoning: "",
         steps: 0,
+        stepsList: [],
       });
       console.log("[GRIOT_DEBUG] startExecution: notify enviado");
 
@@ -469,6 +631,49 @@ class ChatExecutionManager {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("griot_conversations_changed"));
       }
+    }
+  }
+
+  /** Adiciona mensagem diretamente à conversa local */
+  public appendMessage(conversationId: string, msg: ChatMessageRow): void {
+    this.appendMessageLocally(conversationId, msg);
+  }
+
+  /** Adiciona ou alterna uma reação numa mensagem específica */
+  public addReaction(conversationId: string, messageId: string, reaction: MessageReaction): void {
+    if (typeof window === "undefined" || !conversationId || !messageId) return;
+    try {
+      const storageKey = "griot_messages_" + conversationId;
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const list: ChatMessageRow[] = JSON.parse(raw);
+      const target = list.find((m) => m.id === messageId);
+      if (!target) return;
+      const current = target.reactions ? [...target.reactions] : [];
+      if (reaction.isUser) {
+        const existingIdx = current.findIndex((r) => r.isUser && r.emoji === reaction.emoji);
+        if (existingIdx >= 0) {
+          current.splice(existingIdx, 1);
+        } else {
+          current.push(reaction);
+        }
+      } else {
+        const existingIdx = current.findIndex(
+          (r) => r.roleId === reaction.roleId && r.emoji === reaction.emoji
+        );
+        if (existingIdx < 0) {
+          current.push(reaction);
+        }
+      }
+      target.reactions = current;
+      localStorage.setItem(storageKey, JSON.stringify(list));
+      window.dispatchEvent(
+        new CustomEvent("griot_message_reaction", {
+          detail: { conversationId, messageId, reactions: current },
+        }),
+      );
+    } catch (e) {
+      console.warn("[ChatExecutionManager] Erro ao gravar reação:", e);
     }
   }
 
@@ -505,6 +710,8 @@ class ChatExecutionManager {
     content: string,
     userId: string,
     modelId: string,
+    stepsList?: ExecutionStepItem[],
+    reasoning?: string,
   ): Promise<void> {
     const asstId = `asst-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const asstMsg: ChatMessageRow = {
@@ -513,6 +720,10 @@ class ChatExecutionManager {
       content,
       created_at: new Date().toISOString(),
       feedback: null,
+      model: modelId,
+      stepsList: stepsList && stepsList.length > 0 ? stepsList : undefined,
+      reasoning: reasoning?.trim() || undefined,
+      steps: stepsList?.length || 0,
     };
 
     // 1. Gravação local imediata (disponível instantaneamente mesmo offline ou ao navegar)
@@ -529,7 +740,11 @@ class ChatExecutionManager {
           actor_kind: "model",
           content,
           status: "succeeded",
-          metadata: { model: modelId },
+          metadata: {
+            model: modelId,
+            stepsList: stepsList && stepsList.length > 0 ? stepsList : undefined,
+            reasoning: reasoning?.trim() || undefined,
+          },
         });
 
         // Atualiza timestamp da conversa

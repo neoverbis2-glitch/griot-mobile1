@@ -138,6 +138,29 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     }
   };
 
+  const handleForceSaveConnection = () => {
+    if (!configuringPlugin) return;
+    const key = inputKey.trim();
+    if (!key && configuringPlugin.authType !== "oauth" && configuringPlugin.id !== "slack") {
+      toast.error(t("Insere uma chave de API ou token."));
+      return;
+    }
+
+    connectPlugin(configuringPlugin.id, {
+      apiKey: key || "connected_direct",
+      accountName: inputAccount.trim() || undefined,
+      customEndpoint: inputEndpoint.trim() || (inputAccount.trim() ? `https://${inputAccount.trim()}.supabase.co` : undefined),
+      projectRef: inputAccount.trim() || undefined,
+      verifiedAt: new Date().toISOString(),
+      validationStatus: "verified",
+      validationMessage: "⚡ Conexão direta ativada com o token fornecido.",
+    });
+
+    toast.success(t(`${configuringPlugin.name} ligado com sucesso!`));
+    refreshConnections();
+    setConfiguringPlugin(null);
+  };
+
   const handleDisconnect = (plugin: PluginDefinition) => {
     disconnectPlugin(plugin.id);
     toast.success(t(`${plugin.name} desligado.`));
@@ -378,9 +401,21 @@ export function PluginsView({ onBack }: PluginsViewProps) {
 
               {/* Banner de Erro de Validação */}
               {validationError && (
-                <div className="flex items-start gap-2.5 rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-destructive animate-fade-in text-[12.5px]">
-                  <AlertCircle className="size-4 shrink-0 mt-0.5" />
-                  <div className="leading-snug flex-1">{validationError}</div>
+                <div className="flex flex-col gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-destructive animate-fade-in text-[12.5px]">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                    <div className="leading-snug flex-1">{validationError}</div>
+                  </div>
+                  <div className="pt-2 border-t border-destructive/20 flex items-center justify-between">
+                    <span className="text-[11.5px] text-muted-foreground">{t("O teu token é real?")}</span>
+                    <button
+                      type="button"
+                      onClick={handleForceSaveConnection}
+                      className="text-[11.5px] font-semibold text-foreground underline underline-offset-2 hover:opacity-85 active:scale-95"
+                    >
+                      {t("Guardar mesmo assim")}
+                    </button>
+                  </div>
                 </div>
               )}
 

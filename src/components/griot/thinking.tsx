@@ -1,131 +1,358 @@
-import { useState } from "react";
-import { Brain, ChevronDown, BookOpen, Search, Code, PenLine } from "lucide-react";
+import { useState, useEffect } from "react";
+import {
+  ChevronDown,
+  FileText,
+  Search,
+  Code,
+  PenLine,
+  Sparkles,
+  Check,
+  AlertCircle,
+} from "lucide-react";
+import { GriotMark } from "@/components/griot/logo";
 import { useT } from "@/lib/i18n";
-import type { ExecutionPhase } from "@/lib/chat-execution-manager";
+import type { ExecutionPhase, ExecutionStepItem } from "@/lib/chat-execution-manager";
+import {
+  GithubLogo,
+  GitlabLogo,
+  VercelLogo,
+  SupabaseLogo,
+  FirebaseLogo,
+  CloudflareLogo,
+  DockerLogo,
+  SentryLogo,
+  LinearLogo,
+  TrelloLogo,
+  SlackLogo,
+  NotionLogo,
+  StripeLogo,
+  GoogleDriveLogo,
+  NeonLogo,
+  MongoDbLogo,
+  RedisLogo,
+  UpstashLogo,
+  QdrantLogo,
+  HuggingFaceLogo,
+  GoogleAnalyticsLogo,
+  DiscordLogo,
+  TelegramLogo,
+  TwilioLogo,
+  ResendLogo,
+  AirtableLogo,
+  PineconeLogo,
+  JiraLogo,
+  AwsLogo,
+  DigitalOceanLogo,
+  ShopifyLogo,
+  PostHogLogo,
+} from "@/components/griot/brand-icons";
 
 type Props = {
-  text: string;
+  text?: string;
   active: boolean;
   steps: number;
   phase?: ExecutionPhase;
   actionDetail?: string;
+  stepsList?: ExecutionStepItem[];
   onStop?: () => void;
 };
 
 /**
- * Painel de atividade e raciocínio real:
- * Mostra com ícones e status verdadeiros o que a IA está a fazer:
- * - Livro (BookOpen): quando está a ler ficheiros anexados ou projeto
- * - Lupa (Search): quando está a pesquisar no código ou base de conhecimento
- * - Código (Code): quando está a inspecionar/editar ficheiros ou patches
- * - Caneta (PenLine): quando está a compor a resposta
- * - Cérebro (Brain): quando está a deliberar e a raciocinar
+ * Renderiza o ícone oficial da marca do plugin (estilo ChatGPT com a identidade visual do GRIOT)
  */
-export function Thinking({ text, active, steps, phase = "thinking", actionDetail }: Props) {
-  const t = useT();
-  const [open, setOpen] = useState(true);
+function renderPluginLogo(pluginId?: string, className: string = "size-3.5") {
+  if (!pluginId) return null;
+  const id = pluginId.toLowerCase().trim();
+  switch (id) {
+    case "github":
+      return <GithubLogo className={className} />;
+    case "gitlab":
+      return <GitlabLogo className={className} />;
+    case "vercel":
+      return <VercelLogo className={className} />;
+    case "supabase":
+      return <SupabaseLogo className={className} />;
+    case "firebase":
+      return <FirebaseLogo className={className} />;
+    case "cloudflare":
+      return <CloudflareLogo className={className} />;
+    case "docker":
+      return <DockerLogo className={className} />;
+    case "sentry":
+      return <SentryLogo className={className} />;
+    case "linear":
+      return <LinearLogo className={className} />;
+    case "trello":
+      return <TrelloLogo className={className} />;
+    case "slack":
+      return <SlackLogo className={className} />;
+    case "notion":
+      return <NotionLogo className={className} />;
+    case "stripe":
+      return <StripeLogo className={className} />;
+    case "google_drive":
+    case "gdrive":
+      return <GoogleDriveLogo className={className} />;
+    case "neon":
+      return <NeonLogo className={className} />;
+    case "mongodb":
+      return <MongoDbLogo className={className} />;
+    case "redis":
+      return <RedisLogo className={className} />;
+    case "upstash":
+      return <UpstashLogo className={className} />;
+    case "qdrant":
+      return <QdrantLogo className={className} />;
+    case "huggingface":
+      return <HuggingFaceLogo className={className} />;
+    case "google_analytics":
+    case "ga":
+      return <GoogleAnalyticsLogo className={className} />;
+    case "discord":
+      return <DiscordLogo className={className} />;
+    case "telegram":
+      return <TelegramLogo className={className} />;
+    case "twilio":
+      return <TwilioLogo className={className} />;
+    case "resend":
+      return <ResendLogo className={className} />;
+    case "airtable":
+      return <AirtableLogo className={className} />;
+    case "pinecone":
+      return <PineconeLogo className={className} />;
+    case "jira":
+      return <JiraLogo className={className} />;
+    case "aws":
+      return <AwsLogo className={className} />;
+    case "digitalocean":
+      return <DigitalOceanLogo className={className} />;
+    case "shopify":
+      return <ShopifyLogo className={className} />;
+    case "posthog":
+      return <PostHogLogo className={className} />;
+    default:
+      return null;
+  }
+}
 
-  const lines = text
+/**
+ * Renderiza o ícone monocromático (sem cor) para o tipo de etapa
+ */
+function renderStepIcon(step: ExecutionStepItem) {
+  if (step.type === "plugin" && step.pluginId) {
+    const brand = renderPluginLogo(step.pluginId, "size-3.5");
+    if (brand) {
+      return (
+        <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border/60 bg-background/90 shadow-2xs">
+          {brand}
+        </span>
+      );
+    }
+  }
+
+  // Ícones monocromáticos neutros (sem cor)
+  switch (step.type) {
+    case "reading":
+      return (
+        <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border/40 bg-secondary/50 text-foreground/80">
+          <FileText className="size-3" />
+        </span>
+      );
+    case "searching":
+      return (
+        <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border/40 bg-secondary/50 text-foreground/80">
+          <Search className="size-3" />
+        </span>
+      );
+    case "editing":
+      return (
+        <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border/40 bg-secondary/50 text-foreground/80">
+          <Code className="size-3" />
+        </span>
+      );
+    case "writing":
+      return (
+        <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border/40 bg-secondary/50 text-foreground/80">
+          <PenLine className="size-3" />
+        </span>
+      );
+    case "plugin":
+    case "thinking":
+    default:
+      return (
+        <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border/40 bg-secondary/50 text-foreground/80">
+          <Sparkles className="size-3" />
+        </span>
+      );
+  }
+}
+
+/**
+ * Painel Oficial de Processamento e Raciocínio GRIOT:
+ * - Avatar à esquerda com o símbolo oficial do GRIOT (GriotMark).
+ * - Expande dinamicamente durante a execução com etapas em tempo real.
+ * - Ícones neutros monocromáticos (sem cor) e logos oficiais de plugins.
+ * - Colapsa elegante e rapidamente para uma única barra compacta ao responder.
+ * - Clique para expandir e rever todos os passos.
+ */
+export function Thinking({
+  text = "",
+  active,
+  steps,
+  phase = "thinking",
+  actionDetail,
+  stepsList = [],
+}: Props) {
+  const t = useT();
+
+  // Se estiver ativo (a executar antes da resposta), começa expandido;
+  // Quando responde (active === false), colapsa rapidamente para uma única barra.
+  const [open, setOpen] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setOpen(false);
+    } else {
+      setOpen(true);
+    }
+  }, [active]);
+
+  const rawLines = text
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
 
-  // Mapeia o ícone e a descrição em tempo real com base no estado verídico da execução
-  const getPhaseInfo = () => {
-    switch (phase) {
-      case "reading":
-        return {
-          icon: <BookOpen className="size-[15px] text-amber-400" />,
-          title: actionDetail ? t(actionDetail) : t("A ler ficheiros..."),
-          badge: t("Leitura de ficheiros"),
-        };
-      case "searching":
-        return {
-          icon: <Search className="size-[15px] text-sky-400" />,
-          title: actionDetail ? t(actionDetail) : t("A pesquisar..."),
-          badge: t("Pesquisa"),
-        };
-      case "editing":
-        return {
-          icon: <Code className="size-[15px] text-emerald-400" />,
-          title: actionDetail ? t(actionDetail) : t("A editar código..."),
-          badge: t("Edição"),
-        };
-      case "writing":
-        return {
-          icon: <PenLine className="size-[15px] text-indigo-400" />,
-          title: actionDetail ? t(actionDetail) : t("A escrever resposta..."),
-          badge: t("Geração"),
-        };
-      case "thinking":
-      default:
-        return {
-          icon: <Brain className="size-[15px] text-purple-400" />,
-          title: actionDetail ? t(actionDetail) : t("A raciocinar..."),
-          badge: steps > 0 ? `${steps} ${t("decisões")}` : t("Cadeia de decisão"),
-        };
+  // Unifica passos estruturados e texto
+  const effectiveSteps: ExecutionStepItem[] =
+    stepsList.length > 0
+      ? stepsList
+      : rawLines.map((line, idx) => ({
+          id: `step-synth-${idx}`,
+          type: "thinking",
+          label: line,
+          status: "done",
+          timestamp: Date.now(),
+        }));
+
+  const stepsCount = Math.max(steps, effectiveSteps.length);
+
+  // Título e estado do cabeçalho
+  const getHeaderTitle = () => {
+    if (active) {
+      if (actionDetail) return actionDetail;
+      switch (phase) {
+        case "reading":
+          return t("A ler ficheiro...");
+        case "searching":
+          return t("A pesquisar no projeto...");
+        case "editing":
+          return t("A editar ficheiro...");
+        case "writing":
+          return t("A compor resposta...");
+        case "plugin":
+          return t("A consultar integração...");
+        case "thinking":
+        default:
+          return t("A pensar...");
+      }
     }
+    return t("Processamento concluído");
   };
 
-  const phaseInfo = getPhaseInfo();
-
   return (
-    <div className="rise overflow-hidden rounded-[22px] border border-hairline bg-surface/60 backdrop-blur-xl">
-      <div className="flex w-full items-center gap-3 px-4 py-3 text-left">
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          className="flex flex-1 items-center gap-3 min-w-0"
-        >
-          <span className="relative grid size-7 shrink-0 place-items-center rounded-full bg-secondary">
+    <div className="rise my-2 overflow-hidden rounded-2xl border border-border/40 bg-secondary/25 backdrop-blur-md transition-all duration-300 ease-out">
+      {/* Barra Principal (sempre visível, colapsada ou cabeçalho) */}
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-3 px-3.5 py-2 text-left hover:bg-secondary/40 active:scale-[0.99] transition-colors"
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {/* Avatar à esquerda com o SÍMBOLO OFICIAL DO GRIOT */}
+          <div className="relative grid size-6 shrink-0 place-items-center rounded-full border border-border/50 bg-secondary/80">
             {active ? (
               <span className="pulse-ring absolute inset-0 rounded-full bg-foreground/15" />
             ) : null}
-            {phaseInfo.icon}
-          </span>
-          <span className="min-w-0 flex-1 text-left">
-            <span className={`block text-[13.5px] font-medium truncate ${active ? "shimmer-text" : ""}`}>
-              {active ? phaseInfo.title : t("Processamento")}
-            </span>
-            <span className="block text-[11.5px] text-muted-foreground truncate">
-              {phaseInfo.badge}
-            </span>
-          </span>
-        </button>
+            <GriotMark className="size-3.5 text-foreground" />
+          </div>
 
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          className="grid size-7 place-items-center rounded-full active:scale-90"
-        >
+          <div className="min-w-0 flex-1 flex items-center gap-2">
+            <span
+              className={`text-[12.5px] font-medium text-foreground/90 truncate ${
+                active ? "shimmer-text" : ""
+              }`}
+            >
+              {getHeaderTitle()}
+            </span>
+
+            {stepsCount > 0 ? (
+              <span className="text-[11px] text-muted-foreground/75 shrink-0">
+                · {stepsCount} {stepsCount === 1 ? t("passo") : t("passos")}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Chevron para expandir/recolher */}
+        <div className="grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground hover:text-foreground">
           <ChevronDown
-            className={`size-4 shrink-0 text-muted-foreground transition-transform duration-300 ${
+            className={`size-3.5 transition-transform duration-300 ease-out ${
               open ? "rotate-180" : ""
             }`}
           />
-        </button>
-      </div>
+        </div>
+      </button>
 
+      {/* Lista de Passos Expandida */}
       {open ? (
-        <div className="border-t border-hairline px-4 py-3">
-          {lines.length === 0 ? (
-            <div className="flex items-center gap-2.5 py-1 text-[13px] text-muted-foreground">
-              <span className="size-2 rounded-full bg-primary/70 animate-pulse" />
-              <span className="truncate">
-                {active
-                  ? (actionDetail || phaseInfo.title)
-                  : t("Pronto a responder")}
-              </span>
+        <div className="border-t border-border/30 bg-background/40 px-3.5 py-2.5 transition-all duration-300 ease-out">
+          {effectiveSteps.length === 0 ? (
+            <div className="flex items-center gap-2 py-1 text-[12px] text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-foreground/60 animate-pulse" />
+              <span>{active ? t("A inicializar passos...") : t("Pronto a responder")}</span>
             </div>
           ) : (
-            <ol className="space-y-2.5 max-h-48 overflow-y-auto no-scrollbar">
-              {lines.map((line, index) => (
-                <li key={index} className="rise flex gap-2.5">
-                  <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-foreground/35" />
-                  <span className="text-[13px] leading-relaxed text-muted-foreground break-words">{line}</span>
-                </li>
-              ))}
-            </ol>
+            <div className="space-y-2 max-h-56 overflow-y-auto no-scrollbar py-0.5">
+              {effectiveSteps.map((step) => {
+                const isRunning = step.status === "running";
+                const isDone = step.status === "done";
+                const isError = step.status === "error";
+
+                return (
+                  <div
+                    key={step.id}
+                    className="flex items-start justify-between gap-2.5 rounded-xl px-2 py-1.5 hover:bg-secondary/40 transition-colors"
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                      {/* Mini Avatar / Ícone Monocromático da Tarefa */}
+                      {renderStepIcon(step)}
+
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[12.5px] font-medium text-foreground/90 leading-tight truncate">
+                          {step.label}
+                        </div>
+                        {step.detail ? (
+                          <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                            {step.detail}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Indicador de Status Discreto */}
+                    <div className="grid size-5 shrink-0 place-items-center">
+                      {isRunning ? (
+                        <span className="size-1.5 rounded-full bg-foreground/80 animate-ping" />
+                      ) : isDone ? (
+                        <Check className="size-3 text-muted-foreground/60" />
+                      ) : isError ? (
+                        <AlertCircle className="size-3 text-destructive/80" />
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       ) : null}

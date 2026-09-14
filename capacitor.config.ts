@@ -8,6 +8,9 @@ const config: CapacitorConfig = {
   appName: "GRIOT",
   webDir: ".output/public",
   plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
     SplashScreen: {
       launchAutoHide: true,
       backgroundColor: "#060608",

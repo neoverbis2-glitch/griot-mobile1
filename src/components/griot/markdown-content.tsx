@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Copy, Check, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { GriotChart, parseRelaxedJson } from "./griot-chart";
 
 interface MarkdownContentProps {
   content: string;
@@ -12,6 +13,36 @@ interface MarkdownContentProps {
 interface CodeBlockProps {
   language: string;
   code: string;
+}
+
+
+function isChartBlock(language: string, code: string): boolean {
+  const lang = (language || "").trim().toLowerCase();
+  if (
+    lang === "chart" ||
+    lang === "griot-chart" ||
+    lang === "graph" ||
+    lang.startsWith("chart:") ||
+    lang === "recharts" ||
+    lang === "barchart" ||
+    lang === "linechart"
+  ) {
+    return true;
+  }
+  if (lang === "json" || lang === "") {
+    const trimmed = code.trim();
+    if (
+      trimmed.startsWith("{") &&
+      (trimmed.includes('"xAxisKey"') ||
+        (trimmed.includes('"data"') && (trimmed.includes('"series"') || trimmed.includes('"type"'))))
+    ) {
+      const parsed = parseRelaxedJson(trimmed);
+      if (parsed && Array.isArray(parsed.data) && parsed.data.length > 0) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function CodeBlock({ language, code }: CodeBlockProps) {
@@ -88,9 +119,9 @@ export const MarkdownContent = React.memo(function MarkdownContent({
     );
   }
 
-  // Decomposição de blocos de código markdown (```lang ... ```)
+  // Decomposição de blocos de código markdown (```lang ... ```) e tags <griot_chart>
   const segments: React.ReactNode[] = [];
-  const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
+  const codeBlockRegex = /(?:```([a-zA-Z0-9_:-]*)\n([\s\S]*?)```|<griot_chart>([\s\S]*?)<\/griot_chart>)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -100,9 +131,23 @@ export const MarkdownContent = React.memo(function MarkdownContent({
       segments.push(renderFormattedText(textBefore, `text-${lastIndex}`));
     }
 
-    const language = match[1] || "";
-    const code = match[2]?.replace(/\n$/, "") || "";
-    segments.push(<CodeBlock key={`code-${match.index}`} language={language} code={code} />);
+    // Se for tag <griot_chart>
+    if (match[3] !== undefined) {
+      segments.push(
+        <GriotChart key={`chart-${match.index}`} rawJson={match[3]} />
+      );
+    } else {
+      const language = match[1] || "";
+      const code = match[2]?.replace(/\n$/, "") || "";
+
+      if (isChartBlock(language, code)) {
+        segments.push(
+          <GriotChart key={`chart-${match.index}`} rawJson={code} />
+        );
+      } else {
+        segments.push(<CodeBlock key={`code-${match.index}`} language={language} code={code} />);
+      }
+    }
 
     lastIndex = match.index + match[0].length;
   }

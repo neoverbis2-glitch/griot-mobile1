@@ -36,8 +36,11 @@ import {
 } from "@/lib/plugins";
 import { observerEngine, stripActionBlocks } from "@/lib/runtime";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
-import { getSavedApiKey, resolveProviderAndModel } from "@/lib/ai-client";
-import { chatExecutionManager, type ExecutionPhase } from "@/lib/chat-execution-manager";
+import {
+  chatExecutionManager,
+  type ExecutionPhase,
+  type ExecutionStepItem,
+} from "@/lib/chat-execution-manager";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
 import {
   DELIBERATION_MISSIONS,
@@ -59,6 +62,7 @@ import {
   isImageFile,
   isZipFile,
 } from "@/lib/file-attachment-processor";
+import { GRIOT_CHART_SYSTEM_PROMPT } from "@/lib/chart-system-prompt";
 
 import {
   ArrowUp,
@@ -92,7 +96,17 @@ import {
   Lightbulb,
   Sparkles,
 } from "lucide-react";
-import { getAiLogo, GriotAiLogo } from "@/components/griot/brand-icons";
+import {
+  getAiLogo,
+  getModelDisplayName,
+  GriotAiLogo,
+  GeminiAiLogo,
+  OpenAiLogo,
+  DeepSeekAiLogo,
+  ClaudeAiLogo,
+} from "@/components/griot/brand-icons";
+import { runQuickDeliberation } from "@/lib/runtime/quick-deliberation-engine";
+import type { MessageReaction } from "@/lib/chat-execution-manager";
 import { PluginsView } from "@/components/griot/plugins-view";
 
 import {
@@ -222,7 +236,7 @@ function getPersonaConfig(roleRaw: string): QuickPersonaConfig {
       name: "O Estrategista",
       badge: "Visão & Produto",
       avatarBg: "bg-blue-500/15 border-blue-500/30 text-blue-500",
-      icon: <Brain className="size-4.5" />,
+      icon: <GeminiAiLogo className="size-4.5 text-foreground" />,
     };
   }
   if (r.includes("crític") || r.includes("critic")) {
@@ -230,7 +244,7 @@ function getPersonaConfig(roleRaw: string): QuickPersonaConfig {
       name: "O Crítico",
       badge: "Desafios & Riscos",
       avatarBg: "bg-rose-500/15 border-rose-500/30 text-rose-500",
-      icon: <ShieldAlert className="size-4.5" />,
+      icon: <DeepSeekAiLogo className="size-4.5 text-foreground" />,
     };
   }
   if (r.includes("analist") || r.includes("analyst")) {
@@ -238,7 +252,7 @@ function getPersonaConfig(roleRaw: string): QuickPersonaConfig {
       name: "O Analista",
       badge: "Técnica & Métricas",
       avatarBg: "bg-emerald-500/15 border-emerald-500/30 text-emerald-500",
-      icon: <BarChart2 className="size-4.5" />,
+      icon: <OpenAiLogo className="size-4.5 text-foreground" />,
     };
   }
   if (r.includes("inovad") || r.includes("innovat")) {
@@ -246,7 +260,7 @@ function getPersonaConfig(roleRaw: string): QuickPersonaConfig {
       name: "O Inovador",
       badge: "Diferenciação & Ideias",
       avatarBg: "bg-purple-500/15 border-purple-500/30 text-purple-500",
-      icon: <Lightbulb className="size-4.5" />,
+      icon: <ClaudeAiLogo className="size-4.5 text-foreground" />,
     };
   }
   if (r.includes("vered") || r.includes("sintet")) {
@@ -254,14 +268,14 @@ function getPersonaConfig(roleRaw: string): QuickPersonaConfig {
       name: "Veredito da Sala",
       badge: "Conclusão Final",
       avatarBg: "bg-amber-500/15 border-amber-500/30 text-amber-500",
-      icon: <CheckCircle2 className="size-4.5" />,
+      icon: <GriotAiLogo className="size-4.5 text-foreground" />,
     };
   }
   return {
     name: "GRIOT Deliberation",
     badge: "Orquestrador",
     avatarBg: "bg-secondary border-hairline text-foreground",
-    icon: <Sparkles className="size-4.5" />,
+    icon: <GriotAiLogo className="size-4.5 text-foreground" />,
   };
 }
 
@@ -291,6 +305,7 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
   const [scope, setScope] = useState<"main" | "quick">("main");
   const [conversation, setConversation] = useState<Conversation | null>(null);
+  const conversationId = conversation?.id ?? null;
   const [messages, setMessages] = useState<Row[]>([]);
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState("");
@@ -299,6 +314,7 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [busy, setBusy] = useState(false);
   const [executionPhase, setExecutionPhase] = useState<ExecutionPhase>("thinking");
   const [actionDetail, setActionDetail] = useState("");
+  const [executionStepsList, setExecutionStepsList] = useState<ExecutionStepItem[]>([]);
   const [model, setModel] = useState<string>(() => {
     if (typeof window !== "undefined") {
       const stored = window.localStorage.getItem("griot-default-model");
@@ -317,6 +333,35 @@ export function ChatSurface({ userId }: { userId: string }) {
   );
   const [captures, setCaptures] = useState<CaptureRow[]>([]);
   const [deliberationMission, setDeliberationMission] = useState<DeliberationMissionId>("ideate");
+  const [quickRoomDrawerOpen, setQuickRoomDrawerOpen] = useState(false);
+
+  const handleMessageReaction = useCallback(
+    (messageId: string, emoji: string) => {
+      if (!conversationId) return;
+      const reaction: MessageReaction = {
+        emoji,
+        by: "Tu",
+        isUser: true,
+      };
+      chatExecutionManager.addReaction(conversationId, messageId, reaction);
+      setMessages((curr) =>
+        curr.map((m) => {
+          if (m.id === messageId) {
+            const current = m.reactions ? [...m.reactions] : [];
+            const existingIdx = current.findIndex((r) => r.isUser && r.emoji === emoji);
+            if (existingIdx >= 0) {
+              current.splice(existingIdx, 1);
+            } else {
+              current.push(reaction);
+            }
+            return { ...m, reactions: current };
+          }
+          return m;
+        }),
+      );
+    },
+    [conversationId],
+  );
   const [roleEngines, setRoleEngines] = useState<Record<DeliberationRoleId, string>>(() => {
     const saved = getUserSavedApis();
     if (saved.length > 0) {
@@ -542,6 +587,7 @@ export function ChatSurface({ userId }: { userId: string }) {
       setStreaming("");
       setReasoning("");
       setSteps(0);
+      setExecutionStepsList([]);
     }, 3600000);
     return () => clearTimeout(safetyTimer);
   }, [busy]);
@@ -554,8 +600,6 @@ export function ChatSurface({ userId }: { userId: string }) {
     const nextHeight = Math.min(Math.max(el.scrollHeight, 24), 160);
     el.style.height = `${nextHeight}px`;
   }, [draft]);
-
-  const conversationId = conversation?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -659,6 +703,7 @@ export function ChatSurface({ userId }: { userId: string }) {
       setStreaming("");
       setReasoning("");
       setSteps(0);
+      setExecutionStepsList([]);
       return;
     }
     let cancelled = false;
@@ -671,6 +716,7 @@ export function ChatSurface({ userId }: { userId: string }) {
       setSteps(execState.steps);
       setExecutionPhase(execState.currentPhase || "thinking");
       setActionDetail(execState.currentActionDetail || "");
+      setExecutionStepsList(execState.stepsList || []);
       if (!execState.busy && typeof window !== "undefined") {
         try {
           const rawStored = localStorage.getItem("griot_messages_" + conversationId);
@@ -1089,6 +1135,8 @@ NOTA CRÍTICA: Tu estás explicitamente a operar no contexto do projeto "${curre
 Nenhum projeto específico está associado a esta sessão (conversa geral).`;
     }
 
+    sysInstruction += `\n\n${GRIOT_CHART_SYSTEM_PROMPT}`;
+
     if (scope === "quick") {
       const missionObj =
         DELIBERATION_MISSIONS.find((m) => m.id === deliberationMission) || DELIBERATION_MISSIONS[0];
@@ -1130,6 +1178,56 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
       modelId: model,
       effort: activeEffort,
     });
+
+    if (targetScope === "quick") {
+      setBusy(true);
+      try {
+        await runQuickDeliberation({
+          userPrompt: lastUserPrompt,
+          conversationId: targetConvId,
+          userId,
+          missionId: deliberationMission,
+          roleEngines,
+          history: messagesRef.current,
+          onRoleStart: (_roleId, engineId, roleName) => {
+            setActionDetail(`${roleName} (${getModelDisplayName(engineId)}) está a pensar...`);
+          },
+          onRoleMessage: (newMsg) => {
+            setMessages((curr) => {
+              if (curr.some((m) => m.id === newMsg.id)) return curr;
+              return [...curr, newMsg as Row];
+            });
+          },
+          onRoleReaction: (reaction, targetMsgId) => {
+            setMessages((curr) =>
+              curr.map((m) => {
+                if (m.id === targetMsgId) {
+                  const currentReactions = m.reactions ? [...m.reactions] : [];
+                  const exists = currentReactions.some(
+                    (r) => r.roleId === reaction.roleId && r.emoji === reaction.emoji,
+                  );
+                  if (!exists) {
+                    return { ...m, reactions: [...currentReactions, reaction] };
+                  }
+                }
+                return m;
+              }),
+            );
+          },
+          onAllDone: () => {
+            setBusy(false);
+            setActionDetail("");
+          },
+        });
+      } catch (err: any) {
+        console.error("[QuickDeliberation] Erro:", err);
+        toast.error(err?.message || "Erro na deliberação da sala.");
+      } finally {
+        setBusy(false);
+        setActionDetail("");
+      }
+      return;
+    }
 
     try {
       await chatExecutionManager.startExecution({
@@ -2104,12 +2202,57 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         </div>
       )}
 
-      {/* Feed da conversa */}
-      <div className="no-scrollbar h-full overflow-y-auto overflow-x-hidden w-full max-w-full overscroll-contain">
-        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(max(env(safe-area-inset-top,0px),24px)+52px)] pb-52 overflow-x-hidden max-w-full">
-          {/* Deliberation Bar no topo da lista quando há mensagens no modo Quick */}
-          {scope === "quick" && !empty && (
-            <div className="rounded-3xl bg-card border border-white/[0.08] p-2 shadow-md mb-2">
+      {/* Gatilho flutuante no canto direito na altura do meio da tela no modo Quick */}
+      {scope === "quick" && !empty && (
+        <div className="fixed right-0 top-1/2 -translate-y-1/2 z-40">
+          <button
+            type="button"
+            onClick={() => setQuickRoomDrawerOpen(true)}
+            aria-label="Abrir Sala de Deliberação Quick"
+            className="group flex flex-col items-center justify-center gap-1.5 w-12 min-w-[48px] h-24 min-h-[88px] rounded-l-3xl bg-card/95 border-l border-y border-white/[0.15] shadow-2xl backdrop-blur-2xl transition-all duration-200 active:scale-95 hover:w-14"
+            title="Missão e Modelos da Sala Quick"
+          >
+            <div className="grid size-7 place-items-center rounded-xl bg-white/[0.08] text-foreground group-hover:scale-110 transition-transform">
+              <SlidersHorizontal className="size-3.5" />
+            </div>
+            <div className="flex flex-col items-center leading-none">
+              <span className="text-[9px] font-bold tracking-tight uppercase text-foreground/90">
+                SALA
+              </span>
+              <ChevronLeft className="size-3 text-muted-foreground mt-0.5 group-hover:-translate-x-0.5 transition-transform" />
+            </div>
+          </button>
+        </div>
+      )}
+
+      {/* Modal / Painel da Sala de Deliberação Quick para alternar missão e modelos */}
+      {quickRoomDrawerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+          <div className="w-full max-w-md overflow-hidden rounded-3xl bg-card border border-white/[0.12] p-4 shadow-2xl rise">
+            <div className="flex items-center justify-between pb-3 border-b border-border/40">
+              <div className="flex items-center gap-2.5">
+                <div className="grid size-8 place-items-center rounded-2xl bg-white/[0.08] text-foreground">
+                  <SlidersHorizontal className="size-4" />
+                </div>
+                <div>
+                  <h3 className="text-[14px] font-semibold text-foreground leading-tight">
+                    Sala de Deliberação Quick
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground leading-tight">
+                    Alterna a missão e os modelos de cada interveniente
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickRoomDrawerOpen(false)}
+                className="grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+
+            <div className="mt-3">
               <DeliberationBar
                 activeMission={deliberationMission}
                 roleEngines={roleEngines}
@@ -2117,7 +2260,24 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                 onChangeRoleEngine={(r, e) => setRoleEngines((prev) => ({ ...prev, [r]: e }))}
               />
             </div>
-          )}
+
+            <div className="mt-4 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setQuickRoomDrawerOpen(false)}
+                className="w-full rounded-2xl bg-primary py-2.5 text-center text-[13px] font-medium text-primary-foreground hover:opacity-90 active:scale-[0.98] transition-all shadow-xs"
+              >
+                {t("Concluir")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feed da conversa */}
+      <div className="no-scrollbar h-full overflow-y-auto overflow-x-hidden w-full max-w-full overscroll-contain">
+        <div className="mx-auto flex w-full max-w-lg flex-col space-y-5 px-5 pt-[calc(max(env(safe-area-inset-top,0px),24px)+52px)] pb-52 overflow-x-hidden max-w-full">
+          {/* No feed de mensagens, a barra de missão desaparece após o envio da mensagem */}
 
           {empty ? (
             <div className="pt-24 text-center">
@@ -2144,6 +2304,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
               onEdit={(id) => void editMessage(id)}
               onFeedback={(id, value) => void setFeedback(id, value)}
               onRegenerate={(id) => void regenerate(id)}
+              onReact={(id, emoji) => handleMessageReaction(id, emoji)}
               t={t}
               parseQuickSegments={parseQuickSegments}
               getPersonaConfig={getPersonaConfig}
@@ -2158,6 +2319,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
               steps={steps}
               phase={executionPhase}
               actionDetail={actionDetail}
+              stepsList={executionStepsList}
             />
           ) : null}
 
@@ -2912,40 +3074,42 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
                   >
                     <Plus className="size-[18px]" />
                   </button>
-                  <button
-                    onClick={() => {
-                      if (availableModels.length === 0) {
-                        setAddApiModalOpen(true);
-                      } else {
-                        setSheet(sheet === "model" ? null : "model");
-                      }
-                    }}
-                    className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-all ${
-                      availableModels.length === 0
-                        ? "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
-                        : "bg-secondary text-foreground hover:bg-secondary/80 border border-hairline/60"
-                    }`}
-                  >
-                    {availableModels.length > 0 &&
-                      (() => {
-                        const Logo = isModelOS(model)
-                          ? GriotAiLogo
-                          : getAiLogo(model.split(":")[0]);
-                        return <Logo className="size-3.5 shrink-0 text-foreground" />;
-                      })()}
-                    <span className="truncate">
-                      {(() => {
-                        if (availableModels.length === 0) return t("+ Adicionar API");
-                        const raw = modelLabel(model);
-                        return raw.length > 10 ? `${raw.slice(0, 10)}…` : raw;
-                      })()}
-                    </span>
-                    <ChevronDown
-                      className={`size-4 ${
-                        availableModels.length === 0 ? "text-primary/70" : "text-muted-foreground"
+                  {scope !== "quick" && (
+                    <button
+                      onClick={() => {
+                        if (availableModels.length === 0) {
+                          setAddApiModalOpen(true);
+                        } else {
+                          setSheet(sheet === "model" ? null : "model");
+                        }
+                      }}
+                      className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-all ${
+                        availableModels.length === 0
+                          ? "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
+                          : "bg-secondary text-foreground hover:bg-secondary/80 border border-hairline/60"
                       }`}
-                    />
-                  </button>
+                    >
+                      {availableModels.length > 0 &&
+                        (() => {
+                          const Logo = isModelOS(model)
+                            ? GriotAiLogo
+                            : getAiLogo(model.split(":")[0]);
+                          return <Logo className="size-3.5 shrink-0 text-foreground" />;
+                        })()}
+                      <span className="truncate">
+                        {(() => {
+                          if (availableModels.length === 0) return t("+ Adicionar API");
+                          const raw = modelLabel(model);
+                          return raw.length > 10 ? `${raw.slice(0, 10)}…` : raw;
+                        })()}
+                      </span>
+                      <ChevronDown
+                        className={`size-4 ${
+                          availableModels.length === 0 ? "text-primary/70" : "text-muted-foreground"
+                        }`}
+                      />
+                    </button>
+                  )}
 
                   <div className="flex-1" />
 

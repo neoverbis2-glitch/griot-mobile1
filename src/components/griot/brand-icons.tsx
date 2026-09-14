@@ -1941,3 +1941,42 @@ export function getAiLogo(providerId?: string) {
   if (p.includes("meta") || p.includes("llama")) return MetaAiLogo;
   return GriotAiLogo;
 }
+
+export function getModelDisplayName(modelId?: string): string {
+  if (!modelId) return "GRIOT AI";
+  const m = modelId.toLowerCase();
+  if (m.includes("gpt-4o-mini")) return "GPT-4o Mini";
+  if (m.includes("gpt-4o")) return "GPT-4o";
+  if (m.includes("gpt-4-turbo")) return "GPT-4 Turbo";
+  if (m.includes("gpt-4")) return "GPT-4";
+  if (m.includes("o1-mini")) return "o1-mini";
+  if (m.includes("o1-preview") || m.includes("o1")) return "OpenAI o1";
+  if (m.includes("o3-mini") || m.includes("o3")) return "OpenAI o3";
+  if (m.includes("chatgpt")) return "ChatGPT";
+  if (m.includes("claude-3-7") || m.includes("3.7-sonnet")) return "Claude 3.7";
+  if (m.includes("claude-3-5") || m.includes("3.5-sonnet")) return "Claude 3.5";
+  if (m.includes("claude-3-haiku")) return "Claude 3 Haiku";
+  if (m.includes("claude")) return "Claude";
+  if (m.includes("gemini-2.5") || m.includes("2.5-flash")) return "Gemini 2.5";
+  if (m.includes("gemini-2.5-pro") || m.includes("2.5-pro")) return "Gemini 2.5 Pro";
+  if (m.includes("gemini-1.5-pro")) return "Gemini 1.5 Pro";
+  if (m.includes("gemini-1.5-flash")) return "Gemini 1.5 Flash";
+  if (m.includes("gemini")) return "Google Gemini";
+  if (m.includes("deepseek-r1") || m.includes("r1")) return "DeepSeek R1";
+  if (m.includes("deepseek-v3") || m.includes("v3")) return "DeepSeek V3";
+  if (m.includes("deepseek")) return "DeepSeek";
+  if (m.includes("grok-2")) return "Grok 2";
+  if (m.includes("grok")) return "xAI Grok";
+  if (m.includes("mistral-large")) return "Mistral Large";
+  if (m.includes("mistral-codestral") || m.includes("codestral")) return "Codestral";
+  if (m.includes("mistral")) return "Mistral AI";
+  if (m.includes("llama-3.3") || m.includes("3.3-70b")) return "Llama 3.3 70B";
+  if (m.includes("llama-3")) return "Meta Llama 3";
+  if (m.includes("qwen-2.5")) return "Qwen 2.5";
+  if (m.includes("qwen")) return "Alibaba Qwen";
+  if (m.includes("kimi") || m.includes("moonshot")) return "Moonshot Kimi";
+  if (m.includes("sonar")) return "Perplexity Sonar";
+  if (m.includes("ollama")) return "Ollama Local";
+  const clean = modelId.split(":").pop() || modelId;
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
