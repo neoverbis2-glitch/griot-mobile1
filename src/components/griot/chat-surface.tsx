@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { DEFAULT_MODEL, getAvailableModels, modelLabel, isModelOS } from "@/lib/griot";
 import { getUserSavedApis } from "@/lib/user-apis";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
+import { resolveProviderAndModel, getSavedApiKey } from "@/lib/ai-client";
 import { AddApiModal } from "@/components/griot/add-api-modal";
 import { toast } from "sonner";
 import { Thinking } from "@/components/griot/thinking";
