@@ -177,12 +177,78 @@ export function parseGriotActions(text: string): GriotAction[] {
     });
   }
 
+  // 3. Tag padronizada de conectores externos (Harness Level):
+  // <connector_action connector="github" action="contents.write_file" params='{"repo":"user/app","path":"src/index.ts","content":"..."}' />
+  // ou <connector_action connector="supabase" action="db.raw_sql">{"sql":"CREATE TABLE..."}</connector_action>
+  const connectorActionRegex =
+    /<connector_action\b([^>]*?)(?:\/>|>([\s\S]*?)<\/connector_action>)/gi;
+
+  let connMatch: RegExpExecArray | null;
+  while ((connMatch = connectorActionRegex.exec(text)) !== null) {
+    const rawAttrs = connMatch[1] || "";
+    const bodyContent = connMatch[2]?.trim() || "";
+
+    const connectorMatch = rawAttrs.match(/connector=["']([^"']+)["']/i);
+    const actionMatch = rawAttrs.match(/action=["']([^"']+)["']/i);
+    const paramsAttrMatch = rawAttrs.match(/params=(?:'([\s\S]*?)'|"([\s\S]*?)")/i);
+
+    const connector = connectorMatch ? connectorMatch[1].trim() : "";
+    const action = actionMatch ? actionMatch[1].trim() : "default";
+
+    let parsedParams: Record<string, unknown> = {};
+
+    // Extrai do atributo params='...' se existir
+    const rawParamsAttr = paramsAttrMatch ? (paramsAttrMatch[1] ?? paramsAttrMatch[2] ?? "") : "";
+    if (rawParamsAttr) {
+      try {
+        const unescaped = rawParamsAttr
+          .replace(/&quot;/g, '"')
+          .replace(/&apos;/g, "'")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">");
+        parsedParams = JSON.parse(unescaped) as Record<string, unknown>;
+      } catch {
+        parsedParams = { raw: rawParamsAttr };
+      }
+    }
+
+    // Se o atributo não continha dados ou veio vazio, tenta o corpo da tag
+    if (bodyContent && Object.keys(parsedParams).length === 0) {
+      try {
+        parsedParams = JSON.parse(bodyContent) as Record<string, unknown>;
+      } catch {
+        parsedParams = { raw: bodyContent };
+      }
+    }
+
+    if (connector) {
+      actions.push({
+        id: stableActionId(connMatch[0]),
+        type: "connector.execute",
+        category: "connector",
+        risk: "sensitive",
+        params: {
+          connector,
+          action,
+          params: parsedParams,
+          ...parsedParams,
+        },
+        rawBlock: connMatch[0],
+        requiresApproval: false,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
   return actions;
 }
 
 export function stripActionBlocks(text: string): string {
   if (!text) return "";
   return text
+    .replace(/<connector_action\b[\s\S]*?(?:\/>|<\/connector_action>)/gi, "")
     .replace(/<griot_action[\s\S]*?<\/griot_action>/gi, "")
     .replace(/```griot:[\s\S]*?```/gi, "")
     .trim();

@@ -1761,6 +1761,167 @@ export function GriotAiLogo({ className = "size-5", ...props }: IconProps) {
   );
 }
 
+
+/** Discord (plugin) */
+export function DiscordLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.893.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"
+        fill="#5865F2"
+      />
+    </svg>
+  );
+}
+
+/** Telegram (plugin) */
+export function TelegramLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 0 0-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.75-.55 2.93-1.28 4.88-2.12 5.86-2.54 2.79-1.16 3.37-1.36 3.75-1.37.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"
+        fill="#229ED9"
+      />
+    </svg>
+  );
+}
+
+/** Twilio (plugin) */
+export function TwilioLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <circle cx="12" cy="12" r="10" fill="#F22F46" />
+      <circle cx="9" cy="9" r="2" fill="#FFFFFF" />
+      <circle cx="15" cy="9" r="2" fill="#FFFFFF" />
+      <circle cx="9" cy="15" r="2" fill="#FFFFFF" />
+      <circle cx="15" cy="15" r="2" fill="#FFFFFF" />
+    </svg>
+  );
+}
+
+/** Resend (plugin) */
+export function ResendLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M2 19.5V4.5C2 3.12 3.12 2 4.5 2H19.5C20.88 2 22 3.12 22 4.5V19.5C22 20.88 20.88 22 19.5 22H4.5C3.12 22 2 20.88 2 19.5Z"
+        fill="#000000"
+      />
+      <path
+        d="M7 8H14C15.66 8 17 9.34 17 11C17 12.66 15.66 14 14 14H7V8ZM7 14H12L16 19H13L9.5 14.5"
+        stroke="#FFFFFF"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Airtable (plugin) */
+export function AirtableLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path d="M11.5 2.5L2 6.5L11.5 10.5L21 6.5L11.5 2.5Z" fill="#FCB400" />
+      <path d="M2 8.5V17.5L11 21.5V12.5L2 8.5Z" fill="#18BFFF" />
+      <path d="M12.5 12.5V21.5L21.5 17.5V8.5L12.5 12.5Z" fill="#F82B60" />
+    </svg>
+  );
+}
+
+/** Pinecone (plugin) */
+export function PineconeLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M12 2L6 6V11L12 15L18 11V6L12 2Z"
+        fill="#000000"
+      />
+      <path
+        d="M6 13L12 17L18 13V18L12 22L6 18V13Z"
+        fill="#2563EB"
+      />
+    </svg>
+  );
+}
+
+/** Jira (plugin) */
+export function JiraLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M11.53 2C11.3 2 11.08 2.1 10.92 2.27L7.26 6.09C7.1 6.25 7 6.48 7 6.72C7 6.96 7.1 7.18 7.26 7.35L11.08 11.33C11.24 11.5 11.46 11.59 11.7 11.59H16.03C16.38 11.59 16.66 11.3 16.66 10.94V6.44C16.66 3.99 14.36 2 11.53 2Z"
+        fill="#0052CC"
+      />
+      <path
+        d="M6.53 7C6.3 7 6.08 7.1 5.92 7.27L2.26 11.09C2.1 11.25 2 11.48 2 11.72C2 11.96 2.1 12.18 2.26 12.35L6.08 16.33C6.24 16.5 6.46 16.59 6.7 16.59H11.03C11.38 16.59 11.66 16.3 11.66 15.94V11.44C11.66 8.99 9.36 7 6.53 7Z"
+        fill="#2684FF"
+      />
+      <path
+        d="M16.53 12C16.3 12 16.08 12.1 15.92 12.27L12.26 16.09C12.1 16.25 12 16.48 12 16.72C12 16.96 12.1 17.18 12.26 17.35L16.08 21.33C16.24 21.5 16.46 21.59 16.7 21.59H21.03C21.38 21.59 21.66 21.3 21.66 20.94V16.44C21.66 13.99 19.36 12 16.53 12Z"
+        fill="#0052CC"
+      />
+    </svg>
+  );
+}
+
+/** AWS (plugin) */
+export function AwsLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M6.86 12.5C6.86 11.4 7.57 10.74 8.71 10.74C9.57 10.74 10.29 11.14 10.29 12.29V14.14H8.71C7.43 14.14 6.86 13.57 6.86 12.5Z"
+        fill="#232F3E"
+      />
+      <path
+        d="M18.86 17.14C16.29 19.14 12.57 20.14 9.43 20.14C5.14 20.14 2.14 18.29 1.14 17.71C0.86 17.57 1 17.29 1.29 17.43C4.14 19.14 7.29 20 10.43 20C13.43 20 16.71 19 19.14 17.43C19.43 17.29 19.57 17 18.86 17.14Z"
+        fill="#FF9900"
+      />
+      <path
+        d="M19.71 16.29C19.43 16 17.86 16.43 17.14 16.57C16.86 16.71 16.86 16.43 17.14 16.29C18.14 15.57 19.57 15.29 20 15.71C20.43 16.14 20 17.57 19.29 18.57C19.14 18.86 18.86 18.71 19 18.43C19.29 17.71 20 16.71 19.71 16.29Z"
+        fill="#FF9900"
+      />
+    </svg>
+  );
+}
+
+/** DigitalOcean (plugin) */
+export function DigitalOceanLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 18.5C8.41 18.5 5.5 15.59 5.5 12C5.5 8.41 8.41 5.5 12 5.5C15.59 5.5 18.5 8.41 18.5 12H15.5C15.5 10.07 13.93 8.5 12 8.5C10.07 8.5 8.5 10.07 8.5 12C8.5 13.93 10.07 15.5 12 15.5V18.5Z"
+        fill="#0080FF"
+      />
+    </svg>
+  );
+}
+
+/** Shopify (plugin) */
+export function ShopifyLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M18.8 6.5L16.2 4.2C16 4 15.7 3.9 15.4 4L13.8 4.5C13.5 3.5 12.9 2.7 12.1 2.2C11.1 1.6 9.8 1.6 8.8 2.2C7.9 2.7 7.3 3.6 7.1 4.7L5.5 5.2C5.2 5.3 5 5.6 5 5.9L3.5 18.5C3.4 19.3 4 20.1 4.8 20.2L16.5 21.6C17.3 21.7 18.1 21.1 18.2 20.3L20.4 7.6C20.5 7.1 20.1 6.6 19.6 6.5H18.8ZM10.5 4C10.9 3.7 11.5 3.8 11.8 4.2C12.1 4.6 12.3 5.1 12.3 5.6L8.8 6.6C9 5.5 9.6 4.6 10.5 4Z"
+        fill="#96BF48"
+      />
+    </svg>
+  );
+}
+
+/** PostHog (plugin) */
+export function PostHogLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <path
+        d="M4 17L12 3L20 17H4Z"
+        fill="#F54E00"
+      />
+      <circle cx="12" cy="14" r="2.5" fill="#FFFFFF" />
+    </svg>
+  );
+}
+
 export function getAiLogo(providerId?: string) {
   if (!providerId) return GriotAiLogo;
   const p = providerId.toLowerCase();

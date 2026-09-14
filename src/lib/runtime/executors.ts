@@ -11,12 +11,12 @@ import { executeLocalAction } from "./local-harness";
 import type { GriotAction, GriotExecutionResult } from "./protocol";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { supabase } from "@/integrations/supabase/client";
-import { executeBatch1Connector } from "@/lib/connectors-batch1";
+import { executeUniversalConnector, normalizeConnectorId } from "@/lib/connectors-hub";
 import { getConnectedPlugins } from "@/lib/plugins-service";
 
 export class GriotActionExecutor {
   async execute(action: GriotAction): Promise<GriotExecutionResult> {
-    // 0. Conectores e Plugins externos (GitHub, GitLab, Vercel, Supabase, Firebase)
+    // 0. Conectores e Plugins externos (Matriz Universal dos 30 Conectores)
     if (action.category === "connector" || action.type === "connector.execute") {
       const startMs = Date.now();
       const connectorName = String(
@@ -24,12 +24,16 @@ export class GriotActionExecutor {
       )
         .toLowerCase()
         .trim();
+      const normConnector = normalizeConnectorId(connectorName);
       const actionName = String(action.params.action || "default");
       const connectorParams = (action.params.params || action.params) as Record<string, unknown>;
 
       // Recupera credenciais guardadas no ecrã de Plugins do GRIOT
       const plugins = getConnectedPlugins();
-      const savedPlugin = plugins[connectorName];
+      const savedPlugin =
+        plugins[normConnector] ||
+        plugins[connectorName] ||
+        Object.values(plugins).find((p) => p.id === normConnector || normalizeConnectorId(p.id) === normConnector);
 
       const credential = String(
         action.params.credential ||
@@ -76,7 +80,7 @@ export class GriotActionExecutor {
         };
       }
 
-      const res = await executeBatch1Connector(connectorName, {
+      const res = await executeUniversalConnector(normConnector, {
         credential,
         account: account || projectRef || undefined,
         action: actionName,

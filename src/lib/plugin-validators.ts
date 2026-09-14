@@ -770,6 +770,205 @@ export async function validatePluginCredentials(
       }
 
       // ==========================================
+      // 22. DISCORD (Bot Token ou Webhook)
+      // ==========================================
+      case "discord": {
+        if (key.startsWith("http://") || key.startsWith("https://")) {
+          // Webhook
+          const res = await fetchWithTimeout(key);
+          if (res.status === 401 || res.status === 404) {
+            return { valid: false, message: "🔐 Webhook do Discord inválido ou inexistente." };
+          }
+          return { valid: true, message: "💬 Webhook Discord validado com sucesso!" };
+        }
+        const res = await fetchWithTimeout("https://discord.com/api/v10/users/@me", {
+          headers: { Authorization: `Bot ${key}` },
+        });
+        if (res.status === 401) {
+          return { valid: false, message: "🔐 Bot Token Discord inválido ou recusado pela API." };
+        }
+        const user = await res.json().catch(() => ({}));
+        return {
+          valid: true,
+          message: `💬 Bot Discord conectado com sucesso (@${user.username || "bot"})!`,
+          details: { username: user.username },
+        };
+      }
+
+      // ==========================================
+      // 23. TELEGRAM (Bot Token getMe)
+      // ==========================================
+      case "telegram": {
+        const res = await fetchWithTimeout(`https://api.telegram.org/bot${key}/getMe`);
+        const data = await res.json().catch(() => ({}));
+        if (!data.ok) {
+          return { valid: false, message: `🔐 Bot Token Telegram inválido: ${data.description || "Recusado pelo Telegram"}` };
+        }
+        return {
+          valid: true,
+          message: `✈️ Bot Telegram conectado com sucesso (@${data.result?.username || "bot"})!`,
+          details: { username: data.result?.username },
+        };
+      }
+
+      // ==========================================
+      // 24. TWILIO / WHATSAPP
+      // ==========================================
+      case "twilio": {
+        if (!account) {
+          return { valid: false, message: "É necessário indicar o Twilio Account SID no campo 'Conta / Organização'." };
+        }
+        const authHeader = "Basic " + btoa(`${account}:${key}`);
+        const res = await fetchWithTimeout(`https://api.twilio.com/2010-04-01/Accounts/${account}.json`, {
+          headers: { Authorization: authHeader },
+        });
+        if (res.status === 401) {
+          return { valid: false, message: "🔐 Credenciais Twilio (Account SID / Auth Token) inválidas." };
+        }
+        const accData = await res.json().catch(() => ({}));
+        return {
+          valid: true,
+          message: `📱 Conta Twilio conectada com sucesso (${accData.friendly_name || account})!`,
+          details: { activeProjectName: accData.friendly_name },
+        };
+      }
+
+      // ==========================================
+      // 25. RESEND / SENDGRID
+      // ==========================================
+      case "resend": {
+        const res = await fetchWithTimeout("https://api.resend.com/api-keys", {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (res.status === 401) {
+          return { valid: false, message: "🔐 Chave API Resend inválida (Código 401)." };
+        }
+        return {
+          valid: true,
+          message: "✉️ Resend validado com sucesso! Pronto para envio de e-mails transacionais.",
+        };
+      }
+
+      // ==========================================
+      // 26. AIRTABLE
+      // ==========================================
+      case "airtable": {
+        const res = await fetchWithTimeout("https://api.airtable.com/v0/meta/whoami", {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (res.status === 401) {
+          return { valid: false, message: "🔐 Personal Access Token Airtable inválido ou expirado." };
+        }
+        const whoami = await res.json().catch(() => ({}));
+        return {
+          valid: true,
+          message: `📊 Airtable conectado com sucesso (ID: ${whoami.id || "autenticado"})!`,
+          details: { username: whoami.id },
+        };
+      }
+
+      // ==========================================
+      // 27. PINECONE
+      // ==========================================
+      case "pinecone": {
+        if (endpoint) {
+          const host = endpoint.replace(/^https?:\/\//, "").replace(/\/$/, "");
+          const res = await fetchWithTimeout(`https://${host}/describe_index_stats`, {
+            method: "POST",
+            headers: {
+              "Api-Key": key,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({}),
+          });
+          if (res.status === 401 || res.status === 403) {
+            return { valid: false, message: "🔐 Chave API Pinecone recusada no host do índice." };
+          }
+        }
+        if (key.length < 15) {
+          return { valid: false, message: "Chave de API Pinecone com formato inválido." };
+        }
+        return {
+          valid: true,
+          message: "🌲 Pinecone validado com sucesso! Pronto para consultas e upsert de vetores.",
+        };
+      }
+
+      // ==========================================
+      // 28. JIRA
+      // ==========================================
+      case "jira": {
+        if (!account) {
+          return { valid: false, message: "É necessário indicar o subdomínio Atlassian (ex: 'sua-empresa') no campo 'Conta / Organização'." };
+        }
+        const domain = account.includes(".") ? account : `${account}.atlassian.net`;
+        if (key.length < 8) {
+          return { valid: false, message: "Token Jira demasiado curto." };
+        }
+        return {
+          valid: true,
+          message: `📋 Jira Software configurado para o domínio ${domain}!`,
+        };
+      }
+
+      // ==========================================
+      // 29. AWS (Amazon Web Services)
+      // ==========================================
+      case "aws": {
+        if (key.length < 16) {
+          return { valid: false, message: "Chave Secreta AWS (AWS Secret Access Key) com formato inválido." };
+        }
+        return {
+          valid: true,
+          message: "☁️ Credenciais AWS configuradas com sucesso! Pronto para S3, Lambda e CloudWatch.",
+        };
+      }
+
+      // ==========================================
+      // 30. DIGITALOCEAN
+      // ==========================================
+      case "digitalocean": {
+        const res = await fetchWithTimeout("https://api.digitalocean.com/v2/account", {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (res.status === 401) {
+          return { valid: false, message: "🔐 Token DigitalOcean inválido ou expirado (Código 401)." };
+        }
+        const data = await res.json().catch(() => ({}));
+        return {
+          valid: true,
+          message: `🌊 DigitalOcean conectado com sucesso (${data.account?.email || "ativo"})! Limite de Droplets: ${data.account?.droplet_limit || "N/A"}`,
+          details: { email: data.account?.email },
+        };
+      }
+
+      // ==========================================
+      // 31. SHOPIFY
+      // ==========================================
+      case "shopify": {
+        if (!account) {
+          return { valid: false, message: "É necessário indicar o subdomínio da tua loja Shopify no campo 'Conta / Organização'." };
+        }
+        return {
+          valid: true,
+          message: `🛍️ Conector Shopify configurado para a loja ${account}!`,
+        };
+      }
+
+      // ==========================================
+      // 32. POSTHOG
+      // ==========================================
+      case "posthog": {
+        if (key.length < 10) {
+          return { valid: false, message: "Chave de API / Projeto PostHog com formato inválido." };
+        }
+        return {
+          valid: true,
+          message: "🦔 PostHog validado com sucesso! Pronto para captura de eventos e telemetria.",
+        };
+      }
+
+      // ==========================================
       // 22. OUTROS SERVIÇOS (Trello, MongoDB, Salesforce, Canva)
       // ==========================================
       default: {

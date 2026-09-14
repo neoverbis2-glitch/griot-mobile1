@@ -265,7 +265,7 @@ function HomePage() {
             {t("Build")}
           </p>
           <p className="mt-1.5 text-[26px] leading-none font-semibold tracking-tight">
-            {t(BUILD_LABEL_SOURCE[String(active?.build_status ?? "idle")] ?? "Em espera")}
+            {t(BUILD_LABEL_SOURCE[String((active as any)?.build_status ?? "idle")] ?? "Em espera")}
           </p>
           <p className="mt-2 text-[12.5px] text-muted-foreground">
             {data?.profile?.desktop_online ? t("Desktop online") : t("Desktop offline")}

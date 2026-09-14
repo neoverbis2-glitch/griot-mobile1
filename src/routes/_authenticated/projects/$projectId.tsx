@@ -35,7 +35,21 @@ type LogRow = {
   message: string;
 };
 
-type ProjectTab = "tasks" | "prs" | "logs";
+function relativeTime(dateStr?: string | null): string {
+  if (!dateStr) return "recentemente";
+  try {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "agora";
+    if (mins < 60) return `há ${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `há ${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `há ${days}d`;
+  } catch {
+    return "recentemente";
+  }
+}
 
 export const Route = createFileRoute("/_authenticated/projects/$projectId")({
   head: () => ({
