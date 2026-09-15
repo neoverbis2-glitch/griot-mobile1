@@ -99,3 +99,37 @@ export function GriotLogo({ className = "size-40" }: { className?: string }) {
     </svg>
   );
 }
+
+export function GriotSymbol({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg viewBox="100 160 310 190" className={className} xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="griot-sym-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="60%" stopColor="#E4E4E7" />
+          <stop offset="100%" stopColor="#91919E" />
+        </linearGradient>
+      </defs>
+      <g transform="translate(2, 0)">
+        <path
+          d="M 196 186 C 130 186, 130 256, 196 256 C 262 256, 262 326, 328 326 C 394 326, 394 256, 328 256 C 262 256, 262 186, 196 186 Z"
+          fill="none"
+          stroke="url(#griot-sym-gradient)"
+          strokeWidth="28"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <line
+          x1="328"
+          y1="256"
+          x2="385"
+          y2="256"
+          stroke="url(#griot-sym-gradient)"
+          strokeWidth="28"
+          strokeLinecap="round"
+        />
+      </g>
+    </svg>
+  );
+}
+

@@ -5,7 +5,7 @@ import {
   Search,
   Code,
   PenLine,
-  Sparkles,
+  Brain,
   Check,
   AlertCircle,
 } from "lucide-react";
@@ -181,7 +181,7 @@ function renderStepIcon(step: ExecutionStepItem) {
     default:
       return (
         <span className="grid size-5 shrink-0 place-items-center rounded-md border border-border/40 bg-secondary/50 text-foreground/80">
-          <Sparkles className="size-3" />
+          <Brain className="size-3" />
         </span>
       );
   }

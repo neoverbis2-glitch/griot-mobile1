@@ -72,14 +72,20 @@ export function DeliberationBar({
   const [roleSelectOpen, setRoleSelectOpen] = useState<DeliberationRoleId | null>(null);
 
   const userApis = getUserSavedApis();
-  const availableEngines = [
-    ...userApis.map((a) => ({
-      id: a.id,
-      label: a.label,
-      short: a.label.replace(/^Google\s+|^OpenAI\s+|^Anthropic\s+/i, ""),
-    })),
-    ...DEFAULT_ENGINES.filter((d) => !userApis.some((u) => u.id === d.id)),
-  ];
+  const availableEngines =
+    userApis.length > 0
+      ? userApis.map((a) => ({
+          id: a.id,
+          label: a.label,
+          short: a.label.replace(/^Google\s+|^OpenAI\s+|^Anthropic\s+/i, ""),
+          providerId: a.providerId,
+          model: a.model,
+        }))
+      : DEFAULT_ENGINES.map((d) => ({
+          ...d,
+          providerId: d.id.split(":")[0],
+          model: d.id.split(":")[1],
+        }));
 
   const currentMissionObj =
     DELIBERATION_MISSIONS.find((m) => m.id === activeMission) || DELIBERATION_MISSIONS[0];
@@ -163,7 +169,7 @@ export function DeliberationBar({
               roleEngines[roleId] || availableEngines[idx % availableEngines.length]?.id;
             const engineObj =
               availableEngines.find((e) => e.id === assignedEngine) || availableEngines[0];
-            const RoleLogo = getAiLogo(assignedEngine);
+            const RoleLogo = getAiLogo(engineObj?.providerId || engineObj?.model || assignedEngine);
 
             return (
               <button
@@ -195,7 +201,8 @@ export function DeliberationBar({
               <div className="flex items-center gap-2">
                 {(() => {
                   const currentEngine = roleEngines[roleSelectOpen] || availableEngines[0]?.id;
-                  const HeaderLogo = getAiLogo(currentEngine);
+                  const currentObj = availableEngines.find((e) => e.id === currentEngine);
+                  const HeaderLogo = getAiLogo(currentObj?.providerId || currentObj?.model || currentEngine);
                   return (
                     <div className="grid size-6 place-items-center rounded-lg bg-black/[0.04] dark:bg-white/[0.06]">
                       <HeaderLogo className="size-4 text-foreground" />
@@ -215,7 +222,7 @@ export function DeliberationBar({
               {availableEngines.map((opt) => {
                 const currentEngine = roleEngines[roleSelectOpen] || availableEngines[0]?.id;
                 const isSelected = currentEngine === opt.id;
-                const EngineLogo = getAiLogo(opt.id);
+                const EngineLogo = getAiLogo(opt.providerId || opt.model || opt.id);
 
                 return (
                   <button

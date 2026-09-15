@@ -21,6 +21,7 @@ import {
   type DeliberationRoleId,
 } from "@/lib/runtime/deliberation-room";
 import { getModelDisplayName } from "@/components/griot/brand-icons";
+import { getUserSavedApis } from "@/lib/user-apis";
 import { supabase } from "@/integrations/supabase/client";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 
@@ -107,7 +108,9 @@ export async function runQuickDeliberation(params: QuickDeliberationParams): Pro
 
         const role = DELIBERATION_ROLES[roleId];
         const engineId = roleEngines[roleId] || role.defaultEngine || "gemini:gemini-2.5-flash";
-        const modelDisplay = getModelDisplayName(engineId);
+        const userSavedApis = getUserSavedApis();
+        const matchedUserApi = userSavedApis.find((a) => a.id === engineId);
+        const modelDisplay = matchedUserApi?.label || getModelDisplayName(engineId);
 
         onRoleStart?.(roleId, engineId, role.label);
 
@@ -173,14 +176,14 @@ DIRETRIZES FUNDAMENTAIS DE COMPORTAMENTO:
             (finalContent.length < 24 || finalContent.startsWith("[CURTIR") || finalContent.startsWith("[REACTION"));
 
           if (isPureReaction && reactionMatch && userMsgId) {
-            const rawEmoji = reactionMatch[1].trim();
-            const validEmoji = ["👍", "❤️", "🔥", "💡", "🚀", "👏"].includes(rawEmoji)
+            const rawEmoji = reactionMatch[1] || reactionMatch[0];
+            const validEmoji = ["👍", "❤️", "🔥", "💡", "🚀"].includes(rawEmoji)
               ? rawEmoji
               : "👍";
 
             const reaction: MessageReaction = {
               emoji: validEmoji,
-              by: role.label,
+              by: matchedUserApi?.label || role.label,
               modelId: engineId,
               roleId,
             };
@@ -205,6 +208,7 @@ DIRETRIZES FUNDAMENTAIS DE COMPORTAMENTO:
                   roleId,
                   roleName: role.label,
                   modelId: engineId,
+                  userLabel: matchedUserApi?.label,
                   missionId,
                 },
               };

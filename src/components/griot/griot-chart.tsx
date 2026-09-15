@@ -21,7 +21,7 @@ import {
   Download,
   AlertCircle,
 } from "lucide-react";
-import { GriotMark } from "./logo";
+import { GriotMark, GriotSymbol } from "./logo";
 import { toast } from "sonner";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 
@@ -208,8 +208,96 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
   } = parsedSpec;
 
   /**
+   * Cálculo de escala do Eixo Y granular, legível e sem casas decimais indesejadas.
+   * Divide a escala em intervalos bem legíveis (ex: 0, 10, 20, 30... até 100).
+   */
+  const yAxisTicks = useMemo(() => {
+    if (!data || !data.length || !series || !series.length) return undefined;
+    let maxVal = 0;
+    data.forEach((row) => {
+      series.forEach((s) => {
+        const val = Number(row[s.key]);
+        if (!isNaN(val) && val > maxVal) {
+          maxVal = val;
+        }
+      });
+    });
+
+    if (maxVal <= 0) return [0, 20, 40, 60, 80, 100];
+
+    // Para valores até 10
+    if (maxVal <= 10) {
+      return [0, 2, 4, 6, 8, 10];
+    }
+    // Para valores até 25
+    if (maxVal <= 25) {
+      return [0, 5, 10, 15, 20, 25];
+    }
+    // Para valores até 50
+    if (maxVal <= 50) {
+      return [0, 10, 20, 30, 40, 50];
+    }
+    // Para valores até 100 (solicitado: passos de 10: 0, 10, 20, 30... até 100)
+    if (maxVal <= 100) {
+      return [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    }
+
+    // Para escalas maiores (ex: 200, 500, 1000)
+    const stepCandidates = [20, 25, 50, 100, 200, 250, 500, 1000, 2500, 5000];
+    const rawStep = maxVal / 8;
+    const chosenStep = stepCandidates.find((c) => c >= rawStep) || Math.ceil(rawStep / 100) * 100;
+    const ticks: number[] = [];
+    const ceiling = Math.ceil(maxVal / chosenStep) * chosenStep;
+    for (let cur = 0; cur <= ceiling; cur += chosenStep) {
+      ticks.push(cur);
+    }
+    return ticks;
+  }, [data, series]);
+
+  const yDomain = useMemo(() => {
+    if (!yAxisTicks || !yAxisTicks.length) return [0, "auto"];
+    return [0, yAxisTicks[yAxisTicks.length - 1]];
+  }, [yAxisTicks]);
+
+  /** Descarrega ou partilha o PNG (compatível com Android Capacitor WebView e Mobile Web) */
+  const triggerDownload = async (blob: Blob, fileName: string, canvas?: HTMLCanvasElement) => {
+    try {
+      const file = new File([blob], fileName, { type: "image/png" });
+      if (typeof navigator !== "undefined" && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: title || "Gráfico GRIOT",
+        });
+        toast.success("Gráfico partilhado com sucesso!");
+        return;
+      }
+    } catch (shareErr: any) {
+      if (shareErr?.name === "AbortError") return;
+      console.warn("[GriotChart] Partilha nativa falhou, a recorrer a download:", shareErr);
+    }
+
+    try {
+      const dataUrl = canvas ? canvas.toDataURL("image/png") : window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = fileName;
+      link.target = "_blank";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      if (!canvas) {
+        window.URL.revokeObjectURL(dataUrl);
+      }
+      toast.success("Gráfico transferido!");
+    } catch (dlErr: any) {
+      console.error("[GriotChart] Download falhou:", dlErr);
+      toast.error("Não foi possível transferir o ficheiro.");
+    }
+  };
+
+  /**
    * Exporta o gráfico diretamente para imagem PNG em alta resolução (Retina 2x).
-   * Desenha fundo escuro, logotipo oficial GRIOT, títulos, eixos e dados com renderização cristalina.
+   * Sem cor verde indesejada, renderiza cabeçalho, dados e rodapé elegantes.
    */
   const handleExportPng = async () => {
     if (!chartContainerRef.current) return;
@@ -226,12 +314,10 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
         return;
       }
 
-      // Dimensões do SVG original
       const svgRect = svgElement.getBoundingClientRect();
       const svgWidth = svgRect.width || 600;
       const svgHeight = svgRect.height || 320;
 
-      // Resolução dobrada (2x) para nitidez retina ultra nítida em mobile e desktop
       const scale = 2;
       const padding = 28 * scale;
       const headerHeight = 75 * scale;
@@ -240,7 +326,6 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
       const totalWidth = (svgWidth + 56) * scale;
       const totalHeight = headerHeight + svgHeight * scale + footerHeight;
 
-      // Criação do canvas offscreen
       const canvas = document.createElement("canvas");
       canvas.width = totalWidth;
       canvas.height = totalHeight;
@@ -250,18 +335,17 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
         throw new Error("Não foi possível inicializar o contexto 2D do Canvas.");
       }
 
-      // 1. Fundo estilizado do GRIOT (Preto profundo / Carvão elegante)
-      ctx.fillStyle = "#0d0e12";
+      // 1. Fundo estilizado do GRIOT (Preto profundo)
+      ctx.fillStyle = "#0a0a0c";
       ctx.fillRect(0, 0, totalWidth, totalHeight);
 
-      // Borda sutil arredondada ou acabamento superior
+      // Borda sutil
       ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
       ctx.lineWidth = 1.5 * scale;
       ctx.strokeRect(scale, scale, totalWidth - 2 * scale, totalHeight - 2 * scale);
 
-      // 2. Cabeçalho com Marca d'Água GRIOT e Título
-      // Badge "GRIOT DATA"
-      ctx.fillStyle = "#10b981";
+      // 2. Cabeçalho monocromático
+      ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
       ctx.font = `bold ${10 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       ctx.fillText("GRIOT · ANÁLISE GRÁFICA", padding, 30 * scale);
 
@@ -271,7 +355,6 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
       const displayTitle = title || "Comparativo de Dados";
       ctx.fillText(displayTitle, padding, 52 * scale);
 
-      // Subtítulo ou descrição se existir
       if (subtitle || description || yAxisLabel) {
         ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
         ctx.font = `${11 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
@@ -284,7 +367,6 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
       clonedSvg.setAttribute("width", `${svgWidth * scale}`);
       clonedSvg.setAttribute("height", `${svgHeight * scale}`);
 
-      // Inline de estilos computados nos textos para manter as fontes e cores
       const originalTexts = svgElement.querySelectorAll("text");
       const clonedTexts = clonedSvg.querySelectorAll("text");
       clonedTexts.forEach((ct, i) => {
@@ -302,38 +384,57 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
       const URL = window.URL || window.webkitURL || window;
       const blobUrl = URL.createObjectURL(svgBlob);
 
+      const fileName = `${(title || "griot-chart")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "")}-${Date.now()}.png`;
+
       const img = new Image();
-      img.onload = () => {
-        // Desenha o gráfico SVG no canvas
+      img.onload = async () => {
         ctx.drawImage(img, padding, headerHeight, svgWidth * scale, svgHeight * scale);
         URL.revokeObjectURL(blobUrl);
 
-        // 4. Rodapé elegante com logo do Griot e legenda
         ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
         ctx.font = `${9.5 * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         ctx.fillText("Gerado pelo GRIOT Mobile", padding, totalHeight - 16 * scale);
 
-        // Converte o canvas para Blob PNG
-        canvas.toBlob((blob) => {
+        canvas.toBlob(async (blob) => {
           if (!blob) {
-            toast.error("Erro ao gerar imagem PNG.");
+            try {
+              const dataUrl = canvas.toDataURL("image/png");
+              const link = document.createElement("a");
+              link.href = dataUrl;
+              link.download = fileName;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              toast.success("Gráfico transferido!");
+            } catch {
+              toast.error("Erro ao gerar imagem.");
+            }
             setIsExporting(false);
             return;
           }
 
-          const fileName = `${(title || "griot-chart")
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/(^-|-$)/g, "")}-${Date.now()}.png`;
-
-          triggerDownload(blob, fileName);
+          await triggerDownload(blob, fileName, canvas);
           setIsExporting(false);
         }, "image/png");
       };
 
       img.onerror = () => {
         URL.revokeObjectURL(blobUrl);
-        toast.error("Erro ao processar imagem vetorial do gráfico.");
+        try {
+          const dataUrl = canvas.toDataURL("image/png");
+          const link = document.createElement("a");
+          link.href = dataUrl;
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          toast.success("Gráfico transferido!");
+        } catch {
+          toast.error("Erro ao transferir gráfico.");
+        }
         setIsExporting(false);
       };
 
@@ -343,19 +444,6 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
       toast.error(err?.message || "Não foi possível transferir o PNG.");
       setIsExporting(false);
     }
-  };
-
-  /** Descarrega o blob como ficheiro no dispositivo */
-  const triggerDownload = (blob: Blob, fileName: string) => {
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(downloadUrl);
-    toast.success("Gráfico transferido como PNG!");
   };
 
   /** Formatação personalizada de Tooltip no estilo dark glass do GRIOT */
@@ -395,8 +483,8 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
       {/* Barra Superior / Cabeçalho do Gráfico */}
       <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.03] px-3.5 py-2.5">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="grid size-6 shrink-0 place-items-center rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
-            <GriotMark className="size-3.5" />
+          <div className="grid size-6 shrink-0 place-items-center rounded-full bg-white/[0.08] text-neutral-200">
+            <GriotSymbol className="size-3.5" />
           </div>
           <div className="min-w-0">
             <h4 className="text-[13.5px] font-semibold text-neutral-100 leading-tight truncate">
@@ -430,22 +518,22 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
               </>
             ) : (
               <>
-                <BarChart2 className="size-3.5 text-emerald-400" />
+                <BarChart2 className="size-3.5 text-neutral-300" />
                 <span className="hidden sm:inline">Gráfico</span>
               </>
             )}
           </button>
 
-          {/* Botão Transferir PNG */}
+          {/* Botão Transferir PNG Monocromático */}
           <button
             type="button"
             onClick={handleExportPng}
             disabled={isExporting}
             title="Transferir PNG de alta qualidade"
             aria-label="Transferir PNG"
-            className="flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/25 transition-all active:scale-95"
+            className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[11px] font-medium text-neutral-200 hover:bg-white/10 transition-all active:scale-95"
           >
-            <Download className={`size-3.5 ${isExporting ? "animate-bounce" : ""}`} />
+            <Download className={`size-3.5 text-neutral-300 ${isExporting ? "animate-bounce" : ""}`} />
             <span>{isExporting ? "A transferir..." : "Transferir PNG"}</span>
           </button>
         </div>
@@ -474,12 +562,15 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
                     axisLine={{ stroke: "rgba(255, 255, 255, 0.15)" }}
                   />
                   <YAxis
+                    domain={yDomain}
+                    ticks={yAxisTicks}
                     stroke="rgba(255, 255, 255, 0.3)"
-                    tick={{ fill: "rgba(255, 255, 255, 0.5)", fontSize: 11 }}
+                    tick={{ fill: "rgba(255, 255, 255, 0.5)", fontSize: 10 }}
                     tickLine={false}
                     axisLine={false}
+                    width={32}
                   />
-                  <Tooltip content={renderCustomTooltip} />
+                  <Tooltip content={renderCustomTooltip} cursor={false} />
                   {series.map((s, idx) => (
                     <Line
                       key={s.key}
@@ -515,12 +606,15 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
                     axisLine={{ stroke: "rgba(255, 255, 255, 0.15)" }}
                   />
                   <YAxis
+                    domain={yDomain}
+                    ticks={yAxisTicks}
                     stroke="rgba(255, 255, 255, 0.3)"
-                    tick={{ fill: "rgba(255, 255, 255, 0.5)", fontSize: 11 }}
+                    tick={{ fill: "rgba(255, 255, 255, 0.5)", fontSize: 10 }}
                     tickLine={false}
                     axisLine={false}
+                    width={32}
                   />
-                  <Tooltip content={renderCustomTooltip} />
+                  <Tooltip content={renderCustomTooltip} cursor={false} />
                   {series.map((s, idx) => {
                     const color = s.color || GRIOT_CHART_COLORS[idx % GRIOT_CHART_COLORS.length];
                     return (
@@ -539,7 +633,7 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
                 </AreaChart>
               ) : type === "pie" || type === "donut" ? (
                 <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-                  <Tooltip content={renderCustomTooltip} />
+                  <Tooltip content={renderCustomTooltip} cursor={false} />
                   <Pie
                     data={data}
                     dataKey={series[0]?.key || "value"}
@@ -572,12 +666,15 @@ export const GriotChart: React.FC<GriotChartProps> = ({ spec: initialSpec, rawJs
                     axisLine={{ stroke: "rgba(255, 255, 255, 0.15)" }}
                   />
                   <YAxis
+                    domain={yDomain}
+                    ticks={yAxisTicks}
                     stroke="rgba(255, 255, 255, 0.3)"
-                    tick={{ fill: "rgba(255, 255, 255, 0.5)", fontSize: 11 }}
+                    tick={{ fill: "rgba(255, 255, 255, 0.5)", fontSize: 10 }}
                     tickLine={false}
                     axisLine={false}
+                    width={32}
                   />
-                  <Tooltip content={renderCustomTooltip} />
+                  <Tooltip content={renderCustomTooltip} cursor={false} />
                   {series.map((s, idx) => (
                     <Bar
                       key={s.key}

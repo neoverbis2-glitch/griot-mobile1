@@ -207,7 +207,7 @@ function parseQuickSegments(raw: string): QuickPersonaSegment[] {
     /(?:^|\n)\s*(?:\*{1,2}|\[)?\s*(Estrategista|Crítico|Critico|Analista|Inovador|Sintetizador|Veredito|Strategist|Critic|Analyst|Innovator)\s*(?:\*{1,2}|\])?\s*:\s*(?:\*{1,2})?\s*/gi;
   const matches = [...raw.matchAll(personaRegex)];
   if (matches.length === 0) {
-    return [{ roleRaw: "griot", content: raw.trim() }];
+    return [];
   }
   const segments: QuickPersonaSegment[] = [];
   for (let i = 0; i < matches.length; i++) {
@@ -221,7 +221,7 @@ function parseQuickSegments(raw: string): QuickPersonaSegment[] {
       segments.push({ roleRaw, content });
     }
   }
-  return segments.length > 0 ? segments : [{ roleRaw: "griot", content: raw.trim() }];
+  return segments;
 }
 
 interface QuickPersonaConfig {
@@ -2213,27 +2213,18 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         </div>
       )}
 
-      {/* Gatilho flutuante no canto direito na altura do meio da tela no modo Quick */}
+      {/* Área touch invisível na lateral direita para abrir a Sala Quick ao tocar na borda */}
       {scope === "quick" && !empty && (
-        <div className="fixed right-0 top-1/2 -translate-y-1/2 z-40">
-          <button
-            type="button"
-            onClick={() => setQuickRoomDrawerOpen(true)}
-            aria-label="Abrir Sala de Deliberação Quick"
-            className="group flex flex-col items-center justify-center gap-1.5 w-12 min-w-[48px] h-24 min-h-[88px] rounded-l-3xl bg-card/95 border-l border-y border-white/[0.15] shadow-2xl backdrop-blur-2xl transition-all duration-200 active:scale-95 hover:w-14"
-            title="Missão e Modelos da Sala Quick"
-          >
-            <div className="grid size-7 place-items-center rounded-xl bg-white/[0.08] text-foreground group-hover:scale-110 transition-transform">
-              <SlidersHorizontal className="size-3.5" />
-            </div>
-            <div className="flex flex-col items-center leading-none">
-              <span className="text-[9px] font-bold tracking-tight uppercase text-foreground/90">
-                SALA
-              </span>
-              <ChevronLeft className="size-3 text-muted-foreground mt-0.5 group-hover:-translate-x-0.5 transition-transform" />
-            </div>
-          </button>
-        </div>
+        <div
+          onClick={() => {
+            void Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+            setQuickRoomDrawerOpen(true);
+          }}
+          className="fixed right-0 top-1/4 bottom-1/4 w-6 z-40 cursor-pointer touch-pan-y"
+          aria-label="Área touch da Sala Quick"
+          role="button"
+          tabIndex={0}
+        />
       )}
 
       {/* Modal / Painel da Sala de Deliberação Quick para alternar missão e modelos */}

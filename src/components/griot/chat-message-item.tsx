@@ -17,6 +17,7 @@ import { parseAttachmentMeta, type AttachmentMetadata } from "@/lib/file-attachm
 import { Thinking } from "./thinking";
 import type { ExecutionStepItem, MessageReaction } from "@/lib/chat-execution-manager";
 import { getAiLogo, getModelDisplayName } from "./brand-icons";
+import { getUserSavedApis } from "@/lib/user-apis";
 
 function getAttachmentDisplay(meta: AttachmentMetadata) {
   const name = (meta.fileName || "").toLowerCase();
@@ -284,11 +285,11 @@ export const ChatMessageItem = React.memo(
                   </div>
 
                   <div className="flex-1 min-w-0 max-w-[88%]">
-                    <div className="flex items-center gap-2 mb-1 px-1">
-                      <span className="text-[12px] font-semibold text-foreground tracking-tight">
+                    <div className="flex items-center justify-between gap-2 mb-1 px-1">
+                      <span className="text-[12px] font-semibold text-foreground tracking-tight truncate">
                         {cfg.name}
                       </span>
-                      <span className="rounded-md bg-secondary/80 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <span className="rounded-md bg-secondary/80 px-2 py-0.5 text-[9.5px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0 border border-border/40">
                         {cfg.badge}
                       </span>
                     </div>
@@ -314,26 +315,40 @@ export const ChatMessageItem = React.memo(
       }
 
       // Caso seja uma resposta individual e natural de um dos modelos da Sala Quick
-      const ModelLogo = getAiLogo(message.model);
-      const modelDisplayName = getModelDisplayName(message.model);
-      const roleDisplayName = message.metadata?.roleName || modelDisplayName;
+      const savedApis = typeof window !== "undefined" ? getUserSavedApis() : [];
+      const matchedUserApi = savedApis.find(
+        (a) => a.id === message.model || a.id === message.metadata?.modelId,
+      );
+
+      // Nome dado pelo utilizador (ex: "Joel", "Jogjoson") ou o nome oficial do modelo
+      const userModelName =
+        matchedUserApi?.label || message.metadata?.userLabel || getModelDisplayName(message.model);
+
+      // Logo oficial do modelo/provedor de IA (Gemini, Claude, OpenAI, DeepSeek, etc.) e nunca do Griot
+      const ModelLogo = getAiLogo(
+        matchedUserApi?.providerId || matchedUserApi?.model || message.model,
+      );
+
+      // Papel/função do modelo na sala (ex: "Crítico", "Analista", "Estrategista", "Inovador")
+      const roleDisplayName =
+        message.metadata?.roleName || "Especialista";
 
       return (
         <div className="flex items-start gap-2.5 my-2 animate-fade-in">
           <div
             className="relative grid size-9 shrink-0 place-items-center rounded-2xl border border-hairline/80 bg-surface shadow-2xs"
-            title={`${roleDisplayName} (${modelDisplayName})`}
+            title={`${userModelName} · ${roleDisplayName}`}
           >
             <ModelLogo className="size-4.5 text-foreground" />
           </div>
 
           <div className="flex-1 min-w-0 max-w-[88%]">
-            <div className="flex items-center gap-2 mb-1 px-1">
-              <span className="text-[12px] font-semibold text-foreground tracking-tight">
-                {roleDisplayName}
+            <div className="flex items-center justify-between gap-2 mb-1 px-1">
+              <span className="text-[12.5px] font-semibold text-foreground tracking-tight truncate">
+                {userModelName}
               </span>
-              <span className="rounded-md bg-secondary/80 px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground uppercase tracking-wider">
-                {modelDisplayName}
+              <span className="rounded-md bg-secondary/80 px-2 py-0.5 text-[9.5px] font-semibold text-muted-foreground uppercase tracking-wider shrink-0 border border-border/40">
+                {roleDisplayName}
               </span>
             </div>
             <div className="rounded-3xl rounded-tl-sm border border-hairline/80 bg-surface/90 px-4 py-3 text-[15px] leading-relaxed text-foreground shadow-xs">
