@@ -97,11 +97,24 @@ export function normalizeConnectorId(connector: string): string {
 }
 
 /**
- * Normaliza a ação removendo prefixos de namespace redundantes (ex: "github.contents.write_file" -> "contents.write_file")
+ * Normaliza a ação removendo prefixos de namespace redundantes do conector (ex: "github.contents.write_file" -> "contents.write_file")
+ * Preserva intactos os namespaces dos recursos (ex: "repos.create", "contents.read_file", "db.raw_sql", "firestore.get_document").
  */
 export function normalizeActionName(rawAction: string, canonicalConnectorId: string): string {
   let action = (rawAction || "").trim();
-  const prefixRegex = new RegExp(`^(${canonicalConnectorId}|[a-z0-9_-]+)\\.`, "i");
+  // Remove APENAS o prefixo do conector se estiver redundante (ex: "github.repos.create" -> "repos.create")
+  // JAMAIS remover prefixos de recursos funcionais como "repos.", "contents.", "pulls.", "issues.", "db.", etc.
+  const connectorPrefixes = [
+    canonicalConnectorId,
+    "github", "gitlab", "vercel", "supabase", "firebase",
+    "discord", "slack", "telegram", "twilio", "resend",
+    "postgresql", "redis", "mongodb", "airtable", "pinecone", "qdrant",
+    "notion", "google_drive", "trello", "jira", "linear",
+    "aws", "cloudflare", "digitalocean", "huggingface", "dockerhub",
+    "stripe", "shopify", "google_analytics", "posthog", "sentry",
+    "gh", "gl", "sb", "fb", "tg", "cf", "do"
+  ].join("|");
+  const prefixRegex = new RegExp(`^(${connectorPrefixes})\\.`, "i");
   if (prefixRegex.test(action)) {
     action = action.replace(prefixRegex, "");
   }
@@ -118,11 +131,11 @@ export async function executeUniversalConnector(
   const normId = normalizeConnectorId(connectorNameOrId);
   const normalizedAction = normalizeActionName(ctx.action, normId);
 
-  // Recupera credencial salva caso não tenha sido passada no contexto
+  // Recupera credencial e conta salva caso não tenham sido passadas no contexto
   let credential = ctx.credential?.trim() || "";
   let account = ctx.account?.trim() || "";
 
-  if (!credential) {
+  if (!credential || !account) {
     const connected = getConnectedPlugins();
     // Tenta correspondência direta ou por aliases no mapa
     const plugin =
@@ -130,8 +143,8 @@ export async function executeUniversalConnector(
       Object.values(connected).find((p) => p.id === normId || normalizeConnectorId(p.id) === normId);
 
     if (plugin) {
-      credential = plugin.apiKey || "";
-      account = plugin.accountName || plugin.customEndpoint || "";
+      if (!credential) credential = plugin.apiKey || "";
+      if (!account) account = plugin.accountName || plugin.projectRef || plugin.customEndpoint || "";
     }
   }
 

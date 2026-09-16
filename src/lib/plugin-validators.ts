@@ -278,11 +278,26 @@ export async function validatePluginCredentials(
           return { valid: false, message: `Erro GitHub (${res.status}): ${res.statusText}` };
         }
 
+        const scopesHeader = res.headers.get("x-oauth-scopes");
+        const scopes = scopesHeader ? scopesHeader.split(",").map((s) => s.trim().toLowerCase()) : [];
+        const hasRepoScope = scopes.includes("repo") || scopes.includes("public_repo");
+
+        let warning = "";
+        if (scopesHeader !== null && !hasRepoScope) {
+          warning = " ⚠️ Aviso: O token NÃO tem o escopo 'repo' ativo. Repositórios privados estarão invisíveis e ações de criação/escrita falharão. Ativa 'repo' em github.com/settings/tokens.";
+        }
+
         const user = await res.json();
         return {
           valid: true,
-          message: `📦 Autenticado no GitHub com sucesso como @${user.login}!`,
-          details: { username: user.login },
+          message: `📦 Autenticado no GitHub com sucesso como @${user.login}! (${user.public_repos} públicos | ${user.total_private_repos ?? 0} privados).${warning}`,
+          details: {
+            username: user.login,
+            publicRepos: user.public_repos,
+            privateRepos: user.total_private_repos ?? 0,
+            hasRepoScope,
+            scopes: scopesHeader || "fine-grained",
+          },
         };
       }
 

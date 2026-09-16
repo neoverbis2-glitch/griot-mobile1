@@ -79,13 +79,46 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
   const action = (ctx.action || "list_repos").toLowerCase();
   const p = ctx.params || {};
 
+  let owner = (ctx.account || "").trim();
+  const resolveOwner = async (): Promise<string> => {
+    if (owner) return owner;
+    try {
+      const uRes = await fetch("https://api.github.com/user", { headers });
+      if (uRes.ok) {
+        const u = await uRes.json();
+        if (u.login) {
+          owner = u.login;
+          return owner;
+        }
+      }
+    } catch {
+      // Ignora erro de lookup
+    }
+    return "";
+  };
+
+  const resolveRepo = async (targetRepo: string): Promise<string> => {
+    let r = (targetRepo || "").trim();
+    if (!r) return "";
+    if (r.includes("/")) return r;
+    const currentOwner = await resolveOwner();
+    return currentOwner ? `${currentOwner}/${r}` : r;
+  };
+
   try {
     // 1.1 Listar Repositórios
-    if (action === "list_repos" || action === "repos" || action === "list_repositories") {
-      const perPage = Math.min(Math.max(Number(p.limit || 15), 1), 50);
+    if (
+      action === "list_repos" ||
+      action === "repos.list" ||
+      action === "repos" ||
+      action === "list" ||
+      action === "repositories" ||
+      action === "list_repositories"
+    ) {
+      const perPage = Math.min(Math.max(Number(p.limit || 30), 1), 100);
       const sort = String(p.sort || "updated");
       const visibility = p.visibility ? `&visibility=${encodeURIComponent(String(p.visibility))}` : "";
-      const res = await fetch(`https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}${visibility}`, { headers });
+      const res = await fetch(`https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}&affiliation=owner,collaborator,organization_member${visibility}`, { headers });
       if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
 
       const repos = (await res.json()) as Array<{
@@ -131,13 +164,26 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 1.2 Detalhes de um Repositório Específico
-    if (action === "get_repo" || action === "repo_details") {
-      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
-      if (!repo.includes("/")) {
+    if (
+      action === "get_repo" ||
+      action === "repos.get" ||
+      action === "repo_details" ||
+      action === "repo" ||
+      action === "get"
+    ) {
+      const rawRepo = String(p.repo || p.full_name || ctx.account || "").trim();
+      const repo = await resolveRepo(rawRepo);
+      if (!repo || !repo.includes("/")) {
         throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo' (ex: facebook/react).");
       }
-      const res = await fetch(`https://api.github.com/repos/${repo}`, { headers });
-      if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
+      let res = await fetch(`https://api.github.com/repos/${repo}`, { headers });
+      if (!res.ok) {
+        const scopes = res.headers.get("x-oauth-scopes");
+        if (res.status === 404 && scopes !== null && !scopes.includes("repo")) {
+          throw new Error(`Repositório '${repo}' não encontrado no GitHub (404). Se for privado, o token necessita do escopo 'repo'.`);
+        }
+        throw new Error(await handleHttpError(res, "GitHub"));
+      }
 
       const data = await res.json();
       return {
@@ -155,9 +201,50 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
       };
     }
 
+    // 1.2b Criar Repositório
+    if (
+      action === "create_repo" ||
+      action === "repos.create" ||
+      action === "create" ||
+      action === "new_repo" ||
+      action === "repository.create"
+    ) {
+      const rawName = String(p.name || p.repo || p.repository || p.title || p.repo_name || "").trim();
+      const name = rawName.includes("/") ? rawName.split("/").pop()!.trim() : rawName;
+      if (!name) throw new Error("Parâmetro 'name' (ou 'repo') é obrigatório para criar repositório.");
+      const isPrivate = p.private !== undefined ? Boolean(p.private) : false;
+      const autoInit = p.auto_init !== undefined ? Boolean(p.auto_init) : true;
+      const res = await fetch("https://api.github.com/user/repos", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          description: p.description || undefined,
+          private: isPrivate,
+          auto_init: autoInit,
+          gitignore_template: p.gitignore_template || undefined,
+          license_template: p.license_template || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const scopes = res.headers.get("x-oauth-scopes");
+        if ((res.status === 403 || res.status === 404) && scopes !== null && !scopes.includes("repo") && !scopes.includes("public_repo")) {
+          throw new Error("Permissão insuficiente para criar repositório. O token atual necessita do escopo 'repo'.");
+        }
+        throw new Error(await handleHttpError(res, "GitHub"));
+      }
+      const data = await res.json();
+      return {
+        success: true,
+        data,
+        summary: `📦 **Repositório Criado no GitHub:** [${data.full_name}](${data.html_url}) (${data.private ? "Privado 🔒" : "Público 🌐"})`,
+      };
+    }
+
     // 1.3 Listar Issues
-    if (action === "list_issues" || action === "issues") {
-      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+    if (action === "list_issues" || action === "issues.list" || action === "issues") {
+      const rawRepo = String(p.repo || p.full_name || ctx.account || "").trim();
+      const repo = await resolveRepo(rawRepo);
       if (!repo.includes("/")) {
         throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
       }
@@ -197,14 +284,15 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 1.4 Criar Issue
-    if (action === "create_issue") {
-      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+    if (action === "create_issue" || action === "issues.create") {
+      const rawRepo = String(p.repo || p.full_name || ctx.account || "").trim();
+      const repo = await resolveRepo(rawRepo);
       if (!repo.includes("/")) {
         throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
       }
-      const title = String(p.title || "").trim();
+      const title = String(p.title || p.name || "").trim();
       if (!title) throw new Error("Parâmetro 'title' é obrigatório para criar uma issue.");
-      const body = String(p.body || p.content || "").trim();
+      const body = String(p.body || p.content || p.description || "").trim();
       const labels = Array.isArray(p.labels) ? p.labels : undefined;
 
       const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
@@ -223,9 +311,10 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 1.5 Ler Conteúdo de Ficheiro
-    if (action === "get_file" || action === "read_file" || action === "file_content") {
-      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
-      const path = String(p.path || p.file || "").trim();
+    if (action === "get_file" || action === "read_file" || action === "contents.read_file" || action === "file_content") {
+      const rawRepo = String(p.repo || p.full_name || ctx.account || "").trim();
+      const repo = await resolveRepo(rawRepo);
+      const path = String(p.path || p.file || p.filepath || "").trim();
       if (!repo.includes("/") || !path) {
         throw new Error("Requer parâmetros 'repo' (dono/repo) e 'path' (ex: package.json ou src/index.ts).");
       }
@@ -259,8 +348,9 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 1.6 Listar Pull Requests
-    if (action === "list_prs" || action === "pull_requests" || action === "prs") {
-      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+    if (action === "list_prs" || action === "pulls.list" || action === "pull_requests" || action === "prs") {
+      const rawRepo = String(p.repo || p.full_name || ctx.account || "").trim();
+      const repo = await resolveRepo(rawRepo);
       if (!repo.includes("/")) {
         throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
       }
@@ -296,8 +386,9 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 1.7 Listar Commits
-    if (action === "list_commits" || action === "commits") {
-      const repo = String(p.repo || p.full_name || ctx.account || "").trim();
+    if (action === "list_commits" || action === "commits.list" || action === "commits") {
+      const rawRepo = String(p.repo || p.full_name || ctx.account || "").trim();
+      const repo = await resolveRepo(rawRepo);
       if (!repo.includes("/")) {
         throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo'.");
       }
@@ -331,22 +422,44 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
       };
     }
 
-    // 1.8 Default: Perfil da Conta Autenticada
-    const userRes = await fetch("https://api.github.com/user", { headers });
-    if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitHub"));
-    const user = await userRes.json();
+    // 1.8 Perfil da Conta Autenticada (apenas para ações explícitas de utilizador/perfil)
+    if (
+      action === "profile" ||
+      action === "user" ||
+      action === "get_user" ||
+      action === "account" ||
+      action === "default" ||
+      !action
+    ) {
+      const userRes = await fetch("https://api.github.com/user", { headers });
+      if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitHub"));
+      const user = await userRes.json();
+      const scopes = userRes.headers.get("x-oauth-scopes");
 
-    return {
-      success: true,
-      data: user,
-      summary:
-        `🐙 **Conta GitHub Conectada com Sucesso!**\n` +
-        `• Utilizador: **[@${user.login}](${user.html_url})** (${user.name || "Sem nome público"})\n` +
-        `• Email: ${user.email || "Privado"}\n` +
-        `• Repositórios: ${user.public_repos} públicos | ${user.total_private_repos || 0} privados\n` +
-        `• Bio: ${user.bio || "Sem biografia"}\n\n` +
-        `💡 _Podes pedir: "Griot, lista os meus repositórios", "Mostra os PRs de dono/repo" ou "Lê o ficheiro package.json do meu projeto"_`,
-    };
+      let scopeDetails = "";
+      if (scopes !== null) {
+        const scopesArr = scopes.split(",").map((s) => s.trim().toLowerCase());
+        const hasRepo = scopesArr.includes("repo") || scopesArr.includes("public_repo");
+        if (!hasRepo) {
+          scopeDetails = `\n\n⚠️ **Alerta:** Token sem o escopo 'repo' (escopos ativos: \`${scopes || "nenhum"}\`). Repositórios privados e operações de escrita requerem o escopo 'repo'.`;
+        }
+      }
+
+      return {
+        success: true,
+        data: { ...user, scopes },
+        summary:
+          `🐙 **Conta GitHub Conectada com Sucesso!**\n` +
+          `• Utilizador: **[@${user.login}](${user.html_url})** (${user.name || "Sem nome público"})\n` +
+          `• Email: ${user.email || "Privado"}\n` +
+          `• Repositórios: ${user.public_repos} públicos | ${user.total_private_repos || 0} privados\n` +
+          `• Bio: ${user.bio || "Sem biografia"}` +
+          scopeDetails +
+          `\n\n💡 _Podes pedir: "Griot, lista os meus repositórios", "Mostra os PRs de dono/repo" ou "Lê o ficheiro package.json do meu projeto"_`,
+      };
+    }
+
+    throw new Error(`Ação '${action}' não reconhecida para o conector GitHub.`);
   } catch (err: any) {
     return {
       success: false,

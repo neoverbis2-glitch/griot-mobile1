@@ -318,13 +318,18 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                         </div>
                         {(connData?.projectRef || connData?.accountName) && (
                           <div className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
-                            <span className="opacity-70">Projeto / Ref:</span>
-                            <span className="font-semibold text-foreground/90">{connData.projectRef || connData.accountName}</span>
+                            <span className="opacity-70">Conta / Ref:</span>
+                            <span className="font-semibold text-foreground/90">{connData.accountName || connData.projectRef}</span>
                           </div>
                         )}
                         {connData?.projects && connData.projects.length > 0 && (
                           <div className="text-[10.5px] text-muted-foreground/80">
                             {connData.projects.length} {t("projeto(s) detetado(s) na conta")}
+                          </div>
+                        )}
+                        {connData?.validationMessage && connData.validationMessage.includes("Aviso") && (
+                          <div className="mt-1 rounded-lg bg-amber-500/10 p-1.5 text-[10.5px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
+                            ⚠️ {connData.validationMessage.split("⚠️")[1]?.trim() || connData.validationMessage}
                           </div>
                         )}
                       </div>
@@ -444,6 +449,11 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                 {configuringPlugin.id === "supabase" && (
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     {t("Dica: Usa o Personal Access Token (sbp_...) para permissão total de criação de tabelas e queries SQL PostgreSQL diretas.")}
+                  </p>
+                )}
+                {configuringPlugin.id === "github" && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {t("Dica: Gera um Personal Access Token com o escopo 'repo' marcado em github.com/settings/tokens para ver repositórios privados e criar/gravar ficheiros.")}
                   </p>
                 )}
               </div>

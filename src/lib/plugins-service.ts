@@ -540,8 +540,14 @@ Nenhum conector externo está autenticado no momento. Se o utilizador solicitar 
       prompt += `  - Chamada Semântica: <connector_action connector="supabase" action="db.raw_sql" params='{"query":"SELECT * FROM ..."}' />\n`;
       prompt += `  - Ações suportadas: db.select, db.insert, db.update, db.delete, db.raw_sql, db.introspect_schema, storage.list_buckets, functions.list\n\n`;
     } else if (cp.id === "github") {
-      prompt += `• 📦 **GITHUB**: CONECTADO E VALIDADO! (Utilizador: ${cp.accountName || "autenticado"})\n`;
-      prompt += `  - Chamada Semântica: <connector_action connector="github" action="contents.write_file" params='{"repo":"owner/repo","path":"src/app.ts","content":"..."}' />\n`;
+      const userHandle = cp.accountName ? `@${cp.accountName}` : "autenticado";
+      prompt += `• 📦 **GITHUB**: CONECTADO E VALIDADO! (Utilizador: ${userHandle})\n`;
+      prompt += `  - REGRA DE OURO REPOSITÓRIOS: Podes passar o repositório como "${cp.accountName || "dono"}/nome-repo" ou apenas "nome-repo" (o GRIOT associa automaticamente à conta ${userHandle}).\n`;
+      prompt += `  - Listar Repos: <connector_action connector="github" action="repos.list" params='{}' />\n`;
+      prompt += `  - Criar Repositório: <connector_action connector="github" action="repos.create" params='{"name":"nome-do-repo","private":false}' />\n`;
+      prompt += `  - Ver Detalhes: <connector_action connector="github" action="repos.get" params='{"repo":"nome-do-repo"}' />\n`;
+      prompt += `  - Ler Ficheiro: <connector_action connector="github" action="contents.read_file" params='{"repo":"nome-do-repo","path":"README.md"}' />\n`;
+      prompt += `  - Escrever Ficheiro: <connector_action connector="github" action="contents.write_file" params='{"repo":"nome-do-repo","path":"src/App.tsx","content":"..."}' />\n`;
       prompt += `  - Ações suportadas: repos.list, repos.get, repos.create, contents.read_file, contents.write_file, contents.delete_file, contents.get_tree, search.code, branches.list, pulls.list, pulls.create, issues.list, issues.create, actions.list_workflows\n\n`;
     } else if (cp.id === "gitlab") {
       prompt += `• 🦊 **GITLAB**: CONECTADO E VALIDADO!\n`;
