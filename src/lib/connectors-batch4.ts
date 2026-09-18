@@ -88,7 +88,10 @@ export async function executeStripe(ctx: ConnectorExecutionContext): Promise<Con
 
   try {
     switch (ctx.action) {
-      case "get_balance": {
+      case "get_balance":
+      case "balance.get":
+      case "balance":
+      case "ping": {
         const res = await fetch(BASE_URL + "/balance", { headers });
         if (!res.ok) {
           return {
@@ -123,7 +126,9 @@ export async function executeStripe(ctx: ConnectorExecutionContext): Promise<Con
         };
       }
 
-      case "list_customers": {
+      case "list_customers":
+      case "customers.list":
+      case "customers": {
         const limit = Math.min(Number(ctx.params.limit) || 10, 50);
         const res = await fetch(BASE_URL + "/customers?limit=" + limit, { headers });
         if (!res.ok) {
@@ -163,7 +168,10 @@ export async function executeStripe(ctx: ConnectorExecutionContext): Promise<Con
         };
       }
 
-      case "list_charges": {
+      case "list_charges":
+      case "charges.list":
+      case "charges":
+      case "payments.list": {
         const limit = Math.min(Number(ctx.params.limit) || 10, 50);
         const res = await fetch(BASE_URL + "/charges?limit=" + limit, { headers });
         if (!res.ok) {
@@ -206,7 +214,9 @@ export async function executeStripe(ctx: ConnectorExecutionContext): Promise<Con
         };
       }
 
-      case "list_invoices": {
+      case "list_invoices":
+      case "invoices.list":
+      case "invoices": {
         const limit = Math.min(Number(ctx.params.limit) || 10, 50);
         const res = await fetch(BASE_URL + "/invoices?limit=" + limit, { headers });
         if (!res.ok) {
@@ -248,7 +258,9 @@ export async function executeStripe(ctx: ConnectorExecutionContext): Promise<Con
         };
       }
 
-      case "get_payment_intent": {
+      case "get_payment_intent":
+      case "payment_intents.get":
+      case "payment_intent.get": {
         const piId = String(ctx.params.payment_intent_id || ctx.params.id || "").trim();
         if (!piId) {
           return {
@@ -338,7 +350,11 @@ export async function executeGoogleSheets(ctx: ConnectorExecutionContext): Promi
 
   try {
     switch (ctx.action) {
-      case "get_spreadsheet": {
+      case "get_spreadsheet":
+      case "spreadsheets.get":
+      case "spreadsheet.get":
+      case "info":
+      case "get": {
         const rawId = String(ctx.params.spreadsheet_id || ctx.params.id || "").trim();
         if (!rawId) {
           return {
@@ -387,7 +403,10 @@ export async function executeGoogleSheets(ctx: ConnectorExecutionContext): Promi
         };
       }
 
-      case "get_values": {
+      case "get_values":
+      case "values.get":
+      case "read":
+      case "read_values": {
         const rawId = String(ctx.params.spreadsheet_id || ctx.params.id || "").trim();
         if (!rawId) {
           return {
@@ -441,7 +460,10 @@ export async function executeGoogleSheets(ctx: ConnectorExecutionContext): Promi
         };
       }
 
-      case "append_values": {
+      case "append_values":
+      case "values.append":
+      case "append":
+      case "insert": {
         const rawId = String(ctx.params.spreadsheet_id || ctx.params.id || "").trim();
         if (!rawId) {
           return {
@@ -504,7 +526,9 @@ export async function executeGoogleSheets(ctx: ConnectorExecutionContext): Promi
         };
       }
 
-      case "create_spreadsheet": {
+      case "create_spreadsheet":
+      case "spreadsheets.create":
+      case "create": {
         const title = String(ctx.params.title || "Nova Planilha GRIOT").trim();
         const res = await fetch(BASE_URL, {
           method: "POST",
@@ -577,7 +601,9 @@ export async function executeGoogleDrive(ctx: ConnectorExecutionContext): Promis
 
   try {
     switch (ctx.action) {
-      case "list_files": {
+      case "list_files":
+      case "files.list":
+      case "files": {
         const limit = Math.min(Number(ctx.params.limit) || 15, 50);
         const url = BASE_URL + "/files?pageSize=" + limit + "&fields=nextPageToken,files(id,name,mimeType,size,modifiedTime,webViewLink)&q=trashed%3Dfalse";
         const res = await fetch(url, { headers });
@@ -621,7 +647,9 @@ export async function executeGoogleDrive(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "search_files": {
+      case "search_files":
+      case "files.search":
+      case "search": {
         const queryTerm = String(ctx.params.query || ctx.params.text || "").trim();
         if (!queryTerm) {
           return {
@@ -673,7 +701,9 @@ export async function executeGoogleDrive(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "get_file_metadata": {
+      case "get_file_metadata":
+      case "files.get":
+      case "file.get": {
         const fileId = String(ctx.params.file_id || ctx.params.id || "").trim();
         if (!fileId) {
           return {
@@ -719,7 +749,11 @@ export async function executeGoogleDrive(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "get_about": {
+      case "get_about":
+      case "about":
+      case "user":
+      case "profile":
+      case "quota": {
         const res = await fetch(BASE_URL + "/about?fields=user,storageQuota", { headers });
         if (!res.ok) {
           return {
@@ -805,7 +839,10 @@ export async function executeFigma(ctx: ConnectorExecutionContext): Promise<Conn
 
   try {
     switch (ctx.action) {
-      case "get_file": {
+      case "get_file":
+      case "files.get":
+      case "file.get":
+      case "file": {
         const rawKey = String(ctx.params.file_key || ctx.params.key || ctx.params.id || "").trim();
         if (!rawKey) {
           return {
@@ -854,7 +891,9 @@ export async function executeFigma(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "get_file_nodes": {
+      case "get_file_nodes":
+      case "nodes.get":
+      case "nodes": {
         const rawKey = String(ctx.params.file_key || ctx.params.key || "").trim();
         const rawIds = String(ctx.params.node_ids || ctx.params.ids || "").trim();
         if (!rawKey || !rawIds) {
@@ -900,7 +939,10 @@ export async function executeFigma(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "get_images": {
+      case "get_images":
+      case "images.get":
+      case "images":
+      case "render": {
         const rawKey = String(ctx.params.file_key || ctx.params.key || "").trim();
         const rawIds = String(ctx.params.node_ids || ctx.params.ids || "").trim();
         if (!rawKey || !rawIds) {
@@ -942,7 +984,9 @@ export async function executeFigma(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "get_comments": {
+      case "get_comments":
+      case "comments.get":
+      case "comments": {
         const rawKey = String(ctx.params.file_key || ctx.params.key || "").trim();
         if (!rawKey) {
           return {
@@ -1032,7 +1076,12 @@ export async function executeDocker(ctx: ConnectorExecutionContext): Promise<Con
 
   try {
     switch (ctx.action) {
-      case "get_user": {
+      case "get_user":
+      case "users.get":
+      case "user.get":
+      case "profile":
+      case "me":
+      case "user": {
         const username = String(ctx.params.username || ctx.accountName || "").trim();
         const endpoint = username ? BASE_URL + "/users/" + encodeURIComponent(username) : BASE_URL + "/user";
 
@@ -1063,7 +1112,11 @@ export async function executeDocker(ctx: ConnectorExecutionContext): Promise<Con
         };
       }
 
-      case "list_repositories": {
+      case "list_repositories":
+      case "repositories.list":
+      case "repos.list":
+      case "repos":
+      case "repositories": {
         const namespace = String(ctx.params.namespace || ctx.params.user || ctx.accountName || "library").trim();
         const limit = Math.min(Number(ctx.params.limit) || 15, 50);
         const res = await fetch(BASE_URL + "/repositories/" + encodeURIComponent(namespace) + "/?page_size=" + limit, { headers });
@@ -1106,7 +1159,10 @@ export async function executeDocker(ctx: ConnectorExecutionContext): Promise<Con
         };
       }
 
-      case "get_repository": {
+      case "get_repository":
+      case "repositories.get":
+      case "repo.get":
+      case "repo": {
         const repoParam = String(ctx.params.repository || ctx.params.name || ctx.params.repo || "").trim();
         if (!repoParam) {
           return {
@@ -1155,7 +1211,9 @@ export async function executeDocker(ctx: ConnectorExecutionContext): Promise<Con
         };
       }
 
-      case "list_tags": {
+      case "list_tags":
+      case "tags.list":
+      case "tags": {
         const repoParam = String(ctx.params.repository || ctx.params.name || ctx.params.repo || "").trim();
         if (!repoParam) {
           return {

@@ -85,7 +85,9 @@ export async function executeAzure(ctx: ConnectorExecutionContext): Promise<Conn
 
   try {
     switch (ctx.action) {
-      case "list_subscriptions": {
+      case "list_subscriptions":
+      case "subscriptions.list":
+      case "subscriptions": {
         const res = await fetch(BASE_URL + "/subscriptions?api-version=2022-12-01", { headers });
         if (!res.ok) {
           return {
@@ -124,7 +126,10 @@ export async function executeAzure(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "list_resource_groups": {
+      case "list_resource_groups":
+      case "resource_groups.list":
+      case "resourcegroups.list":
+      case "resource_groups": {
         const subId = ctx.params.subscription_id || ctx.params.subscriptionId;
         if (!subId) {
           return {
@@ -174,7 +179,9 @@ export async function executeAzure(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "list_resources": {
+      case "list_resources":
+      case "resources.list":
+      case "resources": {
         const subId = ctx.params.subscription_id || ctx.params.subscriptionId;
         if (!subId) {
           return {
@@ -229,7 +236,10 @@ export async function executeAzure(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "get_resource": {
+      case "get_resource":
+      case "resources.get":
+      case "resource.get":
+      case "resource": {
         const resourceId = ctx.params.resource_id || ctx.params.id;
         if (!resourceId) {
           return {
@@ -324,7 +334,9 @@ export async function executeSalesforce(ctx: ConnectorExecutionContext): Promise
 
   try {
     switch (ctx.action) {
-      case "get_limits": {
+      case "get_limits":
+      case "limits.get":
+      case "limits": {
         const res = await fetch(BASE_URL + "/limits", { headers });
         if (!res.ok) {
           return {
@@ -351,7 +363,10 @@ export async function executeSalesforce(ctx: ConnectorExecutionContext): Promise
         };
       }
 
-      case "query_soql": {
+      case "query_soql":
+      case "soql.query":
+      case "query":
+      case "soql": {
         const soql = ctx.params.soql || ctx.params.query || ctx.params.sql;
         if (!soql) {
           return {
@@ -395,7 +410,10 @@ export async function executeSalesforce(ctx: ConnectorExecutionContext): Promise
         };
       }
 
-      case "describe_sobject": {
+      case "describe_sobject":
+      case "sobjects.describe":
+      case "sobject.describe":
+      case "describe": {
         const sobject = ctx.params.sobject || ctx.params.object || ctx.params.name;
         if (!sobject) {
           return {
@@ -436,7 +454,9 @@ export async function executeSalesforce(ctx: ConnectorExecutionContext): Promise
         };
       }
 
-      case "create_lead": {
+      case "create_lead":
+      case "leads.create":
+      case "lead.create": {
         const lastName = ctx.params.last_name || ctx.params.lastName || ctx.params.name;
         const company = ctx.params.company || "Empresa Não Informada";
         const email = ctx.params.email;
@@ -533,7 +553,10 @@ export async function executeGoogleColab(ctx: ConnectorExecutionContext): Promis
 
   try {
     switch (ctx.action) {
-      case "get_status": {
+      case "get_status":
+      case "status.get":
+      case "status":
+      case "ping": {
         const res = await fetch(BASE_URL + "/sessions", { headers });
         if (!res.ok) {
           return {
@@ -559,7 +582,9 @@ export async function executeGoogleColab(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "list_sessions": {
+      case "list_sessions":
+      case "sessions.list":
+      case "sessions": {
         const res = await fetch(BASE_URL + "/sessions", { headers });
         if (!res.ok) {
           return {
@@ -598,7 +623,9 @@ export async function executeGoogleColab(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "get_runtime_info": {
+      case "get_runtime_info":
+      case "runtime.get":
+      case "runtime": {
         let summary = "⚡ **Especificações de Runtime do Google Colab**:\n\n";
         summary += "• **Tipo Padrão**: Python 3.10+ com suporte a CUDA\n";
         summary += "• **Aceleradores Suportados**: NVIDIA T4, V100, A100 e Google TPU v2/v3\n";
@@ -614,7 +641,10 @@ export async function executeGoogleColab(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "run_command": {
+      case "run_command":
+      case "command.run":
+      case "exec":
+      case "run": {
         const code = ctx.params.code || ctx.params.command;
         if (!code) {
           return {
@@ -690,7 +720,9 @@ export async function executeGoogleAnalytics(ctx: ConnectorExecutionContext): Pr
 
   try {
     switch (ctx.action) {
-      case "run_realtime_report": {
+      case "run_realtime_report":
+      case "realtime.run":
+      case "realtime": {
         if (!propertyId) {
           return {
             success: false,
@@ -743,7 +775,10 @@ export async function executeGoogleAnalytics(ctx: ConnectorExecutionContext): Pr
         };
       }
 
-      case "run_report": {
+      case "run_report":
+      case "reports.run":
+      case "report.run":
+      case "report": {
         if (!propertyId) {
           return {
             success: false,
@@ -801,7 +836,9 @@ export async function executeGoogleAnalytics(ctx: ConnectorExecutionContext): Pr
         };
       }
 
-      case "get_metadata": {
+      case "get_metadata":
+      case "metadata.get":
+      case "metadata": {
         if (!propertyId) {
           return {
             success: false,
@@ -840,7 +877,10 @@ export async function executeGoogleAnalytics(ctx: ConnectorExecutionContext): Pr
         };
       }
 
-      case "get_account_summaries": {
+      case "get_account_summaries":
+      case "accounts.list":
+      case "account_summaries.get":
+      case "accounts": {
         const res = await fetch("https://analyticsadmin.googleapis.com/v1beta/accountSummaries", { headers });
         if (!res.ok) {
           return {
@@ -926,7 +966,11 @@ export async function executeCanva(ctx: ConnectorExecutionContext): Promise<Conn
 
   try {
     switch (ctx.action) {
-      case "get_user_profile": {
+      case "get_user_profile":
+      case "users.me":
+      case "profile.get":
+      case "profile":
+      case "me": {
         const res = await fetch(BASE_URL + "/users/me/profile", { headers });
         if (!res.ok) {
           return {
@@ -952,7 +996,9 @@ export async function executeCanva(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "list_designs": {
+      case "list_designs":
+      case "designs.list":
+      case "designs": {
         const limit = Number(ctx.params.limit) || 8;
         const res = await fetch(BASE_URL + "/designs?limit=" + limit, { headers });
         if (!res.ok) {
@@ -992,7 +1038,10 @@ export async function executeCanva(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "get_design": {
+      case "get_design":
+      case "designs.get":
+      case "design.get":
+      case "design": {
         const designId = ctx.params.design_id || ctx.params.id;
         if (!designId) {
           return {
@@ -1035,7 +1084,9 @@ export async function executeCanva(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "create_design": {
+      case "create_design":
+      case "designs.create":
+      case "design.create": {
         const title = ctx.params.title || "Novo Design GRIOT";
         const res = await fetch(BASE_URL + "/designs", {
           method: "POST",

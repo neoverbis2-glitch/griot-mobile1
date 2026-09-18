@@ -332,8 +332,68 @@ export async function executeNeon(
         };
       }
 
+      case "query":
+      case "pg.query":
+      case "execute_sql":
+      case "sql": {
+        const projectId = String(ctx.params.project_id || ctx.params.projectId || ctx.account || "").trim();
+        const sql = String(ctx.params.query || ctx.params.sql || "").trim();
+        const database = String(ctx.params.database || "neondb").trim();
+
+        if (!sql) {
+          return {
+            success: false,
+            connector: "neon",
+            action: ctx.action,
+            summary: "⚠️ **Parâmetro em falta**: Especifica a instrução SQL no parâmetro `query` ou `sql`.",
+            error: "query ausente",
+          };
+        }
+
+        if (!projectId) {
+          return {
+            success: false,
+            connector: "neon",
+            action: ctx.action,
+            summary: "⚠️ **Parâmetro em falta**: Especifica o `project_id` do Neon.",
+            error: "project_id ausente",
+          };
+        }
+
+        const res = await fetch(`${BASE_URL}/projects/${projectId}/sql`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ query: sql, database }),
+        });
+
+        if (!res.ok) {
+          return {
+            success: false,
+            connector: "neon",
+            action: ctx.action,
+            summary: await handleHttpError(res, "Neon SQL"),
+            error: `HTTP ${res.status}`,
+          };
+        }
+
+        const data = await res.json();
+        return {
+          success: true,
+          connector: "neon",
+          action: ctx.action,
+          summary: `🐘 **Consulta SQL executada no Neon Postgres (\`${database}\`):**\n\`\`\`json\n${JSON.stringify(data, null, 2).slice(0, 3000)}\n\`\`\``,
+          data,
+        };
+      }
+
       default: {
-        return executeNeon({ ...ctx, action: "list_projects" });
+        return {
+          success: false,
+          connector: "neon",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Neon Postgres.**\nAções disponíveis: pg.query, list_projects, get_project, list_branches, create_branch, get_connection_uri.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
       }
     }
   } catch (err) {
@@ -608,8 +668,50 @@ export async function executeUpstash(
         };
       }
 
+      case "command":
+      case "exec":
+      case "execute":
+      case "raw": {
+        const rawCommand = (ctx.params.command || ctx.params.cmd || ctx.action).toString().trim();
+        const args = Array.isArray(ctx.params.args)
+          ? ctx.params.args
+          : [ctx.params.key, ctx.params.value, ...(Array.isArray(ctx.params.extra) ? ctx.params.extra : [])].filter((x) => x !== undefined && x !== "");
+
+        const commandArray = [rawCommand, ...args];
+        const res = await fetch(`${BASE_URL}`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(commandArray),
+        });
+
+        if (!res.ok) {
+          return {
+            success: false,
+            connector: "upstash",
+            action: ctx.action,
+            summary: await handleHttpError(res, "Upstash Redis Command"),
+            error: `HTTP ${res.status}`,
+          };
+        }
+
+        const data = await res.json();
+        return {
+          success: true,
+          connector: "upstash",
+          action: ctx.action,
+          summary: `⚡ **Comando Redis \`${rawCommand}\` executado com sucesso!**\n\`\`\`json\n${JSON.stringify(data.result !== undefined ? data.result : data, null, 2)}\n\`\`\``,
+          data,
+        };
+      }
+
       default: {
-        return executeUpstash({ ...ctx, action: "ping" });
+        return {
+          success: false,
+          connector: "upstash",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Upstash Redis.**\nAções disponíveis: ping, get, set, del, keys, stats/info, command/exec.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
       }
     }
   } catch (err) {
@@ -663,8 +765,8 @@ export async function executeMongoDb(
   };
 
   const dataSource = String(ctx.params.dataSource || ctx.params.cluster || "Cluster0").trim();
-  const database = String(ctx.params.database || ctx.params.db || "").trim();
-  const collection = String(ctx.params.collection || "").trim();
+  const database = String(ctx.params.database || ctx.params.db || ctx.accountName || ctx.account || "").trim();
+  const collection = String(ctx.params.collection || ctx.params.table || "").trim();
 
   try {
     switch (ctx.action) {
@@ -819,11 +921,20 @@ export async function executeMongoDb(
       }
 
       default: {
+        if (ctx.action === "ping" || ctx.action === "status" || ctx.action === "health" || ctx.action === "info") {
+          return {
+            success: true,
+            connector: "mongodb",
+            action: ctx.action,
+            summary: `🍃 **Conexão MongoDB Atlas Configurada** (Cluster: \`${dataSource}\`). Ações disponíveis: \`find\`, \`find_one\`, \`insert_one\`.`,
+          };
+        }
         return {
-          success: true,
+          success: false,
           connector: "mongodb",
           action: ctx.action,
-          summary: `🍃 **Conexão MongoDB Atlas Configurada** (Cluster: \`${dataSource}\`). Ações disponíveis: \`find\`, \`find_one\`, \`insert_one\`.`,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector MongoDB Atlas.**\nAções disponíveis: find, find_one, insert_one.`,
+          error: `Ação não suportada: ${ctx.action}`,
         };
       }
     }
@@ -898,7 +1009,9 @@ export async function executeCloudflare(
         };
       }
 
-      case "list_zones": {
+      case "list_zones":
+      case "zones.list":
+      case "zones": {
         const res = await fetch(`${BASE_URL}/zones`, { headers });
         if (!res.ok) {
           return {
@@ -938,7 +1051,9 @@ export async function executeCloudflare(
       }
 
       case "list_d1":
-      case "list_d1_databases": {
+      case "list_d1_databases":
+      case "d1.list":
+      case "d1": {
         if (!accountId) {
           return {
             success: false,
@@ -989,7 +1104,10 @@ export async function executeCloudflare(
         };
       }
 
-      case "query_d1": {
+      case "query_d1":
+      case "d1.query":
+      case "d1_query":
+      case "query": {
         const dbId = String(ctx.params.database_id || ctx.params.database || "").trim();
         const sql = String(ctx.params.sql || ctx.params.query || "").trim();
 
@@ -1040,7 +1158,9 @@ export async function executeCloudflare(
         };
       }
 
-      case "list_workers": {
+      case "list_workers":
+      case "workers.list":
+      case "workers": {
         if (!accountId) {
           return {
             success: false,
@@ -1085,7 +1205,13 @@ export async function executeCloudflare(
       }
 
       default: {
-        return executeCloudflare({ ...ctx, action: "verify_token" });
+        return {
+          success: false,
+          connector: "cloudflare",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Cloudflare.**\nAções disponíveis: d1.query, d1.list, workers.list, zones.list, verify_token.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
       }
     }
   } catch (err) {
@@ -1124,7 +1250,8 @@ export async function executeQdrant(
 
   try {
     switch (ctx.action) {
-      case "list_collections": {
+      case "list_collections":
+      case "collections.list": {
         const res = await fetch(`${BASE_URL}/collections`, { headers });
         if (!res.ok) {
           return {
@@ -1159,7 +1286,8 @@ export async function executeQdrant(
         };
       }
 
-      case "get_collection": {
+      case "get_collection":
+      case "collections.get": {
         const name = String(ctx.params.collection || ctx.params.name || "").trim();
         if (!name) {
           return {
@@ -1201,7 +1329,10 @@ export async function executeQdrant(
         };
       }
 
-      case "search": {
+      case "search":
+      case "vector.search":
+      case "vector.query":
+      case "query": {
         const name = String(ctx.params.collection || "").trim();
         const vector = ctx.params.vector;
 
@@ -1253,7 +1384,9 @@ export async function executeQdrant(
       }
 
       case "cluster_info":
-      default: {
+      case "telemetry":
+      case "ping":
+      case "status": {
         const res = await fetch(`${BASE_URL}/telemetry`, { headers }).catch(() => null);
         let version = "Qdrant";
         if (res && res.ok) {
@@ -1266,6 +1399,16 @@ export async function executeQdrant(
           connector: "qdrant",
           action: ctx.action,
           summary: `🧠 **Qdrant Vector Engine Conectado** (${version} em \`${BASE_URL}\`). Ações: \`list_collections\`, \`get_collection\`, \`search\`.`,
+        };
+      }
+
+      default: {
+        return {
+          success: false,
+          connector: "qdrant",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Qdrant.**\nAções disponíveis: vector.search, collections.list, collections.get, cluster_info.`,
+          error: `Ação não suportada: ${ctx.action}`,
         };
       }
     }

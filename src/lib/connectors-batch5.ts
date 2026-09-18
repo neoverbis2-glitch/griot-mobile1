@@ -79,7 +79,11 @@ export async function executeHuggingFace(ctx: ConnectorExecutionContext): Promis
 
   try {
     switch (ctx.action) {
-      case "get_whoami": {
+      case "get_whoami":
+      case "whoami":
+      case "whoami.get":
+      case "profile":
+      case "me": {
         if (!cred) {
           return {
             success: false,
@@ -119,7 +123,10 @@ export async function executeHuggingFace(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "get_model": {
+      case "get_model":
+      case "models.get":
+      case "model.get":
+      case "model": {
         const modelId = ctx.params.model_id || ctx.params.model || ctx.params.name;
         if (!modelId) {
           return {
@@ -165,7 +172,9 @@ export async function executeHuggingFace(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "list_models": {
+      case "list_models":
+      case "models.list":
+      case "models": {
         const query = ctx.params.query || ctx.params.search || ctx.params.filter || "";
         const limit = Number(ctx.params.limit) || 8;
         const pipeline = ctx.params.pipeline || ctx.params.task;
@@ -211,7 +220,10 @@ export async function executeHuggingFace(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "run_inference": {
+      case "run_inference":
+      case "inference.run":
+      case "infer":
+      case "predict": {
         if (!cred) {
           return {
             success: false,
@@ -317,7 +329,10 @@ export async function executeGmail(ctx: ConnectorExecutionContext): Promise<Conn
 
   try {
     switch (ctx.action) {
-      case "get_profile": {
+      case "get_profile":
+      case "profile.get":
+      case "profile":
+      case "me": {
         const res = await fetch(BASE_URL + "/profile", { headers });
         if (!res.ok) {
           return {
@@ -345,7 +360,10 @@ export async function executeGmail(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "list_messages": {
+      case "list_messages":
+      case "messages.list":
+      case "messages":
+      case "emails.list": {
         const limit = Number(ctx.params.limit) || 8;
         const query = ctx.params.query || ctx.params.q || "";
 
@@ -390,7 +408,10 @@ export async function executeGmail(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "get_message": {
+      case "get_message":
+      case "messages.get":
+      case "message.get":
+      case "emails.get": {
         const messageId = ctx.params.message_id || ctx.params.id;
         if (!messageId) {
           return {
@@ -442,7 +463,10 @@ export async function executeGmail(ctx: ConnectorExecutionContext): Promise<Conn
         };
       }
 
-      case "send_email": {
+      case "send_email":
+      case "messages.send":
+      case "emails.send":
+      case "send": {
         const to = ctx.params.to || ctx.params.recipient;
         const subject = ctx.params.subject || ctx.params.title || "Mensagem enviada via GRIOT Mobile";
         const body = ctx.params.body || ctx.params.message || ctx.params.text || "";
@@ -552,7 +576,10 @@ export async function executeOutlook(ctx: ConnectorExecutionContext): Promise<Co
 
   try {
     switch (ctx.action) {
-      case "get_me": {
+      case "get_me":
+      case "me":
+      case "profile":
+      case "user.get": {
         const res = await fetch(BASE_URL, { headers });
         if (!res.ok) {
           return {
@@ -580,7 +607,10 @@ export async function executeOutlook(ctx: ConnectorExecutionContext): Promise<Co
         };
       }
 
-      case "list_messages": {
+      case "list_messages":
+      case "messages.list":
+      case "messages":
+      case "emails.list": {
         const limit = Number(ctx.params.limit) || 8;
         const res = await fetch(BASE_URL + "/messages?$top=" + limit + "&$orderby=receivedDateTime%20desc", { headers });
         if (!res.ok) {
@@ -624,7 +654,11 @@ export async function executeOutlook(ctx: ConnectorExecutionContext): Promise<Co
         };
       }
 
-      case "send_mail": {
+      case "send_mail":
+      case "send_email":
+      case "messages.send":
+      case "emails.send":
+      case "send": {
         const to = ctx.params.to || ctx.params.recipient;
         const subject = ctx.params.subject || ctx.params.title || "Mensagem de GRIOT Mobile";
         const body = ctx.params.body || ctx.params.message || ctx.params.text || "";
@@ -689,7 +723,10 @@ export async function executeOutlook(ctx: ConnectorExecutionContext): Promise<Co
         };
       }
 
-      case "list_events": {
+      case "list_events":
+      case "events.list":
+      case "events":
+      case "calendar.list": {
         const limit = Number(ctx.params.limit) || 6;
         const res = await fetch(BASE_URL + "/events?$top=" + limit + "&$orderby=start/dateTime%20asc", { headers });
         if (!res.ok) {
@@ -780,7 +817,10 @@ export async function executeDropbox(ctx: ConnectorExecutionContext): Promise<Co
 
   try {
     switch (ctx.action) {
-      case "get_space_usage": {
+      case "get_space_usage":
+      case "space.get":
+      case "quota":
+      case "usage": {
         const res = await fetch(BASE_URL + "/users/get_space_usage", {
           method: "POST",
           headers,
@@ -817,7 +857,10 @@ export async function executeDropbox(ctx: ConnectorExecutionContext): Promise<Co
         };
       }
 
-      case "list_folder": {
+      case "list_folder":
+      case "files.list":
+      case "folder.list":
+      case "list": {
         const rawPath = ctx.params.folder_path !== undefined ? ctx.params.folder_path : (ctx.params.path || "");
         const folderPath = rawPath === "/" ? "" : rawPath;
         const limit = Number(ctx.params.limit) || 12;
@@ -873,7 +916,10 @@ export async function executeDropbox(ctx: ConnectorExecutionContext): Promise<Co
         };
       }
 
-      case "get_metadata": {
+      case "get_metadata":
+      case "files.get":
+      case "metadata.get":
+      case "file": {
         const filePath = ctx.params.path || ctx.params.file_path;
         if (!filePath) {
           return {
@@ -923,7 +969,10 @@ export async function executeDropbox(ctx: ConnectorExecutionContext): Promise<Co
         };
       }
 
-      case "get_temporary_link": {
+      case "get_temporary_link":
+      case "links.get":
+      case "download_link":
+      case "link": {
         const filePath = ctx.params.path || ctx.params.file_path;
         if (!filePath) {
           return {
@@ -1012,7 +1061,10 @@ export async function executePlanetScale(ctx: ConnectorExecutionContext): Promis
 
   try {
     switch (ctx.action) {
-      case "list_databases": {
+      case "list_databases":
+      case "databases.list":
+      case "databases":
+      case "dbs": {
         if (!org) {
           return {
             success: false,
@@ -1062,7 +1114,10 @@ export async function executePlanetScale(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "get_database": {
+      case "get_database":
+      case "databases.get":
+      case "db.get":
+      case "database": {
         const dbName = ctx.params.database || ctx.params.name;
         if (!org || !dbName) {
           return {
@@ -1102,7 +1157,9 @@ export async function executePlanetScale(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "list_branches": {
+      case "list_branches":
+      case "branches.list":
+      case "branches": {
         const dbName = ctx.params.database || ctx.params.name;
         if (!org || !dbName) {
           return {
@@ -1153,7 +1210,9 @@ export async function executePlanetScale(ctx: ConnectorExecutionContext): Promis
         };
       }
 
-      case "create_branch": {
+      case "create_branch":
+      case "branches.create":
+      case "branch.create": {
         const dbName = ctx.params.database || ctx.params.name;
         const branchName = ctx.params.branch_name || ctx.params.branch;
         const parentBranch = ctx.params.parent_branch || "main";

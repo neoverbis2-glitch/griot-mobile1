@@ -120,7 +120,11 @@ export async function executeLinear(
 
   try {
     switch (ctx.action) {
-      case "get_viewer": {
+      case "get_viewer":
+      case "viewer.get":
+      case "profile":
+      case "me":
+      case "user": {
         const data = await runQuery(`
           query {
             viewer {
@@ -148,7 +152,9 @@ export async function executeLinear(
         };
       }
 
-      case "list_issues": {
+      case "list_issues":
+      case "issues.list":
+      case "issues": {
         const limit = typeof ctx.params.limit === "number" ? ctx.params.limit : 15;
         const data = await runQuery(`
           query ListIssues($first: Int!) {
@@ -200,7 +206,8 @@ export async function executeLinear(
         };
       }
 
-      case "create_issue": {
+      case "create_issue":
+      case "issues.create": {
         const title = String(ctx.params.title || "").trim();
         const description = String(ctx.params.description || ctx.params.body || "").trim();
         let teamId = String(ctx.params.team_id || ctx.params.teamId || "").trim();
@@ -281,7 +288,9 @@ export async function executeLinear(
         };
       }
 
-      case "list_teams": {
+      case "list_teams":
+      case "teams.list":
+      case "teams": {
         const data = await runQuery(`
           query {
             teams(first: 10) {
@@ -309,7 +318,9 @@ export async function executeLinear(
         };
       }
 
-      case "list_projects": {
+      case "list_projects":
+      case "projects.list":
+      case "projects": {
         const data = await runQuery(`
           query {
             projects(first: 10) {
@@ -344,7 +355,13 @@ export async function executeLinear(
       }
 
       default:
-        return executeLinear({ ...ctx, action: "list_issues" });
+        return {
+          success: false,
+          connector: "linear",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Linear.**\nAções disponíveis: issues.list, issues.create, teams.list, projects.list, viewer.get.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
     }
   } catch (err: any) {
     return {
@@ -386,7 +403,8 @@ export async function executeNotion(
 
   try {
     switch (ctx.action) {
-      case "search": {
+      case "search":
+      case "notion.search": {
         const query = String(ctx.params.query || ctx.params.text || "").trim();
         const res = await fetch(`${BASE_URL}/search`, {
           method: "POST",
@@ -449,7 +467,9 @@ export async function executeNotion(
         };
       }
 
-      case "get_page": {
+      case "get_page":
+      case "pages.get":
+      case "page.get": {
         const pageId = String(ctx.params.page_id || ctx.params.pageId || ctx.params.id || "").trim();
         if (!pageId) {
           return {
@@ -497,8 +517,10 @@ export async function executeNotion(
         };
       }
 
-      case "query_database": {
-        const databaseId = String(ctx.params.database_id || ctx.params.databaseId || "").trim();
+      case "query_database":
+      case "databases.query":
+      case "database.query": {
+        const databaseId = String(ctx.params.database_id || ctx.params.databaseId || ctx.params.id || "").trim();
         if (!databaseId) {
           return {
             success: false,
@@ -555,9 +577,11 @@ export async function executeNotion(
         };
       }
 
-      case "create_page": {
+      case "create_page":
+      case "pages.create":
+      case "page.create": {
         const title = String(ctx.params.title || "Nova Página GRIOT").trim();
-        const parentId = String(ctx.params.parent_id || ctx.params.parentId || "").trim();
+        const parentId = String(ctx.params.parent_id || ctx.params.parentId || ctx.params.database_id || "").trim();
         const isDatabase = Boolean(ctx.params.is_database || ctx.params.database_id);
 
         if (!parentId) {
@@ -618,7 +642,13 @@ export async function executeNotion(
       }
 
       default:
-        return executeNotion({ ...ctx, action: "search" });
+        return {
+          success: false,
+          connector: "notion",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Notion.**\nAções disponíveis: search, pages.get, databases.query, pages.create.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
     }
   } catch (err: any) {
     return {
@@ -658,7 +688,11 @@ export async function executeSlack(
 
   try {
     switch (ctx.action) {
-      case "send_message": {
+      case "send_message":
+      case "messages.send":
+      case "chat.postMessage":
+      case "message.send":
+      case "post_message": {
         const text = String(ctx.params.text || ctx.params.message || ctx.params.body || "").trim();
         const channel = String(ctx.params.channel || "").trim();
 
@@ -743,7 +777,10 @@ export async function executeSlack(
         }
       }
 
-      case "list_channels": {
+      case "list_channels":
+      case "channels.list":
+      case "conversations.list":
+      case "channels": {
         if (isWebhook) {
           return {
             success: false,
@@ -790,7 +827,9 @@ export async function executeSlack(
       }
 
       case "auth_test":
-      default: {
+      case "auth.test":
+      case "ping":
+      case "status": {
         if (isWebhook) {
           return {
             success: true,
@@ -831,6 +870,15 @@ export async function executeSlack(
           data,
         };
       }
+
+      default:
+        return {
+          success: false,
+          connector: "slack",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Slack.**\nAções disponíveis: messages.send, channels.list, auth_test.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
     }
   } catch (err: any) {
     return {
@@ -893,7 +941,11 @@ export async function executeTrello(
 
   try {
     switch (ctx.action) {
-      case "get_member": {
+      case "get_member":
+      case "members.get":
+      case "member.get":
+      case "profile":
+      case "me": {
         const res = await fetch(`${BASE_URL}/members/me?${authQuery}`);
         if (!res.ok) {
           return {
@@ -922,7 +974,9 @@ export async function executeTrello(
         };
       }
 
-      case "list_boards": {
+      case "list_boards":
+      case "boards.list":
+      case "boards": {
         const res = await fetch(`${BASE_URL}/members/me/boards?${authQuery}&filter=open`);
         if (!res.ok) {
           return {
@@ -960,7 +1014,9 @@ export async function executeTrello(
         };
       }
 
-      case "list_lists": {
+      case "list_lists":
+      case "lists.list":
+      case "lists": {
         const boardId = String(ctx.params.board_id || ctx.params.boardId || "").trim();
         if (!boardId) {
           return {
@@ -1003,7 +1059,9 @@ export async function executeTrello(
         };
       }
 
-      case "list_cards": {
+      case "list_cards":
+      case "cards.list":
+      case "cards": {
         const listId = String(ctx.params.list_id || ctx.params.listId || "").trim();
         if (!listId) {
           return {
@@ -1052,7 +1110,8 @@ export async function executeTrello(
         };
       }
 
-      case "create_card": {
+      case "create_card":
+      case "cards.create": {
         const listId = String(ctx.params.list_id || ctx.params.listId || "").trim();
         const name = String(ctx.params.name || ctx.params.title || "").trim();
         const desc = String(ctx.params.desc || ctx.params.description || "").trim();
@@ -1096,7 +1155,13 @@ export async function executeTrello(
       }
 
       default:
-        return executeTrello({ ...ctx, action: "list_boards" });
+        return {
+          success: false,
+          connector: "trello",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Trello.**\nAções disponíveis: boards.list, lists.list, cards.list, cards.create, get_member.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
     }
   } catch (err: any) {
     return {
@@ -1137,7 +1202,9 @@ export async function executeSentry(
 
   try {
     switch (ctx.action) {
-      case "list_projects": {
+      case "list_projects":
+      case "projects.list":
+      case "projects": {
         const res = await fetch(`${BASE_URL}/projects/`, { headers });
         if (!res.ok) {
           return {
@@ -1176,7 +1243,9 @@ export async function executeSentry(
         };
       }
 
-      case "list_issues": {
+      case "list_issues":
+      case "issues.list":
+      case "issues": {
         const org = String(ctx.params.organization || ctx.params.org || ctx.accountName || "").trim();
         const project = String(ctx.params.project || ctx.params.project_slug || "").trim();
 
@@ -1233,7 +1302,9 @@ export async function executeSentry(
         };
       }
 
-      case "get_issue": {
+      case "get_issue":
+      case "issues.get":
+      case "issue.get": {
         const issueId = String(ctx.params.issue_id || ctx.params.issueId || ctx.params.id || "").trim();
         if (!issueId) {
           return {
@@ -1276,7 +1347,9 @@ export async function executeSentry(
         };
       }
 
-      case "resolve_issue": {
+      case "resolve_issue":
+      case "issues.resolve":
+      case "issue.resolve": {
         const issueId = String(ctx.params.issue_id || ctx.params.issueId || ctx.params.id || "").trim();
         if (!issueId) {
           return {
@@ -1315,7 +1388,13 @@ export async function executeSentry(
       }
 
       default:
-        return executeSentry({ ...ctx, action: "list_projects" });
+        return {
+          success: false,
+          connector: "sentry",
+          action: ctx.action,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Sentry.**\nAções disponíveis: projects.list, issues.list, issues.get, issues.resolve.`,
+          error: `Ação não suportada: ${ctx.action}`,
+        };
     }
   } catch (err: any) {
     return {

@@ -836,6 +836,12 @@ export async function executeLot1Extended(
       action === "projects.list" ? "list_projects" :
       action === "projects.get" ? "get_project" :
       action === "pipelines.list" ? "list_pipelines" :
+      action === "repository.get_raw_file" || action === "get_raw_file" || action === "read_file" ? "get_raw_file" :
+      action === "repository.tree" || action === "tree" ? "tree" :
+      action === "merge_requests.list" || action === "list_merge_requests" ? "list_merge_requests" :
+      action === "issues.list" ? "list_issues" :
+      action === "issues.create" ? "create_issue" :
+      action === "user" || action === "profile" ? "get_user" :
       rawAction;
     return executeBatch1Connector("gitlab", { ...ctx, action: gitlabAction });
   }
@@ -848,7 +854,11 @@ export async function executeLot1Extended(
       action === "projects.list" ? "list_projects" :
       action === "projects.get" ? "get_project" :
       action === "deployments.list" ? "list_deployments" :
+      action === "deployments.get" ? "get_deployment" :
       action === "deployments.create" ? "create_deployment" :
+      action === "env.list" ? "list_env" :
+      action === "domains.list" ? "list_domains" :
+      action === "user" || action === "profile" ? "get_user" :
       rawAction;
     return executeBatch1Connector("vercel", { ...ctx, action: vercelAction });
   }
@@ -858,11 +868,12 @@ export async function executeLot1Extended(
   // =========================================================================
   if (normId === "supabase") {
     const sbAction =
-      action === "db.raw_sql" || action === "raw_sql" ? "execute_sql" :
-      action === "db.select" ? "select" :
-      action === "db.insert" ? "insert" :
-      action === "db.introspect_schema" ? "list_tables" :
-      action === "storage.list_buckets" ? "list_buckets" :
+      action === "db.raw_sql" || action === "raw_sql" || action === "query" || action === "sql" ? "execute_sql" :
+      action === "db.select" || action === "select" ? "select" :
+      action === "db.insert" || action === "insert" ? "insert" :
+      action === "db.introspect_schema" || action === "list_tables" ? "list_tables" :
+      action === "storage.list_buckets" || action === "list_buckets" ? "list_buckets" :
+      action === "functions.list" || action === "list_functions" ? "list_functions" :
       action === "projects.list" ? "list_projects" :
       rawAction;
     return executeBatch1Connector("supabase", { ...ctx, action: sbAction });
@@ -873,10 +884,10 @@ export async function executeLot1Extended(
   // =========================================================================
   if (normId === "firebase") {
     const fbAction =
-      action === "firestore.get_document" ? "get_document" :
-      action === "firestore.list_documents" ? "list_documents" :
-      action === "firestore.set_document" ? "create_document" :
-      action === "firestore.delete_document" ? "delete_document" :
+      action === "firestore.get_document" || action === "get_document" ? "get_document" :
+      action === "firestore.list_documents" || action === "list_documents" ? "list_documents" :
+      action === "firestore.set_document" || action === "set_document" || action === "create_document" ? "create_document" :
+      action === "firestore.delete_document" || action === "delete_document" ? "delete_document" :
       rawAction;
     return executeBatch1Connector("firebase", { ...ctx, action: fbAction });
   }

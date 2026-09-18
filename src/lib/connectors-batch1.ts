@@ -655,21 +655,98 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
       };
     }
 
-    // 2.6 Default: Perfil da Conta Autenticada
-    const userRes = await fetch("https://gitlab.com/api/v4/user", { headers });
-    if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitLab"));
-    const user = await userRes.json();
+    // 2.6 Obter Conteúdo de Ficheiro (Raw File)
+    if (action === "get_raw_file" || action === "read_file" || action === "repository.get_raw_file") {
+      const projectId = p.project_id || p.id || ctx.account;
+      const filePath = String(p.file_path || p.filePath || p.path || p.file || "").trim();
+      const ref = String(p.ref || p.branch || "main").trim();
 
-    return {
-      success: true,
-      data: user,
-      summary:
-        `🦊 **Conta GitLab Conectada com Sucesso!**\n` +
-        `• Utilizador: **[@${user.username}](${user.web_url})** (${user.name})\n` +
-        `• ID: \`${user.id}\` | Email: ${user.email || "Privado"}\n` +
-        `• Estado: ${user.state}\n\n` +
-        `💡 _Podes pedir: "Griot, lista os meus projetos GitLab" ou "Verifica os pipelines do projeto ID"_`,
-    };
+      if (!projectId || !filePath) {
+        throw new Error("Parâmetros 'project_id' e 'file_path' são obrigatórios para ler ficheiro no GitLab.");
+      }
+
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/repository/files/${encodeURIComponent(filePath)}/raw?ref=${encodeURIComponent(ref)}`,
+        { headers },
+      );
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab Raw File"));
+
+      const content = await res.text();
+      return {
+        success: true,
+        data: { path: filePath, ref, content },
+        summary: `📄 **Ficheiro \`${filePath}\` do GitLab (\`${projectId}\` @ \`${ref}\`):**\n\n\`\`\`\n${content.slice(0, 3000)}${content.length > 3000 ? "\n... (restante truncado)" : ""}\n\`\`\``,
+      };
+    }
+
+    // 2.7 Árvore do Repositório (Repository Tree)
+    if (action === "tree" || action === "repository.tree") {
+      const projectId = p.project_id || p.id || ctx.account;
+      const ref = String(p.ref || p.branch || "main").trim();
+      const path = String(p.path || "").trim();
+
+      if (!projectId) throw new Error("Parâmetro 'project_id' é obrigatório para consultar a árvore do repositório.");
+
+      let url = `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/repository/tree?per_page=50&ref=${encodeURIComponent(ref)}`;
+      if (path) url += `&path=${encodeURIComponent(path)}`;
+
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab Tree"));
+
+      const tree = (await res.json()) as Array<{ id: string; name: string; type: string; path: string; mode: string }>;
+      return {
+        success: true,
+        data: tree,
+        summary: tree.length
+          ? `📁 **Estrutura de Ficheiros GitLab (\`${projectId}\` @ \`${ref}\`):**\n` +
+            tree.map((t) => `• ${t.type === "tree" ? "📁" : "📄"} \`${t.path}\``).join("\n")
+          : `Repositório vazio no caminho '${path || "/"}' na branch \`${ref}\`.`,
+      };
+    }
+
+    // 2.8 Listar Merge Requests
+    if (action === "list_merge_requests" || action === "merge_requests" || action === "merge_requests.list") {
+      const projectId = p.project_id || p.id || ctx.account;
+      if (!projectId) throw new Error("Parâmetro 'project_id' é obrigatório para listar merge requests.");
+
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests?per_page=15`,
+        { headers },
+      );
+      if (!res.ok) throw new Error(await handleHttpError(res, "GitLab Merge Requests"));
+
+      const mrs = (await res.json()) as Array<{ iid: number; title: string; state: string; web_url: string; author: { username: string } }>;
+      return {
+        success: true,
+        data: mrs,
+        summary: mrs.length
+          ? `🔀 **Merge Requests GitLab (${mrs.length}):**\n` +
+            mrs.map((mr) => `• **[!${mr.iid} ${mr.title}](${mr.web_url})** [${mr.state.toUpperCase()}] por @${mr.author?.username}`).join("\n")
+          : `Nenhum Merge Request encontrado no projeto ${projectId}.`,
+      };
+    }
+
+    // 2.9 Perfil da Conta Autenticada
+    if (action === "get_user" || action === "profile" || action === "user") {
+      const userRes = await fetch("https://gitlab.com/api/v4/user", { headers });
+      if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitLab"));
+      const user = await userRes.json();
+
+      return {
+        success: true,
+        data: user,
+        summary:
+          `🦊 **Conta GitLab Conectada com Sucesso!**\n` +
+          `• Utilizador: **[@${user.username}](${user.web_url})** (${user.name})\n` +
+          `• ID: \`${user.id}\` | Email: ${user.email || "Privado"}\n` +
+          `• Estado: ${user.state}`,
+      };
+    }
+
+    // Se nenhuma ação casar, lança erro diagnóstico explícito
+    throw new Error(
+      `Ação '${action}' não reconhecida no conector GitLab. Ações disponíveis: projects.list, projects.get, repository.get_raw_file, repository.tree, merge_requests.list, issues.list, issues.create, pipelines.list, user/profile.`
+    );
   } catch (err: any) {
     return {
       success: false,
@@ -775,7 +852,7 @@ export async function executeVercel(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 3.3 Detalhes de um Deployment
-    if (action === "get_deployment" || action === "deployment_details") {
+    if (action === "get_deployment" || action === "deployment_details" || action === "deployments.get") {
       const deploymentId = p.deployment_id || p.id || p.uid;
       if (!deploymentId) throw new Error("Parâmetro 'deployment_id' obrigatório.");
       const res = await fetch(`https://api.vercel.com/v13/deployments/${encodeURIComponent(String(deploymentId))}`, { headers });
@@ -795,23 +872,100 @@ export async function executeVercel(ctx: ConnectorExecutionContext): Promise<Con
       };
     }
 
-    // 3.4 Default: Dados do Utilizador e Conta
-    const userRes = await fetch("https://api.vercel.com/v2/user", { headers });
-    if (!userRes.ok) throw new Error(await handleHttpError(userRes, "Vercel"));
-    const userData = await userRes.json();
-    const user = userData.user;
+    // 3.4 Detalhes de um Projeto
+    if (action === "get_project" || action === "projects.get" || action === "project") {
+      const projectId = p.project_id || p.id || p.name || ctx.account;
+      if (!projectId) throw new Error("Parâmetro 'project_id' ou 'name' obrigatório para obter projeto na Vercel.");
+      const res = await fetch(`https://api.vercel.com/v9/projects/${encodeURIComponent(String(projectId))}`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Vercel"));
+      const pr = await res.json();
+      return {
+        success: true,
+        data: pr,
+        summary: `▲ **Projeto Vercel: ${pr.name}** [ID: \`${pr.id}\` | Framework: ${pr.framework || "custom"}]`,
+      };
+    }
 
-    return {
-      success: true,
-      data: user,
-      summary:
-        `▲ **Conta Vercel Conectada com Sucesso!**\n` +
-        `• Utilizador: **@${user.username || user.email}**\n` +
-        `• Nome: ${user.name || "Sem nome"}\n` +
-        `• Email: ${user.email}\n` +
-        `• ID da Conta: \`${user.id}\`\n\n` +
-        `💡 _Podes pedir: "Griot, lista os meus projetos na Vercel" ou "Verifica o estado do último deploy"_`,
-    };
+    // 3.5 Criar Deployment
+    if (action === "create_deployment" || action === "deployments.create" || action === "deploy") {
+      const name = String(p.name || p.project_name || p.project || ctx.account || "").trim();
+      const files = p.files;
+      if (!name) throw new Error("Parâmetro 'name' (nome do projeto Vercel) obrigatório para criar deployment.");
+      const bodyPayload: any = { name };
+      if (files && Array.isArray(files)) bodyPayload.files = files;
+      if (p.gitSource) bodyPayload.gitSource = p.gitSource;
+
+      const res = await fetch("https://api.vercel.com/v13/deployments", {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(bodyPayload),
+      });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Vercel Create Deployment"));
+      const d = await res.json();
+      return {
+        success: true,
+        data: d,
+        summary: `🚀 **Deployment disparado na Vercel!**\n• URL: https://${d.url}\n• ID: \`${d.id || d.uid}\`\n• Estado: **${d.readyState || d.status}**`,
+      };
+    }
+
+    // 3.6 Listar Variáveis de Ambiente
+    if (action === "list_env" || action === "env.list" || action === "env") {
+      const projectId = p.project_id || p.id || p.name || ctx.account;
+      if (!projectId) throw new Error("Parâmetro 'project_id' obrigatório para listar variáveis de ambiente.");
+      const res = await fetch(`https://api.vercel.com/v9/projects/${encodeURIComponent(String(projectId))}/env`, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Vercel Env"));
+      const data = await res.json();
+      const envs = data.envs || [];
+      return {
+        success: true,
+        data: envs,
+        summary: envs.length
+          ? `🔐 **Variáveis de Ambiente na Vercel (${envs.length} encontradas):**\n` +
+            envs.map((e: any) => `• \`${e.key}\` (Alvos: ${e.target?.join(", ") || "todos"})`).join("\n")
+          : "Nenhuma variável de ambiente encontrada no projeto.",
+      };
+    }
+
+    // 3.7 Listar Domínios
+    if (action === "list_domains" || action === "domains.list" || action === "domains") {
+      const res = await fetch("https://api.vercel.com/v5/domains", { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Vercel Domains"));
+      const data = await res.json();
+      const domains = data.domains || [];
+      return {
+        success: true,
+        data: domains,
+        summary: domains.length
+          ? `🌐 **Domínios na Vercel (${domains.length}):**\n` +
+            domains.map((dom: any) => `• **${dom.name}** (Criado: ${new Date(dom.createdAt).toLocaleDateString("pt-PT")})`).join("\n")
+          : "Nenhum domínio customizado registrado nesta conta Vercel.",
+      };
+    }
+
+    // 3.8 Perfil da Conta Autenticada
+    if (action === "get_user" || action === "profile" || action === "user") {
+      const userRes = await fetch("https://api.vercel.com/v2/user", { headers });
+      if (!userRes.ok) throw new Error(await handleHttpError(userRes, "Vercel"));
+      const userData = await userRes.json();
+      const user = userData.user;
+
+      return {
+        success: true,
+        data: user,
+        summary:
+          `▲ **Conta Vercel Conectada com Sucesso!**\n` +
+          `• Utilizador: **@${user.username || user.email}**\n` +
+          `• Nome: ${user.name || "Sem nome"}\n` +
+          `• Email: ${user.email}\n` +
+          `• ID da Conta: \`${user.id}\``,
+      };
+    }
+
+    // Se nenhuma ação casar, lança erro diagnóstico explícito
+    throw new Error(
+      `Ação '${action}' não reconhecida no conector Vercel. Ações disponíveis: projects.list, projects.get, deployments.list, deployments.create, deployments.get, env.list, domains.list, user/profile.`
+    );
   } catch (err: any) {
     return {
       success: false,
@@ -1145,41 +1299,105 @@ export async function executeSupabase(ctx: ConnectorExecutionContext): Promise<C
     }
 
     // ==========================================
-    // 8. AÇÃO: SELECT / CONSULTA A TABELAS
+    // 8. AÇÃO: STORAGE.LIST_BUCKETS
     // ==========================================
-    if (!baseUrl) {
+    if (action === "list_buckets" || action === "storage.list_buckets") {
+      if (!baseUrl) throw new Error("URL base do Supabase indisponível para consulta de Storage.");
+      const storageUrl = `${baseUrl.replace(/\/+$/, "")}/storage/v1/bucket`;
+      const res = await fetch(storageUrl, {
+        headers: {
+          ...USER_AGENT,
+          apikey: token,
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Supabase Storage"));
+      const buckets = await res.json();
       return {
         success: true,
-        data: { tokenType: isManagementToken ? "Management Token" : "JWT Key", status: "ready", ref },
-        summary:
-          `⚡ **Supabase Conectado!**\n` +
-          `A credencial é válida (Ref: \`${ref || "detetado"}\`). Podes executar instruções SQL usando a ação 'execute_sql' ou consultar tabelas diretamente.`,
+        data: buckets,
+        summary: `🪣 **Buckets de Armazenamento Supabase (${Array.isArray(buckets) ? buckets.length : 0}):**\n` +
+          (Array.isArray(buckets) && buckets.length
+            ? buckets.map((b: any) => `• **${b.name}** [ID: \`${b.id}\`] (${b.public ? "Público" : "Privado"})`).join("\n")
+            : "Nenhum bucket encontrado no Supabase."),
       };
     }
 
-    const table = String(p.table || "health").trim();
-    const select = String(p.select || "*");
-    const limit = Math.min(Math.max(Number(p.limit || 10), 1), 50);
+    // ==========================================
+    // 9. AÇÃO: FUNCTIONS.LIST
+    // ==========================================
+    if (action === "list_functions" || action === "functions.list") {
+      if (!isManagementToken || !ref) {
+        throw new Error("Listagem de Edge Functions requer Personal Access Token (sbp_...) do Supabase.");
+      }
+      const res = await fetch(`https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}/functions`, {
+        headers: { ...USER_AGENT, Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Supabase Functions"));
+      const funcs = await res.json();
+      return {
+        success: true,
+        data: funcs,
+        summary: `⚡ **Edge Functions Supabase (${Array.isArray(funcs) ? funcs.length : 0}):**\n` +
+          (Array.isArray(funcs) && funcs.length
+            ? funcs.map((f: any) => `• **${f.name}** [slug: \`${f.slug}\`] (Status: \`${f.status}\`)`).join("\n")
+            : "Nenhuma Edge Function encontrada no projeto Supabase."),
+      };
+    }
 
-    const restUrl = `${baseUrl.replace(/\/+$/, "")}/rest/v1/${encodeURIComponent(table)}?select=${encodeURIComponent(select)}&limit=${limit}`;
-    const res = await fetch(restUrl, {
-      headers: {
-        ...USER_AGENT,
-        apikey: token,
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    // ==========================================
+    // 10. AÇÃO: SELECT / CONSULTA A TABELAS
+    // ==========================================
+    if (
+      action === "select" ||
+      action === "db.select" ||
+      action === "query_table" ||
+      action === "read_table" ||
+      action === "list_records"
+    ) {
+      if (!baseUrl) {
+        return {
+          success: true,
+          data: { tokenType: isManagementToken ? "Management Token" : "JWT Key", status: "ready", ref },
+          summary:
+            `⚡ **Supabase Conectado!**\n` +
+            `A credencial é válida (Ref: \`${ref || "detetado"}\`). Podes executar instruções SQL usando a ação 'execute_sql' ou consultar tabelas diretamente.`,
+        };
+      }
 
-    if (!res.ok) throw new Error(await handleHttpError(res, "Supabase PostgREST"));
+      const table = String(p.table || "").trim();
+      if (!table) {
+        throw new Error("Parâmetro 'table' obrigatório para consultar tabela no Supabase.");
+      }
 
-    const rows = await res.json();
-    return {
-      success: true,
-      data: rows,
-      summary:
-        `⚡ **Consulta Supabase na tabela \`${table}\` (${Array.isArray(rows) ? rows.length : 1} registos):**\n\n` +
-        `\`\`\`json\n${JSON.stringify(rows, null, 2).slice(0, 3500)}${JSON.stringify(rows).length > 3500 ? "\n... (dados truncados)" : ""}\n\`\`\``,
-    };
+      const select = String(p.select || "*");
+      const limit = Math.min(Math.max(Number(p.limit || 10), 1), 50);
+
+      const restUrl = `${baseUrl.replace(/\/+$/, "")}/rest/v1/${encodeURIComponent(table)}?select=${encodeURIComponent(select)}&limit=${limit}`;
+      const res = await fetch(restUrl, {
+        headers: {
+          ...USER_AGENT,
+          apikey: token,
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) throw new Error(await handleHttpError(res, "Supabase PostgREST"));
+
+      const rows = await res.json();
+      return {
+        success: true,
+        data: rows,
+        summary:
+          `⚡ **Consulta Supabase na tabela \`${table}\` (${Array.isArray(rows) ? rows.length : 1} registos):**\n\n` +
+          `\`\`\`json\n${JSON.stringify(rows, null, 2).slice(0, 3500)}${JSON.stringify(rows).length > 3500 ? "\n... (dados truncados)" : ""}\n\`\`\``,
+      };
+    }
+
+    // Se nenhuma ação casar, lança erro diagnóstico explícito
+    throw new Error(
+      `Ação '${action}' não reconhecida no conector Supabase. Ações disponíveis: db.select, db.insert, db.raw_sql, db.introspect_schema, storage.list_buckets, functions.list, projects.list.`
+    );
   } catch (err: any) {
     return {
       success: false,
@@ -1227,8 +1445,8 @@ export async function executeFirebase(ctx: ConnectorExecutionContext): Promise<C
     }
 
     // 5.1 Obter um Documento Específico
-    if (action === "get_document" || action === "document") {
-      const docPath = String(p.path || p.document_id || "").trim();
+    if (action === "get_document" || action === "document" || action === "firestore.get_document") {
+      const docPath = String(p.path || p.document_id || p.id || "").trim();
       if (!docPath) throw new Error("Parâmetro 'path' ou 'document_id' obrigatório.");
       const fullPath = docPath.includes("/") ? docPath : `${collection}/${docPath}`;
       const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${fullPath}`;
@@ -1246,34 +1464,100 @@ export async function executeFirebase(ctx: ConnectorExecutionContext): Promise<C
       };
     }
 
-    // 5.2 Listar Documentos de uma Coleção
-    const pageSize = Math.min(Math.max(Number(p.limit || 10), 1), 30);
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}?pageSize=${pageSize}`;
+    // 5.2 Gravar / Criar Documento (Set Document)
+    if (action === "set_document" || action === "create_document" || action === "firestore.set_document") {
+      const docPath = String(p.path || p.document_id || p.id || "").trim();
+      const fields = (p.fields || p.data || {}) as Record<string, unknown>;
 
-    const res = await fetch(url, { headers });
-    if (!res.ok) throw new Error(await handleHttpError(res, "Firebase Firestore"));
+      const formattedFields: Record<string, any> = {};
+      for (const [k, v] of Object.entries(fields)) {
+        if (typeof v === "object" && v !== null && ("stringValue" in v || "integerValue" in v || "booleanValue" in v)) {
+          formattedFields[k] = v;
+        } else if (typeof v === "string") {
+          formattedFields[k] = { stringValue: v };
+        } else if (typeof v === "number") {
+          formattedFields[k] = Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+        } else if (typeof v === "boolean") {
+          formattedFields[k] = { booleanValue: v };
+        } else if (v === null) {
+          formattedFields[k] = { nullValue: null };
+        } else {
+          formattedFields[k] = { stringValue: JSON.stringify(v) };
+        }
+      }
 
-    const data = await res.json();
-    const docs = (data.documents || []).map((d: any) => ({
-      name: d.name.split("/").pop(),
-      createTime: d.createTime ? new Date(d.createTime).toLocaleString("pt-PT") : "N/A",
-      fields: d.fields || {},
-    }));
+      let url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}`;
+      let method = "POST";
+      if (docPath) {
+        const fullPath = docPath.includes("/") ? docPath : `${collection}/${docPath}`;
+        url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${fullPath}`;
+        method = "PATCH";
+      }
 
-    return {
-      success: true,
-      data: docs,
-      summary: docs.length
-        ? `🔥 **Coleção Firestore \`${collection}\` no projeto \`${projectId}\` (${docs.length} documentos):**\n` +
-          docs
-            .map(
-              (doc: any) =>
-                `• **ID: \`${doc.name}\`** (Criado: ${doc.createTime})\n` +
-                `  Campos: ${Object.keys(doc.fields).join(", ") || "Sem campos"}`,
-            )
-            .join("\n\n")
-        : `Nenhum documento encontrado na coleção \`${collection}\` do Firebase \`${projectId}\`.`,
-    };
+      const res = await fetch(url, {
+        method,
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: formattedFields }),
+      });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Firebase Firestore"));
+      const doc = await res.json();
+      return {
+        success: true,
+        data: doc,
+        summary: `🔥 **Documento gravado com sucesso no Firestore (${collection})!**`,
+      };
+    }
+
+    // 5.3 Apagar Documento
+    if (action === "delete_document" || action === "firestore.delete_document") {
+      const docPath = String(p.path || p.document_id || p.id || "").trim();
+      if (!docPath) throw new Error("Parâmetro 'path' ou 'document_id' obrigatório para apagar documento.");
+      const fullPath = docPath.includes("/") ? docPath : `${collection}/${docPath}`;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${fullPath}`;
+
+      const res = await fetch(url, { method: "DELETE", headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Firebase Firestore"));
+      return {
+        success: true,
+        summary: `🗑️ **Documento \`${fullPath}\` removido com sucesso do Firestore!**`,
+      };
+    }
+
+    // 5.4 Listar Documentos de uma Coleção
+    if (action === "list_documents" || action === "firestore.list_documents" || action === "documents") {
+      const pageSize = Math.min(Math.max(Number(p.limit || 10), 1), 30);
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collection}?pageSize=${pageSize}`;
+
+      const res = await fetch(url, { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Firebase Firestore"));
+
+      const data = await res.json();
+      const docs = (data.documents || []).map((d: any) => ({
+        name: d.name.split("/").pop(),
+        createTime: d.createTime ? new Date(d.createTime).toLocaleString("pt-PT") : "N/A",
+        fields: d.fields || {},
+      }));
+
+      return {
+        success: true,
+        data: docs,
+        summary: docs.length
+          ? `🔥 **Coleção Firestore \`${collection}\` no projeto \`${projectId}\` (${docs.length} documentos):**\n` +
+            docs
+              .map(
+                (doc: any) =>
+                  `• **ID: \`${doc.name}\`** (Criado: ${doc.createTime})\n` +
+                  `  Campos: ${Object.keys(doc.fields).join(", ") || "Sem campos"}`,
+              )
+              .join("\n\n")
+          : `Nenhum documento encontrado na coleção \`${collection}\` do Firebase \`${projectId}\`.`,
+      };
+    }
+
+    // Se nenhuma ação casar, lança erro diagnóstico explícito
+    throw new Error(
+      `Ação '${action}' não reconhecida no conector Firebase. Ações disponíveis: firestore.get_document, firestore.set_document, firestore.delete_document, firestore.list_documents.`
+    );
   } catch (err: any) {
     return {
       success: false,

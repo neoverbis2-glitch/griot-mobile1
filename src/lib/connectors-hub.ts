@@ -122,6 +122,56 @@ export function normalizeActionName(rawAction: string, canonicalConnectorId: str
 }
 
 /**
+ * Normaliza parâmetros para compatibilidade universal bidirecional camelCase <=> snake_case.
+ * Garante que qualquer conector encontre o parâmetro independentemente da convenção usada.
+ */
+export function normalizeConnectorParams(rawParams: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!rawParams || typeof rawParams !== "object") return {};
+  const normalized: Record<string, unknown> = { ...rawParams };
+
+  for (const [key, value] of Object.entries(rawParams)) {
+    if (key.includes("_")) {
+      const camel = key.replace(/_([a-z0-9])/g, (_, letter) => letter.toUpperCase());
+      if (normalized[camel] === undefined) {
+        normalized[camel] = value;
+      }
+    }
+    const snake = key.replace(/([A-Z])/g, "_$1").toLowerCase();
+    if (snake !== key && normalized[snake] === undefined) {
+      normalized[snake] = value;
+    }
+  }
+
+  // Aliases universais comuns entre LLMs e APIs REST
+  if (normalized.id && !normalized.projectId && !normalized.project_id) {
+    normalized.projectId = normalized.id;
+    normalized.project_id = normalized.id;
+  }
+  if (normalized.base && !normalized.baseId && !normalized.base_id) {
+    normalized.baseId = normalized.base;
+    normalized.base_id = normalized.base;
+  }
+  if (normalized.table && !normalized.tableId && !normalized.table_id) {
+    normalized.tableId = normalized.table;
+    normalized.table_id = normalized.table;
+  }
+  if (normalized.channel && !normalized.channelId && !normalized.channel_id) {
+    normalized.channelId = normalized.channel;
+    normalized.channel_id = normalized.channel;
+  }
+  if (normalized.message && !normalized.content && !normalized.text) {
+    normalized.content = normalized.message;
+    normalized.text = normalized.message;
+  }
+  if (normalized.content && !normalized.message && !normalized.text) {
+    normalized.message = normalized.content;
+    normalized.text = normalized.content;
+  }
+
+  return normalized;
+}
+
+/**
  * Ponto de entrada universal para execução de qualquer um dos 30 Conectores Oficiais
  */
 export async function executeUniversalConnector(
@@ -152,7 +202,7 @@ export async function executeUniversalConnector(
     credential,
     account: account || ctx.account,
     action: normalizedAction || ctx.action,
-    params: ctx.params || {},
+    params: normalizeConnectorParams(ctx.params),
   };
 
   switch (normId) {

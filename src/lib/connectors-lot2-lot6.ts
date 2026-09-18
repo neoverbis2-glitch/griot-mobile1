@@ -288,14 +288,18 @@ export async function executeTelegram(ctx: ConnectorExecutionContext): Promise<C
       };
     }
 
-    const meRes = await fetch(`${baseUrl}/getMe`);
-    if (!meRes.ok) throw new Error(await handleHttpError(meRes, "Telegram"));
-    const me = await meRes.json();
-    return {
-      success: true,
-      data: me.result,
-      summary: `✈️ **Telegram Bot Conectado:** @${me.result?.username} (${me.result?.first_name})`,
-    };
+    if (action === "getme" || action === "get_me" || action === "me" || action === "profile" || action === "info" || action === "status") {
+      const meRes = await fetch(`${baseUrl}/getMe`);
+      if (!meRes.ok) throw new Error(await handleHttpError(meRes, "Telegram"));
+      const me = await meRes.json();
+      return {
+        success: true,
+        data: me.result,
+        summary: `✈️ **Telegram Bot Conectado:** @${me.result?.username} (${me.result?.first_name})`,
+      };
+    }
+
+    throw new Error(`Ação '${action}' não reconhecida no conector Telegram. Ações disponíveis: send_message, send_photo, send_document, get_updates, set_webhook, get_me.`);
   } catch (err: any) {
     return { success: false, error: err.message, summary: `❌ **Falha no Conector Telegram:** ${err.message}` };
   }
@@ -550,8 +554,8 @@ export async function executeAirtable(ctx: ConnectorExecutionContext): Promise<C
 
   const action = (ctx.action || "records.list").toLowerCase();
   const p = ctx.params || {};
-  const baseId = String(p.base_id || ctx.account || "");
-  const tableId = String(p.table_id || p.table || "");
+  const baseId = String(p.base_id || p.baseId || p.base || ctx.account || "");
+  const tableId = String(p.table_id || p.tableId || p.table || "");
   const headers = {
     ...USER_AGENT,
     Authorization: `Bearer ${token}`,
@@ -559,6 +563,21 @@ export async function executeAirtable(ctx: ConnectorExecutionContext): Promise<C
   };
 
   try {
+    if (action === "bases.list" || action === "list_bases" || action === "bases") {
+      const res = await fetch("https://api.airtable.com/v0/meta/bases", { headers });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Airtable Meta"));
+      const data = await res.json();
+      const bases = data.bases || [];
+      return {
+        success: true,
+        data: bases,
+        summary: bases.length
+          ? `📊 **Bases Airtable Encontradas (${bases.length}):**\n` +
+            bases.map((b: any) => `• **${b.name}** [ID: \`${b.id}\`] (Permissão: ${b.permissionLevel})`).join("\n")
+          : "Nenhuma base encontrada nesta conta Airtable.",
+      };
+    }
+
     if (action === "records.list" || action === "list_records" || action === "list") {
       if (!baseId || !tableId) throw new Error("Parâmetros 'base_id' e 'table_id' são obrigatórios.");
       const formula = p.filterByFormula ? `&filterByFormula=${encodeURIComponent(String(p.filterByFormula))}` : "";
@@ -926,10 +945,14 @@ export async function executeAws(ctx: ConnectorExecutionContext): Promise<Connec
       };
     }
 
-    return {
-      success: true,
-      summary: "☁️ **AWS Conectada e Operacional.**",
-    };
+    if (action === "status" || action === "info" || action === "ping" || action === "health") {
+      return {
+        success: true,
+        summary: "☁️ **AWS Conectada e Operacional.**",
+      };
+    }
+
+    throw new Error(`Ação '${action}' não reconhecida no conector AWS. Ações disponíveis: s3.list_buckets, lambda.invoke, cloudwatch.get_log_events, status.`);
   } catch (err: any) {
     return { success: false, error: err.message, summary: `❌ **Falha no Conector AWS:** ${err.message}` };
   }
@@ -1105,7 +1128,30 @@ export async function executeShopify(ctx: ConnectorExecutionContext): Promise<Co
       };
     }
 
-    throw new Error(`Ação '${action}' não reconhecida no conector Shopify.`);
+    if (action === "orders.fulfill" || action === "fulfill_order" || action === "fulfill") {
+      const orderId = p.order_id || p.orderId || p.id;
+      if (!orderId) throw new Error("Parâmetro 'order_id' obrigatório para registrar fulfillment no Shopify.");
+
+      const res = await fetch(`${baseUrl}/orders/${orderId}/fulfillments.json`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          fulfillment: {
+            notify_customer: p.notify_customer ?? true,
+            tracking_number: p.tracking_number || null,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(await handleHttpError(res, "Shopify Fulfillment"));
+      const data = await res.json();
+      return {
+        success: true,
+        data,
+        summary: `📦 **Pedido #${orderId} cumprido (fulfilled) com sucesso na Shopify!**`,
+      };
+    }
+
+    throw new Error(`Ação '${action}' não reconhecida no conector Shopify. Ações disponíveis: products.list, orders.list, products.update_inventory, orders.fulfill.`);
   } catch (err: any) {
     return { success: false, error: err.message, summary: `❌ **Falha no Conector Shopify:** ${err.message}` };
   }
