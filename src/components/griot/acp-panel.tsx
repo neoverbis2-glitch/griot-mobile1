@@ -25,7 +25,6 @@ import { getUserSavedApis, saveUserApi, deleteUserApi, type UserSavedApi } from 
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getAiLogo } from "@/components/griot/brand-icons";
-import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 
 export interface ConnectedApiItem {
   id: string;
@@ -342,38 +341,72 @@ export function ApisPanel({
           </div>
         ) : (
           <ul className="mt-3 divide-y divide-hairline">
-            {connectedApis.map((api) => (
-              <li key={api.id} className="flex items-center gap-3 py-3">
-                {(() => {
-                  const Logo = getAiLogo(api.providerId);
-                  return (
-                    <span className="relative grid size-9 shrink-0 place-items-center rounded-full border border-hairline bg-surface text-foreground shadow-xs">
-                      <span className="pulse-ring absolute inset-0 rounded-full bg-emerald-500/20" />
-                      <Logo className="size-5" />
+            {connectedApis.map((api) =>
+              apiToDelete?.id === api.id ? (
+                <li
+                  key={api.id}
+                  className="flex items-center justify-between gap-2.5 py-2.5 px-3 my-1.5 rounded-2xl bg-destructive/10 border border-destructive/30 animate-fade-in"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <Trash2 className="size-4 text-destructive shrink-0" />
+                    <span className="truncate text-[13px] font-medium text-foreground">
+                      {t("Eliminar")}{" "}
+                      <strong className="text-destructive font-semibold">{api.label}</strong>?
                     </span>
-                  );
-                })()}
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="truncate text-[14.5px] font-medium">{api.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setApiToDelete(null)}
+                      className="rounded-xl border border-hairline bg-surface/90 px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground active:scale-95 transition-all"
+                    >
+                      {t("Cancelar")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleDelete(api);
+                        setApiToDelete(null);
+                      }}
+                      className="rounded-xl bg-destructive px-3 py-1.5 text-[12px] font-semibold text-destructive-foreground shadow-xs hover:opacity-90 active:scale-95 transition-all"
+                    >
+                      {t("Eliminar")}
+                    </button>
+                  </div>
+                </li>
+              ) : (
+                <li key={api.id} className="flex items-center gap-3 py-3">
+                  {(() => {
+                    const Logo = getAiLogo(api.providerId);
+                    return (
+                      <span className="relative grid size-9 shrink-0 place-items-center rounded-full border border-hairline bg-surface text-foreground shadow-xs">
+                        <span className="pulse-ring absolute inset-0 rounded-full bg-emerald-500/20" />
+                        <Logo className="size-5" />
+                      </span>
+                    );
+                  })()}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-[14.5px] font-medium">{api.label}</span>
+                    </span>
+                    <span className="block truncate text-[12px] text-muted-foreground">
+                      {t("Ligada ·")} {api.hint}
+                    </span>
                   </span>
-                  <span className="block truncate text-[12px] text-muted-foreground">
-                    {t("Ligada ·")} {api.hint}
-                  </span>
-                </span>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="size-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                  <button
-                    type="button"
-                    onClick={() => setApiToDelete(api)}
-                    className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
-                    title={t("Remover API")}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              </li>
-            ))}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="size-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                    <button
+                      type="button"
+                      onClick={() => setApiToDelete(api)}
+                      className="grid size-7 place-items-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors active:scale-95"
+                      title={t("Remover API")}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </li>
+              ),
+            )}
           </ul>
         )}
 
@@ -403,30 +436,6 @@ export function ApisPanel({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSuccess={() => void refreshApis()}
-      />
-
-      {/* Modal de Confirmação para Remover API */}
-      <ConfirmationModal
-        open={Boolean(apiToDelete)}
-        title={t("Remover API?")}
-        description={
-          apiToDelete
-            ? t(
-                `Tens a certeza de que desejas remover a chave de API de ${apiToDelete.label}? As respostas e agentes associados a este modelo deixarão de funcionar.`,
-              )
-            : ""
-        }
-        confirmLabel={t("Remover")}
-        cancelLabel={t("Cancelar")}
-        variant="destructive"
-        icon={<Trash2 className="size-5" />}
-        onConfirm={() => {
-          if (apiToDelete) {
-            void handleDelete(apiToDelete);
-            setApiToDelete(null);
-          }
-        }}
-        onClose={() => setApiToDelete(null)}
       />
     </>
   );

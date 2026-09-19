@@ -39,8 +39,14 @@ export function ConfirmationModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-sm rounded-[24px] border border-hairline bg-surface p-5 shadow-2xl space-y-4 rise">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-[24px] border border-hairline bg-surface p-5 shadow-2xl space-y-4 rise"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start gap-3.5">
           <div
             className={`grid size-11 shrink-0 place-items-center rounded-2xl border ${

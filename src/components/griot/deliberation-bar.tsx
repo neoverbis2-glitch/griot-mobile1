@@ -112,8 +112,14 @@ export function DeliberationBar({
 
       {/* Mission Modal Selector */}
       {missionOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-sm overflow-hidden rounded-3xl bg-card border border-white/[0.08] p-3.5 shadow-2xl rise">
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setMissionOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-3xl bg-card border border-border/50 p-3.5 shadow-2xl rise"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between px-1 pb-2.5 border-b border-border/40">
               <p className="text-[13px] font-semibold text-foreground">
                 {t("Escolher Missão da Sala")}
@@ -121,7 +127,7 @@ export function DeliberationBar({
               <button
                 type="button"
                 onClick={() => setMissionOpen(false)}
-                className="grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground hover:text-foreground"
+                className="grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground hover:text-foreground active:scale-95 transition-transform"
               >
                 <X className="size-3.5" />
               </button>
@@ -195,8 +201,14 @@ export function DeliberationBar({
 
       {/* Role Engine Selector Centered Modal */}
       {roleSelectOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-xs overflow-hidden rounded-3xl bg-card border border-white/[0.08] p-3.5 shadow-2xl rise">
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setRoleSelectOpen(null)}
+        >
+          <div
+            className="w-full max-w-xs overflow-hidden rounded-3xl bg-card border border-border/50 p-3.5 shadow-2xl rise"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between px-1 pb-2 border-b border-border/40">
               <div className="flex items-center gap-2">
                 {(() => {
@@ -234,8 +246,8 @@ export function DeliberationBar({
                     }}
                     className={`w-full flex items-center justify-between rounded-xl px-2.5 py-2 text-left text-[12.5px] transition-colors ${
                       isSelected
-                        ? "bg-white/[0.08] text-foreground font-medium"
-                        : "hover:bg-white/[0.04] text-muted-foreground hover:text-foreground"
+                        ? "bg-secondary text-foreground font-medium"
+                        : "hover:bg-secondary/60 text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     <div className="flex items-center gap-2.5 truncate">
@@ -253,7 +265,7 @@ export function DeliberationBar({
             <button
               type="button"
               onClick={() => setRoleSelectOpen(null)}
-              className="mt-3 w-full rounded-xl bg-secondary py-2 text-center text-[12px] font-medium text-muted-foreground hover:text-foreground active:scale-[0.98]"
+              className="mt-3 w-full rounded-xl bg-secondary py-2 text-center text-[12px] font-medium text-muted-foreground hover:text-foreground active:scale-[0.98] transition-transform"
             >
               {t("Fechar")}
             </button>

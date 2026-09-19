@@ -9,7 +9,7 @@ import {
   Check,
   AlertCircle,
 } from "lucide-react";
-import { GriotMark } from "@/components/griot/logo";
+import { GriotSymbol } from "@/components/griot/logo";
 import { useT } from "@/lib/i18n";
 import type { ExecutionPhase, ExecutionStepItem } from "@/lib/chat-execution-manager";
 import {
@@ -273,7 +273,7 @@ export function Thinking({
             {active ? (
               <span className="pulse-ring absolute inset-0 rounded-full bg-foreground/15" />
             ) : null}
-            <GriotMark className="size-3.5 text-foreground" />
+            <GriotSymbol className="size-3.5" />
           </div>
 
           <div className="min-w-0 flex-1 flex items-center gap-2">

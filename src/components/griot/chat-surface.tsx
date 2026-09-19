@@ -2227,51 +2227,22 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         />
       )}
 
-      {/* Modal / Painel da Sala de Deliberação Quick para alternar missão e modelos */}
+      {/* Barra de Deliberação Quick flutuante ao tocar na lateral (apenas a barra limpa) */}
       {quickRoomDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
-          <div className="w-full max-w-md overflow-hidden rounded-3xl bg-card border border-white/[0.12] p-4 shadow-2xl rise">
-            <div className="flex items-center justify-between pb-3 border-b border-border/40">
-              <div className="flex items-center gap-2.5">
-                <div className="grid size-8 place-items-center rounded-2xl bg-white/[0.08] text-foreground">
-                  <SlidersHorizontal className="size-4" />
-                </div>
-                <div>
-                  <h3 className="text-[14px] font-semibold text-foreground leading-tight">
-                    Sala de Deliberação Quick
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground leading-tight">
-                    Alterna a missão e os modelos de cada interveniente
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setQuickRoomDrawerOpen(false)}
-                className="grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-
-            <div className="mt-3">
-              <DeliberationBar
-                activeMission={deliberationMission}
-                roleEngines={roleEngines}
-                onSelectMission={(m) => setDeliberationMission(m)}
-                onChangeRoleEngine={(r, e) => setRoleEngines((prev) => ({ ...prev, [r]: e }))}
-              />
-            </div>
-
-            <div className="mt-4 flex items-center justify-end">
-              <button
-                type="button"
-                onClick={() => setQuickRoomDrawerOpen(false)}
-                className="w-full rounded-2xl bg-primary py-2.5 text-center text-[13px] font-medium text-primary-foreground hover:opacity-90 active:scale-[0.98] transition-all shadow-xs"
-              >
-                {t("Concluir")}
-              </button>
-            </div>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setQuickRoomDrawerOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl border border-border/40 bg-card/95 p-1.5 shadow-2xl backdrop-blur-xl rise"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <DeliberationBar
+              activeMission={deliberationMission}
+              roleEngines={roleEngines}
+              onSelectMission={(m) => setDeliberationMission(m)}
+              onChangeRoleEngine={(r, e) => setRoleEngines((prev) => ({ ...prev, [r]: e }))}
+            />
           </div>
         </div>
       )}

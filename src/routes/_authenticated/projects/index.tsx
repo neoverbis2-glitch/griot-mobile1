@@ -156,18 +156,18 @@ function ProjectsPage() {
                 className="block active:opacity-90"
               >
                 <div className="rounded-[24px] border border-hairline bg-surface p-5 shadow-xs transition-transform active:scale-[0.99]">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-[20px] font-bold text-foreground tracking-snug">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <h2 className="text-[20px] font-bold text-foreground tracking-snug truncate py-0.5">
                         {proj.name}
                       </h2>
                       {proj.id === activeProjectId && (
-                        <span className="rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10.5px] font-semibold text-foreground tracking-wide uppercase">
+                        <span className="shrink-0 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10.5px] font-semibold text-foreground tracking-wide uppercase">
                           {t("Ativo")}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-1 text-[17px] font-bold text-foreground">
+                    <div className="flex items-center gap-1 text-[17px] font-bold text-foreground shrink-0">
                       <span>{prog}%</span>
                       <ChevronRight className="size-4 text-muted-foreground" />
                     </div>

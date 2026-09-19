@@ -203,7 +203,7 @@ function HomePage() {
         <UserAvatar
           name={headerTitle}
           email={email}
-          avatarUrl={avatarUrl || (data?.profile as unknown as { avatar_url?: string })?.avatar_url}
+          avatarUrl={avatarUrl || (data?.profile as unknown as { avatar_url?: string })?.avatar_url || null}
           size="sm"
         />
       }
@@ -227,25 +227,32 @@ function HomePage() {
       <UsageSection runs={data?.runs ?? []} services={data?.services ?? []} />
 
       {active ? (
-        <Link to="/projects/$projectId" params={{ projectId: active.id }} className="block">
-          <Panel>
-            <p className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
-              {t("Projeto ativo")}
-            </p>
-            <div className="mt-1.5 flex items-baseline justify-between gap-3">
-              <span className="truncate text-[26px] leading-none font-semibold tracking-tight">
-                {active.name}
-              </span>
-              <span className="text-[20px] font-semibold tabular-nums">{active.progress}%</span>
-            </div>
-            <div className="mt-4 h-[3px] w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-500"
-                style={{ width: `${active.progress}%` }}
-              />
-            </div>
-          </Panel>
-        </Link>
+        (() => {
+          const progressVal = Math.min(100, Math.max(0, Number(active.progress ?? 0)));
+          return (
+            <Link to="/projects/$projectId" params={{ projectId: active.id }} className="block">
+              <Panel>
+                <p className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+                  {t("Projeto ativo")}
+                </p>
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <span className="truncate min-w-0 flex-1 text-[26px] leading-normal py-0.5 font-semibold tracking-tight">
+                    {active.name}
+                  </span>
+                  <span className="text-[20px] font-semibold tabular-nums shrink-0">
+                    {progressVal}%
+                  </span>
+                </div>
+                <div className="mt-3.5 h-[3px] w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-500"
+                    style={{ width: `${progressVal}%` }}
+                  />
+                </div>
+              </Panel>
+            </Link>
+          );
+        })()
       ) : (
         <Empty text={t("Ainda não existe nenhum projeto.")} />
       )}
@@ -255,19 +262,19 @@ function HomePage() {
           <p className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
             {t("Agentes")}
           </p>
-          <p className="mt-1.5 text-[26px] leading-none font-semibold tracking-tight">
+          <p className="mt-1.5 text-[26px] leading-snug py-0.5 font-semibold tracking-tight">
             {data?.activeAgents ?? 0}
           </p>
-          <p className="mt-2 text-[12.5px] text-muted-foreground">{t("ativos")}</p>
+          <p className="mt-1.5 text-[12.5px] text-muted-foreground">{t("ativos")}</p>
         </Panel>
         <Panel>
           <p className="text-[11px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
             {t("Build")}
           </p>
-          <p className="mt-1.5 text-[26px] leading-none font-semibold tracking-tight">
+          <p className="mt-1.5 text-[26px] leading-snug py-0.5 font-semibold tracking-tight truncate">
             {t(BUILD_LABEL_SOURCE[String((active as any)?.build_status ?? "idle")] ?? "Em espera")}
           </p>
-          <p className="mt-2 text-[12.5px] text-muted-foreground">
+          <p className="mt-1.5 text-[12.5px] text-muted-foreground">
             {data?.profile?.desktop_online ? t("Desktop online") : t("Desktop offline")}
           </p>
         </Panel>

@@ -61,8 +61,9 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId")({
       },
     ],
   }),
-  component: ProjectDetailPage,
 });
+
+type ProjectTab = "tasks" | "prs" | "logs";
 
 function ProjectDetailPage() {
   const { projectId } = Route.useParams();
@@ -196,14 +197,14 @@ function ProjectDetailPage() {
     <div className="min-h-screen bg-background text-foreground px-5 pt-[calc(env(safe-area-inset-top,0px)+24px)] pb-32">
       {/* Top Header */}
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <button
             onClick={() => void navigate({ to: "/projects" })}
-            className="grid size-9 place-items-center rounded-full bg-secondary border border-hairline text-foreground transition-transform active:scale-95"
+            className="grid size-9 shrink-0 place-items-center rounded-full bg-secondary border border-hairline text-foreground transition-transform active:scale-95"
           >
             <ChevronLeft className="size-5" />
           </button>
-          <h1 className="text-[34px] font-bold tracking-tight text-foreground">
+          <h1 className="truncate min-w-0 flex-1 text-[28px] sm:text-[34px] font-bold tracking-tight text-foreground leading-snug py-0.5">
             {project?.name || t("Projeto")}
           </h1>
         </div>
