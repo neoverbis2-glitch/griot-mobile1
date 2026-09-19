@@ -11,7 +11,6 @@ import { DEFAULT_MODEL, QUICK_CHAT_MODELS } from "@/lib/griot";
 import { uploadUserAvatar, getLocalCacheStats } from "@/lib/storage";
 import {
   APP_LANGUAGES,
-  CONNECTIONS,
   NOTIFICATION_TYPES,
   loadPrefs,
   savePrefs,
@@ -48,9 +47,7 @@ import {
   Database,
   Gauge,
   Globe,
-  Layers,
   LogOut,
-  Monitor,
   Palette,
   Plug,
   ShieldCheck,
@@ -58,13 +55,7 @@ import {
   Terminal,
   Upload,
   User,
-  Accessibility,
   MessageCircle,
-  Radio,
-  Eye,
-  Volume2,
-  Mic,
-  Fingerprint,
   FileText,
 } from "lucide-react";
 import { TermsDialog } from "@/components/griot/terms-dialog";
@@ -87,15 +78,9 @@ export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
 
-// Feature flags for sections that aren't backed by real data/logic yet.
-// The rows stay in the code (nothing is deleted) but are not rendered.
-const SHOW_DESKTOP_PAIRING = false;
-const SHOW_FAKE_CONNECTIONS = false;
-
 const MODEL_KEY = "griot-default-model";
 const MODEL_LABELS = QUICK_CHAT_MODELS.map((model) => model.label);
 const LANGUAGE_LABELS = APP_LANGUAGES.map((language) => language.label);
-const ANSWER_LANGUAGES = ["Automático", ...LANGUAGE_LABELS];
 
 function SettingsPage() {
   const { user, email: userEmail, displayName, avatarUrl } = useCurrentUser();
@@ -150,8 +135,8 @@ function SettingsPage() {
     if (displayName) setName(displayName);
   }, [displayName]);
 
-  const currentAppLang = (prefs.appLanguage ||
-    prefs.voiceLanguage ||
+  const currentAppLang = (prefs["appLanguage"] ||
+    prefs["voiceLanguage"] ||
     labelFromLocale(locale) ||
     "Português") as string;
   const langInfo = useMemo(() => resolveSpeechLanguage(currentAppLang), [currentAppLang]);
@@ -689,99 +674,6 @@ function SettingsPage() {
             window.localStorage.setItem(MODEL_KEY, found.id);
           }}
         />
-        <ToggleRow
-          label={t("Guardar histórico")}
-          value={bool("saveHistory")}
-          onChange={(v) => set("saveHistory", v)}
-        />
-        <ToggleRow
-          label={t("Temporary Chat por defeito")}
-          hint={t("Conversas que não ficam guardadas")}
-          value={bool("temporaryByDefault")}
-          onChange={(v) => set("temporaryByDefault", v)}
-        />
-        <ToggleRow
-          label={t("Mostrar sugestões de modelo")}
-          value={bool("showModelHints")}
-          onChange={(v) => set("showModelHints", v)}
-        />
-        <SelectRow
-          label={t("Qualidade vs velocidade")}
-          value={text("qualityMode")}
-          options={["Velocidade", "Equilíbrio", "Qualidade"]}
-          onChange={(v) => set("qualityMode", v)}
-        />
-        <SelectRow
-          label={t("Comportamento de anexos")}
-          value={text("attachmentBehavior")}
-          options={["Perguntar sempre", "Enviar logo", "Guardar no projeto"]}
-          onChange={(v) => set("attachmentBehavior", v)}
-        />
-      </Section>
-
-      <Section
-        title={t("Conversas & Histórico (Projetos)")}
-        note={t("Sincronização, cache e capturas")}
-        Icon={Layers}
-      >
-        <ProjectDefaultRow
-          value={text("defaultCaptureProject")}
-          onChange={(v) => set("defaultCaptureProject", v)}
-        />
-        <ToggleRow
-          label={t("Sincronização automática")}
-          value={bool("autoSync")}
-          onChange={(v) => set("autoSync", v)}
-        />
-        <ToggleRow
-          label={t("Downloads offline")}
-          value={bool("offlineDownloads")}
-          onChange={(v) => set("offlineDownloads", v)}
-        />
-        <ToggleRow
-          label={t("Manter conversas recentes em cache")}
-          value={bool("cacheRecent")}
-          onChange={(v) => set("cacheRecent", v)}
-        />
-        <ToggleRow
-          label={t("Confirmação antes de enviar para um chat")}
-          value={bool("confirmSendToProject")}
-          onChange={(v) => set("confirmSendToProject", v)}
-        />
-      </Section>
-
-      <Section title={t("Modelos")} note={t("Disponíveis, favoritos e avisos")} Icon={Cpu}>
-        {QUICK_CHAT_MODELS.map((model) => (
-          <ToggleRow
-            key={model.id}
-            label={model.label}
-            hint={t(model.hint)}
-            value={prefs[`favorite:${model.id}`] !== false}
-            onChange={(v) => set(`favorite:${model.id}`, v)}
-          />
-        ))}
-        <ToggleRow
-          label={t("Ocultar modelos que não usa")}
-          value={bool("hideUnusedModels")}
-          onChange={(v) => set("hideUnusedModels", v)}
-        />
-        <SelectRow
-          label={t("Modelo rápido predefinido")}
-          value={text("fastModel")}
-          options={MODEL_LABELS}
-          onChange={(v) => set("fastModel", v)}
-        />
-        <SelectRow
-          label={t("Modelo avançado predefinido")}
-          value={text("advancedModel")}
-          options={MODEL_LABELS}
-          onChange={(v) => set("advancedModel", v)}
-        />
-        <ToggleRow
-          label={t("Aviso antes de modelos de consumo elevado")}
-          value={bool("warnHeavyModels")}
-          onChange={(v) => set("warnHeavyModels", v)}
-        />
       </Section>
 
       <Section
@@ -789,27 +681,6 @@ function SettingsPage() {
         note={`${(status?.spent ?? 0).toFixed(2)} ${t("GCU consumidos")}`}
         Icon={Gauge}
       >
-        <SelectRow
-          label={t("Limite mensal")}
-          value={text("monthlyLimit")}
-          options={["100 GCU", "250 GCU", "500 GCU", "1000 GCU", "Sem limite"]}
-          onChange={(v) => set("monthlyLimit", v)}
-        />
-        <ToggleRow
-          label={t("Alerta a 75%")}
-          value={bool("alerts75")}
-          onChange={(v) => set("alerts75", v)}
-        />
-        <ToggleRow
-          label={t("Alerta a 90%")}
-          value={bool("alerts90")}
-          onChange={(v) => set("alerts90", v)}
-        />
-        <ToggleRow
-          label={t("Alerta a 100%")}
-          value={bool("alerts100")}
-          onChange={(v) => set("alerts100", v)}
-        />
         <ActionRow
           label={t("Consumo por modelo")}
           onClick={() => void navigate({ to: "/control" })}
@@ -825,11 +696,6 @@ function SettingsPage() {
         <ActionRow
           label={t("Histórico de GCU/compute")}
           onClick={() => void navigate({ to: "/home" })}
-        />
-        <ToggleRow
-          label={t("Economia de compute")}
-          value={bool("computeSaver")}
-          onChange={(v) => set("computeSaver", v)}
         />
       </Section>
 
@@ -950,7 +816,7 @@ function SettingsPage() {
         />
         <SelectRow
           label={t("Voz do GRIOT")}
-          value={voiceOptions.includes(text("voice")) ? text("voice") : voiceOptions[0]}
+          value={voiceOptions.includes(text("voice")) ? text("voice") : (voiceOptions[0] ?? "")}
           options={voiceOptions}
           searchable
           onChange={(v) => set("voice", v)}
@@ -969,51 +835,9 @@ function SettingsPage() {
           onChange={(v) => set("voiceLanguage", v)}
         />
         <ToggleRow
-          label={t("Responder automaticamente em voz")}
-          value={bool("autoSpeak")}
-          onChange={(v) => set("autoSpeak", v)}
-        />
-        <ToggleRow
           label={t("Interromper o GRIOT enquanto fala")}
           value={bool("allowInterrupt")}
           onChange={(v) => set("allowInterrupt", v)}
-        />
-        <ToggleRow
-          label={t("Continuar conversa com ecrã bloqueado")}
-          value={bool("lockedScreenVoice")}
-          onChange={(v) => set("lockedScreenVoice", v)}
-        />
-        <ToggleRow
-          label={t("Bluetooth / auscultadores")}
-          value={bool("bluetooth")}
-          onChange={(v) => set("bluetooth", v)}
-        />
-        <SelectRow
-          label={t("Qualidade de imagem/vídeo")}
-          value={text("mediaQuality")}
-          options={["Baixa", "Média", "Alta", "Máxima"]}
-          onChange={(v) => set("mediaQuality", v)}
-        />
-        <ToggleRow
-          label={t("Remover localização das imagens")}
-          value={bool("stripLocation")}
-          onChange={(v) => set("stripLocation", v)}
-        />
-        <ToggleRow
-          label={t("Compressão automática")}
-          value={bool("autoCompress")}
-          onChange={(v) => set("autoCompress", v)}
-        />
-        <ToggleRow
-          label={t("Scan automático de documentos")}
-          value={bool("autoDocScan")}
-          onChange={(v) => set("autoDocScan", v)}
-        />
-        <ToggleRow
-          label={t("Guardar original")}
-          hint={t("Desligado guarda só a versão processada")}
-          value={bool("keepOriginal")}
-          onChange={(v) => set("keepOriginal", v)}
         />
       </Section>
 
@@ -1103,11 +927,6 @@ function SettingsPage() {
           }}
         />
         <ToggleRow
-          label={t("Fotos & Galeria")}
-          value={bool("permPhotos")}
-          onChange={(v) => set("permPhotos", v)}
-        />
-        <ToggleRow
           label={t("Localização GPS (Permissão Real)")}
           value={bool("permLocation")}
           onChange={async (v) => {
@@ -1145,37 +964,6 @@ function SettingsPage() {
           }}
         />
         <ToggleRow
-          label={t("Contactos")}
-          value={bool("permContacts")}
-          onChange={(v) => set("permContacts", v)}
-        />
-        <ToggleRow
-          label={t("Calendário")}
-          value={bool("permCalendar")}
-          onChange={(v) => set("permCalendar", v)}
-        />
-        <ToggleRow
-          label={t("Dados partilhados com chats")}
-          value={bool("shareWithProjects")}
-          onChange={(v) => set("shareWithProjects", v)}
-        />
-        <ToggleRow
-          label={t("Histórico local")}
-          value={bool("localHistory")}
-          onChange={(v) => set("localHistory", v)}
-        />
-        <ActionRow
-          label={t("Apagar Todos os Dados Locais (Wipe Real)")}
-          danger
-          onClick={async () => {
-            const res = await clearAllLocalData();
-            setCacheStats(getLocalCacheStats());
-            toast.success(
-              `${res.itemsCleared} ${t("registos e caches locais apagados permanentemente.")}`,
-            );
-          }}
-        />
-        <ToggleRow
           label={t("Face ID / Impressão Digital (WebAuthn)")}
           value={bool("biometrics")}
           onChange={async (v) => {
@@ -1193,30 +981,17 @@ function SettingsPage() {
             }
           }}
         />
-        <ToggleRow
-          label={t("PIN da aplicação")}
-          value={bool("appPin")}
-          onChange={(v) => set("appPin", v)}
+        <ActionRow
+          label={t("Apagar Todos os Dados Locais (Wipe Real)")}
+          danger
+          onClick={async () => {
+            const res = await clearAllLocalData();
+            setCacheStats(getLocalCacheStats());
+            toast.success(
+              `${res.itemsCleared} ${t("registos e caches locais apagados permanentemente.")}`,
+            );
+          }}
         />
-        <SelectRow
-          label={t("Bloquear automaticamente")}
-          value={text("autoLock")}
-          options={["Imediatamente", "Após 1 min", "Após 5 min", "Após 15 min", "Nunca"]}
-          onChange={(v) => set("autoLock", v)}
-        />
-        <ToggleRow
-          label={t("Exigir autenticação em ações críticas")}
-          hint={t("Apagar conversa, aprovar ações de IA ou alterar permissões pedem biometria")}
-          value={bool("requireAuthCritical")}
-          onChange={(v) => set("requireAuthCritical", v)}
-        />
-        <ToggleRow
-          label={t("Confirmar deploy / delete / send")}
-          value={bool("confirmCriticalActions")}
-          onChange={(v) => set("confirmCriticalActions", v)}
-        />
-        <InfoRow label={t("Dispositivos autorizados")} value="1" />
-        <InfoRow label={t("Sessões ativas")} value="1" />
       </Section>
 
       <Section
@@ -1271,48 +1046,16 @@ function SettingsPage() {
             </button>
           </div>
         </div>
-        <SelectRow
-          label={t("Modo")}
-          value={text("appearance")}
-          options={["Sistema", "Claro", "Escuro"]}
-          onChange={(v) => set("appearance", v)}
-        />
-        <SelectRow
-          label={t("Accent GRIOT")}
-          value={text("accent")}
-          options={["GRIOT", "Grafite", "Marfim"]}
-          onChange={(v) => set("accent", v)}
-        />
-        <SelectRow
-          label={t("Tamanho do texto")}
-          value={text("textSize")}
-          options={["Compacto", "Padrão", "Grande"]}
-          onChange={(v) => set("textSize", v)}
-        />
         <ToggleRow
-          label={t("Reduzir movimento")}
-          value={bool("reduceMotion")}
-          onChange={(v) => set("reduceMotion", v)}
-        />
-        <ToggleRow
-          label={t("Haptics")}
+          label={t("Haptics (Vibração)")}
+          hint={t("Feedback tátil nas respostas e toques")}
           value={bool("haptics")}
           onChange={(v) => set("haptics", v)}
         />
-        <SelectRow
-          label={t("Interface")}
-          value={text("density")}
-          options={["Compacta", "Confortável"]}
-          onChange={(v) => set("density", v)}
-        />
       </Section>
 
-      <Section title={t("Storage")} note={t("Cache, uploads e dados móveis")} Icon={Database}>
+      <Section title={t("Storage")} note={t("Cache e dados locais")} Icon={Database}>
         <InfoRow label={t("Cache ocupado")} value={cacheStats.localStorageSize} />
-        <InfoRow
-          label={t("Downloads offline")}
-          value={bool("offlineDownloads") ? t("Ativos") : t("Desligados")}
-        />
         <InfoRow label={t("Itens em cache local")} value={`${cacheStats.itemCount} registos`} />
         <ActionRow
           label={t("Limpar cache")}
@@ -1329,22 +1072,6 @@ function SettingsPage() {
             }
             toast.success(t("Cache limpa com sucesso."));
           }}
-        />
-        <SelectRow
-          label={t("Qualidade de upload")}
-          value={text("uploadQuality")}
-          options={["Automática", "Original", "Poupança de dados"]}
-          onChange={(v) => set("uploadQuality", v)}
-        />
-        <ToggleRow
-          label={t("Upload apenas em Wi-Fi")}
-          value={bool("wifiOnlyUpload")}
-          onChange={(v) => set("wifiOnlyUpload", v)}
-        />
-        <ToggleRow
-          label={t("Uso de dados móveis")}
-          value={bool("mobileData")}
-          onChange={(v) => set("mobileData", v)}
         />
       </Section>
 
@@ -1363,118 +1090,15 @@ function SettingsPage() {
             setLocale(localeFromLabel(v));
           }}
         />
-        <SelectRow
-          label={t("Idioma preferido de respostas")}
-          value={text("answerLanguage")}
-          options={ANSWER_LANGUAGES}
-          searchable
-          onChange={(v) => set("answerLanguage", v)}
-        />
-        <SelectRow
-          label={t("Formato de data")}
-          value={text("dateFormat")}
-          options={["DD/MM/AAAA", "MM/DD/AAAA", "AAAA-MM-DD"]}
-          onChange={(v) => set("dateFormat", v)}
-        />
-        <SelectRow
-          label={t("Região")}
-          value={text("region")}
-          options={[
-            "Portugal",
-            "Brasil",
-            "Estados Unidos",
-            "Reino Unido",
-            "União Europeia",
-            "Angola",
-            "Moçambique",
-          ]}
-          onChange={(v) => set("region", v)}
-        />
-        <SelectRow
-          label={t("Unidade monetária")}
-          value={text("currency")}
-          options={["EUR (€)", "USD ($)", "GBP (£)", "BRL (R$)"]}
-          onChange={(v) => set("currency", v)}
-        />
       </Section>
-
-      <Section
-        title={t("Acessibilidade")}
-        note={t("Leitura, contraste e movimento")}
-        Icon={Accessibility}
-      >
-        <ToggleRow
-          label={t("Texto maior")}
-          value={bool("largeText")}
-          onChange={(v) => set("largeText", v)}
-        />
-        <ToggleRow
-          label={t("Alto contraste")}
-          value={bool("highContrast")}
-          onChange={(v) => set("highContrast", v)}
-        />
-        <ToggleRow
-          label={t("Reduzir transparência")}
-          value={bool("reduceTransparency")}
-          onChange={(v) => set("reduceTransparency", v)}
-        />
-        <ToggleRow
-          label={t("Reduzir animações")}
-          value={bool("reduceAnimations")}
-          onChange={(v) => set("reduceAnimations", v)}
-        />
-        <ToggleRow
-          label={t("Legendas")}
-          value={bool("captions")}
-          onChange={(v) => set("captions", v)}
-        />
-        <ToggleRow
-          label={t("VoiceOver / TalkBack")}
-          value={bool("screenReader")}
-          onChange={(v) => set("screenReader", v)}
-        />
-        <ToggleRow
-          label={t("Feedback háptico adicional")}
-          value={bool("extraHaptics")}
-          onChange={(v) => set("extraHaptics", v)}
-        />
-      </Section>
-
-      {/*
-        "GRIOT Desktop" pairing/status is hidden: the real backend has no
-        desktop-pairing concept (no desktop_online/last_seen data anywhere in
-        the griot_* schema), so this section had nothing real to show. Kept
-        here, not rendered, in case desktop pairing becomes a real feature
-        later — re-enable by rendering this block once it's backed by data.
-      */}
-      {SHOW_DESKTOP_PAIRING && (
-        <Section title={t("GRIOT Desktop")} note="Offline" Icon={Monitor}>
-          <InfoRow label={t("Desktop conectado")} value="Não" />
-          <ToggleRow
-            label={t("Permitir iniciar tarefas remotamente")}
-            value={bool("allowRemoteTasks")}
-            onChange={(v) => set("allowRemoteTasks", v)}
-          />
-          <ToggleRow
-            label={t("Permitir acordar sessão")}
-            value={bool("allowWake")}
-            onChange={(v) => set("allowWake", v)}
-          />
-          <ToggleRow
-            label={t("Notificar quando ficar offline")}
-            value={bool("notifyDesktopOffline")}
-            onChange={(v) => set("notifyDesktopOffline", v)}
-          />
-        </Section>
-      )}
 
       <Section title={t("Legal")} note={t("Termos & Políticas")} Icon={FileText}>
         <ActionRow label={t("Termos e Condições")} onClick={() => setShowTerms(true)} />
       </Section>
 
       <Section title={t("Advanced")} note={t("Só se precisares")} Icon={Terminal}>
-        <InfoRow label={t("Versão da app")} value="1.0.0" />
-        <InfoRow label={t("Build")} value="2026.08.09" />
+        <InfoRow label={t("Versão da app")} value="1.0.59" />
+        <InfoRow label={t("Build")} value="Build 59 (Produção)" />
         <InfoRow label={t("Região / backend")} value="eu-central-1 (Supabase)" />
         <ActionRow label={t("Logs")} onClick={() => void navigate({ to: "/control" })} />
         <ActionRow
@@ -1483,11 +1107,6 @@ function SettingsPage() {
             void navigator.clipboard.writeText(JSON.stringify({ prefs, status }, null, 2));
             toast.success(t("Diagnóstico copiado."));
           }}
-        />
-        <ToggleRow
-          label={t("Developer mode")}
-          value={bool("developerMode")}
-          onChange={(v) => set("developerMode", v)}
         />
       </Section>
 
@@ -1510,35 +1129,5 @@ function SettingsPage() {
       />
       {showTerms && <TermsDialog forceOpen onClose={() => setShowTerms(false)} />}
     </Screen>
-  );
-}
-
-function ProjectDefaultRow({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-}) {
-  const t = useT();
-  const { data } = useQuery({
-    queryKey: ["settings-projects"],
-    queryFn: async () => {
-      const { data: rows } = await (supabase as any)
-        .from("griot_studio_projects")
-        .select("name")
-        .eq("archived", false)
-        .order("name");
-      return ((rows ?? []) as { name: string }[]).map((row) => row.name);
-    },
-  });
-  const options = data && data.length > 0 ? data : [t("Sem projetos")];
-  return (
-    <SelectRow
-      label={t("Projeto predefinido para capturas")}
-      value={value === "—" ? (options[0] ?? t("Sem projetos")) : value}
-      options={options}
-      onChange={onChange}
-    />
   );
 }
