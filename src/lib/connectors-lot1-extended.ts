@@ -152,14 +152,17 @@ export async function executeLot1Extended(
       ) {
         const perPage = Math.min(Math.max(Number(p.limit || p.per_page || 30), 1), 100);
         const sort = String(p.sort || "updated");
-        const type = String(p.type || "all");
-        const visibility = p.visibility ? `&visibility=${encodeURIComponent(String(p.visibility))}` : "";
-        const affiliation = `&affiliation=${encodeURIComponent(String(p.affiliation || "owner,collaborator,organization_member"))}`;
 
-        const res = await fetch(
-          `https://api.github.com/user/repos?sort=${sort}&type=${type}&per_page=${perPage}${visibility}${affiliation}`,
-          { headers }
-        );
+        let url = `https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}`;
+        if (p.visibility) {
+          url += `&visibility=${encodeURIComponent(String(p.visibility))}`;
+        } else if (p.type && p.type !== "all") {
+          url += `&type=${encodeURIComponent(String(p.type))}`;
+        } else {
+          url += `&affiliation=${encodeURIComponent(String(p.affiliation || "owner,collaborator,organization_member"))}`;
+        }
+
+        const res = await fetch(url, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
 
         const scopes = res.headers.get("x-oauth-scopes");

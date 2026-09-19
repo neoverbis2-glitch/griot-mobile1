@@ -721,6 +721,20 @@ export function ChatSurface({ userId }: { userId: string }) {
       setExecutionPhase(execState.currentPhase || "thinking");
       setActionDetail(execState.currentActionDetail || "");
       setExecutionStepsList(execState.stepsList || []);
+
+      if (execState.approvalRequest) {
+        setPlugin({
+          id: execState.approvalRequest.pluginId,
+          name: execState.approvalRequest.pluginName,
+          args: execState.approvalRequest.action?.params || {},
+          connected: true,
+          state: "asking",
+          detail: `Operação: ${execState.approvalRequest.operation}`,
+        });
+      } else if (!execState.busy) {
+        setPlugin(null);
+      }
+
       if (!execState.busy && typeof window !== "undefined") {
         try {
           const rawStored = localStorage.getItem("griot_messages_" + conversationId);
@@ -1297,8 +1311,18 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
   function allowPlugin() {
     if (!plugin) return;
+    if (conversationId) {
+      chatExecutionManager.respondToApproval(conversationId, true);
+    }
     setPluginConnected(plugin.id, true);
-    void executePlugin({ ...plugin, connected: true });
+    setPlugin(null);
+  }
+
+  function denyPlugin() {
+    if (conversationId) {
+      chatExecutionManager.respondToApproval(conversationId, false);
+    }
+    setPlugin(null);
   }
 
   async function send(text: string, options?: { effort?: Effort; voice?: boolean }) {
@@ -2319,7 +2343,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           {busy ? (
             <Thinking
               text={reasoning}
-              active={!streaming}
+              active={true}
               steps={steps}
               phase={executionPhase}
               actionDetail={actionDetail}
@@ -2327,7 +2351,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
             />
           ) : null}
 
-          {streaming ? (
+          {streaming && !busy ? (
             scope === "quick" ? (
               <div className="space-y-3">
                 {parseQuickSegments(stripPartialPlugin(stripPartialBlock(streaming))).map(
@@ -2367,7 +2391,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
           ) : null}
 
           {plugin ? (
-            <PluginBar request={plugin} onAllow={allowPlugin} onDeny={() => setPlugin(null)} />
+            <PluginBar request={plugin} onAllow={allowPlugin} onDeny={denyPlugin} />
           ) : null}
 
           {proposals.length > 0 && capsuleId ? (

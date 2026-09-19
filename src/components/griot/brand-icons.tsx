@@ -1922,10 +1922,39 @@ export function PostHogLogo({ className = "size-5", ...props }: IconProps) {
   );
 }
 
+/** OpenRouter (AI Model Provider) */
+export function OpenRouterAiLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <rect width="24" height="24" rx="6" fill="#6366F1" />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M12 4.5C7.85786 4.5 4.5 7.85786 4.5 12C4.5 16.1421 7.85786 19.5 12 19.5C16.1421 19.5 19.5 16.1421 19.5 12C19.5 7.85786 16.1421 4.5 12 4.5ZM7.5 12C7.5 9.51472 9.51472 7.5 12 7.5C14.4853 7.5 16.5 9.51472 16.5 12C16.5 14.4853 14.4853 16.5 12 16.5C9.51472 16.5 7.5 14.4853 7.5 12Z"
+        fill="white"
+      />
+      <circle cx="12" cy="12" r="2.2" fill="#6366F1" />
+    </svg>
+  );
+}
+
+/** ElevenLabs (Voice / AI Provider) */
+export function ElevenLabsAiLogo({ className = "size-5", ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true" {...props}>
+      <rect width="24" height="24" rx="6" fill="#000000" />
+      <rect x="8" y="6" width="3.2" height="12" rx="1.6" fill="white" />
+      <rect x="13.2" y="6" width="3.2" height="12" rx="1.6" fill="white" />
+    </svg>
+  );
+}
+
 export function getAiLogo(providerId?: string) {
   if (!providerId) return GriotAiLogo;
   const p = providerId.toLowerCase();
   if (p.includes("modelos") || p.includes("griot")) return GriotAiLogo;
+  if (p.includes("openrouter")) return OpenRouterAiLogo;
+  if (p.includes("elevenlabs") || p.includes("eleven")) return ElevenLabsAiLogo;
   if (p.includes("gemini") || p.includes("google")) return GeminiAiLogo;
   if (p.includes("claude") || p.includes("anthropic")) return ClaudeAiLogo;
   if (p.includes("openai") || p.includes("gpt") || p.includes("chatgpt")) return OpenAiLogo;

@@ -84,6 +84,16 @@ export function AssistantActions({
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
 
+  function cleanTextForSpeech(raw: string): string {
+    return raw
+      .replace(/```[\s\S]*?```/g, " [Bloco de código] ") // substitui blocos de código
+      .replace(/`([^`]+)`/g, "$1") // remove backticks
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // converte markdown links para o texto
+      .replace(/[#*_~`>]/g, "") // remove caracteres de marcação
+      .replace(/\n+/g, " ") // normaliza quebras de linha
+      .trim();
+  }
+
   function speak() {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       toast.error(t("Este dispositivo não permite leitura em voz alta."));
@@ -94,13 +104,53 @@ export function AssistantActions({
       setSpeaking(false);
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(content);
-    utterance.lang = "pt-PT";
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
+
+    const cleanText = cleanTextForSpeech(content);
+    if (!cleanText) {
+      toast.error(t("Nada para ler."));
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = navigator.language || "pt-PT";
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    // Keepalive watchdog para Android Webview não cortar aos 4 segundos
+    let watchdog: any = null;
+    const clearWatchdog = () => {
+      if (watchdog) {
+        clearInterval(watchdog);
+        watchdog = null;
+      }
+    };
+
+    utterance.onstart = () => {
+      setSpeaking(true);
+      watchdog = setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        } else {
+          clearWatchdog();
+        }
+      }, 4500);
+    };
+
+    utterance.onend = () => {
+      clearWatchdog();
+      setSpeaking(false);
+    };
+
+    utterance.onerror = () => {
+      clearWatchdog();
+      setSpeaking(false);
+    };
+
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-    setSpeaking(true);
+    window.setTimeout(() => {
+      window.speechSynthesis.speak(utterance);
+    }, 50);
   }
 
   return (

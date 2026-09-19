@@ -188,7 +188,7 @@ export interface ChatMessageItemProps {
     role: "user" | "assistant" | "system";
     content: string;
     model?: string;
-    feedback?: 1 | -1 | null;
+    feedback?: "like" | "dislike" | null;
     reasoning?: string;
     steps?: number;
     stepsList?: ExecutionStepItem[];
@@ -197,7 +197,7 @@ export interface ChatMessageItemProps {
   };
   scope: "main" | "quick";
   onEdit: (id: string) => void;
-  onFeedback: (id: string, value: 1 | -1) => void;
+  onFeedback: (id: string, value: "like" | "dislike" | null) => void;
   onRegenerate: (id: string) => void;
   onReact?: (id: string, emoji: string) => void;
   t: (key: string) => string;
@@ -397,7 +397,8 @@ export const ChatMessageItem = React.memo(
 
         {hasProcessingInfo ? (
           <Thinking
-            reasoning={msgReasoning}
+            text={msgReasoning}
+            active={false}
             steps={msgStepsCount}
             stepsList={msgStepsList}
           />

@@ -35,6 +35,7 @@ export interface ReActLoopOptions {
   callbacks?: StreamCallbacks & {
     onActionStart?: (action: GriotAction) => void;
     onActionCompleted?: (action: GriotAction, result: GriotExecutionResult) => void;
+    onActionApprovalRequired?: (action: GriotAction) => Promise<boolean>;
     onStepChange?: (step: number) => void;
   };
   signal?: AbortSignal;
@@ -125,6 +126,28 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
     let observationText = "";
 
     for (const action of candidateActions) {
+      // Se a ação requer confirmação do utilizador (Human-in-the-Loop)
+      if (callbacks?.onActionApprovalRequired && (action.category === "connector" || action.type === "connector.execute" || action.type === "shell.exec")) {
+        const approved = await callbacks.onActionApprovalRequired(action);
+        if (!approved) {
+          const rejectResult: GriotExecutionResult = {
+            actionId: action.id,
+            actionType: action.type,
+            status: "failed",
+            exitCode: 1,
+            stdout: "",
+            stderr: "Ação cancelada: O utilizador não autorizou a execução deste plugin/comando.",
+            durationMs: 0,
+            timestamp: new Date().toISOString(),
+          };
+          callbacks?.onActionCompleted?.(action, rejectResult);
+          stepRecord.action = action;
+          stepRecord.result = rejectResult;
+          observationText += `\n[Permissão Recusada]: O utilizador não autorizou a execução de ${action.type}. Por favor informa o utilizador sobre a recusa e formula uma alternativa ou continua sem executar esta ação.\n`;
+          continue;
+        }
+      }
+
       callbacks?.onActionStart?.(action);
       actionsExecuted.push(action);
 

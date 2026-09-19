@@ -56,6 +56,15 @@ export interface ChatMessageRow {
 
 export type ExecutionPhase = "idle" | "reading" | "searching" | "editing" | "writing" | "thinking" | "plugin";
 
+export interface PluginApprovalRequest {
+  id: string;
+  action: any;
+  pluginId: string;
+  pluginName: string;
+  operation: string;
+  details?: string;
+}
+
 export interface ExecutionState {
   conversationId: string;
   scope: "main" | "quick";
@@ -67,6 +76,7 @@ export interface ExecutionState {
   currentActionDetail?: string;
   currentPluginId?: string;
   stepsList?: ExecutionStepItem[];
+  approvalRequest?: PluginApprovalRequest | null;
   error?: string | null;
 }
 
@@ -95,6 +105,27 @@ interface ActiveExecution {
 class ChatExecutionManager {
   private activeExecutions = new Map<string, ActiveExecution>();
   private listeners = new Map<string, Set<ExecutionListener>>();
+  private pendingApprovals = new Map<
+    string,
+    {
+      resolve: (approved: boolean) => void;
+      request: PluginApprovalRequest;
+    }
+  >();
+
+  /** Responde ao pedido de autorização do plugin pendente */
+  public respondToApproval(conversationId: string, approved: boolean): void {
+    const pending = this.pendingApprovals.get(conversationId);
+    if (pending) {
+      this.pendingApprovals.delete(conversationId);
+      const active = this.activeExecutions.get(conversationId);
+      if (active) {
+        active.state.approvalRequest = null;
+        this.notify(conversationId, { ...active.state });
+      }
+      pending.resolve(approved);
+    }
+  }
 
   /** Retorna o estado atual da execução de uma conversa se estiver a decorrer */
   public getExecutionState(conversationId: string): ExecutionState | null {
@@ -505,6 +536,33 @@ class ChatExecutionManager {
               active.state.stepsList = [...stepsList];
               active.state.steps = stepsList.length;
               this.notify(conversationId, { ...active.state });
+            },
+            onActionApprovalRequired: async (action) => {
+              if (controller.signal.aborted) return false;
+
+              const pluginId = (action.params as any)?.connector || action.type.split(".")[0];
+              const op = (action.params as any)?.action || action.type;
+              const def = PLUGINS_LIST.find((p) => p.id === pluginId);
+              const pName = def?.name || (pluginId ? pluginId.charAt(0).toUpperCase() + pluginId.slice(1) : "Plugin Externo");
+
+              const req: PluginApprovalRequest = {
+                id: `req-${Date.now()}`,
+                action,
+                pluginId,
+                pluginName: pName,
+                operation: op,
+                details: JSON.stringify(action.params || {}),
+              };
+
+              active.state.approvalRequest = req;
+              this.notify(conversationId, { ...active.state });
+
+              return new Promise<boolean>((resolve) => {
+                this.pendingApprovals.set(conversationId, {
+                  resolve,
+                  request: req,
+                });
+              });
             },
             onActionCompleted: (_action, result) => {
               if (controller.signal.aborted) return;

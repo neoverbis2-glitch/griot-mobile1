@@ -196,18 +196,13 @@ export function AutonomousTaskModal({
       >
         {/* Cabeçalho */}
         <div className="flex items-start justify-between gap-3 border-b border-hairline/60 pb-3.5">
-          <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
-              <Sparkles className="size-5" />
-            </div>
-            <div>
-              <h3 className="text-[16px] font-semibold text-foreground tracking-tight">
-                {t("Autonomous Task")}
-              </h3>
-              <p className="text-[12px] text-muted-foreground">
-                {t("GRIOT executa este trabalho sozinho no horário definido.")}
-              </p>
-            </div>
+          <div>
+            <h3 className="text-[16px] font-semibold text-foreground tracking-tight">
+              {t("Autonomous Task")}
+            </h3>
+            <p className="text-[12px] text-muted-foreground">
+              {t("GRIOT executa este trabalho sozinho no horário definido.")}
+            </p>
           </div>
           <button
             type="button"
@@ -401,8 +396,8 @@ export function AutonomousTaskModal({
                   onClick={() => togglePipelineStep(step)}
                   className={`rounded-2xl border py-2.5 text-center text-[12.5px] font-medium capitalize transition-all active:scale-95 ${
                     active
-                      ? "border-primary/50 bg-primary/15 text-primary shadow-xs font-semibold"
-                      : "border-hairline bg-surface text-muted-foreground hover:text-foreground"
+                      ? "border-hairline bg-surface/90 text-foreground shadow-xs font-semibold"
+                      : "border-hairline/60 bg-surface/40 text-muted-foreground/70 hover:text-foreground"
                   }`}
                 >
                   {step === "plan" && t("Plan")}

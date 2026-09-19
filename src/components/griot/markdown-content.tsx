@@ -108,11 +108,11 @@ export const MarkdownContent = React.memo(function MarkdownContent({
 }: MarkdownContentProps) {
   if (!content) return null;
 
-  // Se for mensagem do utilizador, renderiza simples com quebra preservada
+  // Se for mensagem do utilizador, renderiza simples com quebra preservada sem cortar palavras
   if (isUser) {
     return (
       <div
-        className={`whitespace-pre-wrap break-words break-all max-w-full overflow-hidden ${className}`}
+        className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full overflow-hidden ${className}`}
       >
         {content}
       </div>

@@ -116,9 +116,15 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
       action === "list_repositories"
     ) {
       const perPage = Math.min(Math.max(Number(p.limit || 30), 1), 100);
-      const sort = String(p.sort || "updated");
-      const visibility = p.visibility ? `&visibility=${encodeURIComponent(String(p.visibility))}` : "";
-      const res = await fetch(`https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}&affiliation=owner,collaborator,organization_member${visibility}`, { headers });
+      let url = `https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}`;
+      if (p.visibility) {
+        url += `&visibility=${encodeURIComponent(String(p.visibility))}`;
+      } else if (p.type && p.type !== "all") {
+        url += `&type=${encodeURIComponent(String(p.type))}`;
+      } else {
+        url += `&affiliation=${encodeURIComponent(String(p.affiliation || "owner,collaborator,organization_member"))}`;
+      }
+      const res = await fetch(url, { headers });
       if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
 
       const repos = (await res.json()) as Array<{
