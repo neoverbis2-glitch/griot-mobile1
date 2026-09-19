@@ -1,4 +1,3 @@
-/* eslint-disable max-lines */
 import { useState, useEffect, useMemo } from "react";
 import { useT } from "@/lib/i18n";
 import {
@@ -15,15 +14,21 @@ import {
   Sparkles,
   AlertCircle,
   Loader2,
+  Star,
+  Plus,
 } from "lucide-react";
 import {
   PLUGINS_LIST,
   getConnectedPlugins,
   connectPlugin,
   disconnectPlugin,
+  getPluginCredentials,
+  setPrimaryPluginCredential,
+  removePluginCredential,
   type PluginDefinition,
   type PluginCategory,
   type ConnectedPluginData,
+  type PluginCredential,
 } from "@/lib/plugins-service";
 import { validatePluginCredentials } from "@/lib/plugin-validators";
 import * as BrandIcons from "@/components/griot/brand-icons";
@@ -44,8 +49,11 @@ export function PluginsView({ onBack }: PluginsViewProps) {
   const [configuringPlugin, setConfiguringPlugin] = useState<PluginDefinition | null>(null);
   const [pluginToDisconnect, setPluginToDisconnect] = useState<PluginDefinition | null>(null);
   const [inputKey, setInputKey] = useState("");
+  const [inputLabel, setInputLabel] = useState("");
   const [inputAccount, setInputAccount] = useState("");
   const [inputEndpoint, setInputEndpoint] = useState("");
+  const [inputIsPrimary, setInputIsPrimary] = useState(false);
+  const [showAddAccountForm, setShowAddAccountForm] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -80,13 +88,31 @@ export function PluginsView({ onBack }: PluginsViewProps) {
   }, [selectedCategory, search]);
 
   const handleOpenConfig = (plugin: PluginDefinition) => {
-    const existing = connectedMap[plugin.id];
-    setInputKey(existing?.apiKey || "");
-    setInputAccount(existing?.accountName || existing?.projectRef || "");
-    setInputEndpoint(existing?.customEndpoint || "");
+    const creds = getPluginCredentials(plugin.id);
+    const hasCreds = creds.length > 0;
+    setInputKey("");
+    setInputLabel("");
+    setInputAccount("");
+    setInputEndpoint("");
+    setInputIsPrimary(!hasCreds);
+    setShowAddAccountForm(!hasCreds);
     setValidationError(null);
     setIsValidating(false);
     setConfiguringPlugin(plugin);
+  };
+
+  const handleSetPrimary = (credId: string) => {
+    if (!configuringPlugin) return;
+    setPrimaryPluginCredential(configuringPlugin.id, credId);
+    toast.success(t("Conta definida como principal."));
+    refreshConnections();
+  };
+
+  const handleRemoveCredential = (credId: string) => {
+    if (!configuringPlugin) return;
+    removePluginCredential(configuringPlugin.id, credId);
+    toast.success(t("Credencial removida."));
+    refreshConnections();
   };
 
   const handleSaveConnection = async () => {
@@ -116,6 +142,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
       }
 
       connectPlugin(configuringPlugin.id, {
+        label: inputLabel.trim() || undefined,
         apiKey: key || "connected_oauth",
         accountName: inputAccount.trim() || result.details?.username || undefined,
         customEndpoint: inputEndpoint.trim() || result.details?.customEndpoint || undefined,
@@ -124,10 +151,17 @@ export function PluginsView({ onBack }: PluginsViewProps) {
         verifiedAt: new Date().toISOString(),
         validationStatus: "verified",
         validationMessage: result.message,
+        isPrimary: inputIsPrimary,
       });
 
-      toast.success(result.message || t(`${configuringPlugin.name} ligado e validado com sucesso!`));
+      toast.success(
+        result.message || t(`${configuringPlugin.name} ligado e validado com sucesso!`),
+      );
       refreshConnections();
+      setShowAddAccountForm(false);
+      setInputKey("");
+      setInputLabel("");
+      setInputAccount("");
       setConfiguringPlugin(null);
     } catch (err: any) {
       const msg = err.message || "Erro inesperado ao validar credenciais.";
@@ -147,17 +181,25 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     }
 
     connectPlugin(configuringPlugin.id, {
+      label: inputLabel.trim() || undefined,
       apiKey: key || "connected_direct",
       accountName: inputAccount.trim() || undefined,
-      customEndpoint: inputEndpoint.trim() || (inputAccount.trim() ? `https://${inputAccount.trim()}.supabase.co` : undefined),
+      customEndpoint:
+        inputEndpoint.trim() ||
+        (inputAccount.trim() ? `https://${inputAccount.trim()}.supabase.co` : undefined),
       projectRef: inputAccount.trim() || undefined,
       verifiedAt: new Date().toISOString(),
       validationStatus: "verified",
       validationMessage: "⚡ Conexão direta ativada com o token fornecido.",
+      isPrimary: inputIsPrimary,
     });
 
     toast.success(t(`${configuringPlugin.name} ligado com sucesso!`));
     refreshConnections();
+    setShowAddAccountForm(false);
+    setInputKey("");
+    setInputLabel("");
+    setInputAccount("");
     setConfiguringPlugin(null);
   };
 
@@ -319,7 +361,9 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                         {(connData?.projectRef || connData?.accountName) && (
                           <div className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
                             <span className="opacity-70">Conta / Ref:</span>
-                            <span className="font-semibold text-foreground/90">{connData.accountName || connData.projectRef}</span>
+                            <span className="font-semibold text-foreground/90">
+                              {connData.accountName || connData.projectRef}
+                            </span>
                           </div>
                         )}
                         {connData?.projects && connData.projects.length > 0 && (
@@ -327,11 +371,14 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                             {connData.projects.length} {t("projeto(s) detetado(s) na conta")}
                           </div>
                         )}
-                        {connData?.validationMessage && connData.validationMessage.includes("Aviso") && (
-                          <div className="mt-1 rounded-lg bg-amber-500/10 p-1.5 text-[10.5px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
-                            ⚠️ {connData.validationMessage.split("⚠️")[1]?.trim() || connData.validationMessage}
-                          </div>
-                        )}
+                        {connData?.validationMessage &&
+                          connData.validationMessage.includes("Aviso") && (
+                            <div className="mt-1 rounded-lg bg-amber-500/10 p-1.5 text-[10.5px] text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
+                              ⚠️{" "}
+                              {connData.validationMessage.split("⚠️")[1]?.trim() ||
+                                connData.validationMessage}
+                            </div>
+                          )}
                       </div>
                     )}
                   </div>
@@ -412,7 +459,9 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                     <div className="leading-snug flex-1">{validationError}</div>
                   </div>
                   <div className="pt-2 border-t border-destructive/20 flex items-center justify-between">
-                    <span className="text-[11.5px] text-muted-foreground">{t("O teu token é real?")}</span>
+                    <span className="text-[11.5px] text-muted-foreground">
+                      {t("O teu token é real?")}
+                    </span>
                     <button
                       type="button"
                       onClick={handleForceSaveConnection}
@@ -424,65 +473,177 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                 </div>
               )}
 
-              <div>
-                <label className="block text-[12px] font-medium text-foreground mb-1.5">
-                  {configuringPlugin.id === "supabase"
-                    ? t("Personal Access Token (sbp_...) ou Chave JWT")
-                    : configuringPlugin.authType === "webhook"
-                    ? t("Webhook URL")
-                    : t("Chave de API / Token de Acesso")}
-                </label>
-                <input
-                  type="password"
-                  value={inputKey}
-                  onChange={(e) => {
-                    setInputKey(e.target.value);
-                    if (validationError) setValidationError(null);
-                  }}
-                  placeholder={
-                    configuringPlugin.id === "supabase"
-                      ? "sbp_xxxxxxxxxxxx (Recomendado) ou eyJhbGciOi..."
-                      : configuringPlugin.placeholder
-                  }
-                  className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground font-mono"
-                />
-                {configuringPlugin.id === "supabase" && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {t("Dica: Usa o Personal Access Token (sbp_...) para permissão total de criação de tabelas e queries SQL PostgreSQL diretas.")}
-                  </p>
-                )}
-                {configuringPlugin.id === "github" && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {t("Dica: Gera um Personal Access Token com o escopo 'repo' marcado em github.com/settings/tokens para ver repositórios privados e criar/gravar ficheiros.")}
-                  </p>
-                )}
-              </div>
+              {/* Lista de Contas Conectadas */}
+              {(() => {
+                const creds = getPluginCredentials(configuringPlugin.id);
+                if (creds.length === 0) return null;
+                return (
+                  <div className="space-y-2 rounded-2xl border border-hairline bg-surface/60 p-3">
+                    <div className="flex items-center justify-between pb-1 border-b border-hairline/60">
+                      <span className="text-[11.5px] font-semibold text-foreground uppercase tracking-wider">
+                        {t("Contas Conectadas")} ({creds.length})
+                      </span>
+                      {!showAddAccountForm && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInputKey("");
+                            setInputLabel("");
+                            setInputAccount("");
+                            setInputIsPrimary(false);
+                            setShowAddAccountForm(true);
+                          }}
+                          className="flex items-center gap-1 text-[11.5px] font-medium text-primary hover:underline"
+                        >
+                          <Plus className="size-3" />
+                          <span>{t("Nova conta")}</span>
+                        </button>
+                      )}
+                    </div>
 
-              <div>
-                <label className="block text-[12px] font-medium text-foreground mb-1.5">
-                  {configuringPlugin.id === "supabase"
-                    ? t("Project Ref ou URL do Projeto (Opcional com token sbp_)")
-                    : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
-                    ? t("REST URL do Upstash / Redis (ex: https://xxx.upstash.io)")
-                    : t("Identificador da Conta ou Workspace (Opcional)")}
-                </label>
-                <input
-                  type="text"
-                  value={inputAccount}
-                  onChange={(e) => {
-                    setInputAccount(e.target.value);
-                    if (validationError) setValidationError(null);
-                  }}
-                  placeholder={
-                    configuringPlugin.id === "supabase"
-                      ? t("Ex.: meu-projeto-ref ou https://xyz.supabase.co")
-                      : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
-                      ? "https://xxx.upstash.io"
-                      : t("Ex.: org-principal, equipa-dev")
-                  }
-                  className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
-                />
-              </div>
+                    <div className="space-y-1.5 pt-1">
+                      {creds.map((c) => (
+                        <div
+                          key={c.id}
+                          className="flex items-center justify-between gap-2 rounded-xl border border-hairline/60 bg-background/80 p-2.5 text-[12.5px]"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-foreground truncate">
+                                {c.label}
+                              </span>
+                              {c.isPrimary && (
+                                <span className="flex items-center gap-0.5 rounded-full bg-amber-500/15 border border-amber-500/20 px-1.5 py-0.2 text-[10px] font-semibold text-amber-500">
+                                  <Star className="size-2.5 fill-current" />
+                                  {t("Principal")}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] font-mono text-muted-foreground">
+                              {c.secretHint}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            {!c.isPrimary && (
+                              <button
+                                type="button"
+                                onClick={() => handleSetPrimary(c.id)}
+                                title={t("Definir como Principal")}
+                                className="rounded-lg border border-hairline px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground active:scale-95"
+                              >
+                                {t("Tornar Principal")}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCredential(c.id)}
+                              title={t("Remover")}
+                              className="rounded-lg p-1 text-muted-foreground hover:text-destructive active:scale-95"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Formulário de Adição de Conta */}
+              {showAddAccountForm && (
+                <div className="space-y-3 pt-1 animate-fade-in">
+                  <div>
+                    <label className="block text-[12px] font-medium text-foreground mb-1.5">
+                      {t("Nome / Etiqueta da Conta (ex: Pessoal, Equipa Dev, Empresa)")}
+                    </label>
+                    <input
+                      type="text"
+                      value={inputLabel}
+                      onChange={(e) => setInputLabel(e.target.value)}
+                      placeholder={t("Ex.: Pedro Dev ou Empresa Neoverbis")}
+                      className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[12px] font-medium text-foreground mb-1.5">
+                      {configuringPlugin.id === "supabase"
+                        ? t("Personal Access Token (sbp_...) ou Chave JWT")
+                        : configuringPlugin.authType === "webhook"
+                          ? t("Webhook URL")
+                          : t("Chave de API / Token de Acesso")}
+                    </label>
+                    <input
+                      type="password"
+                      value={inputKey}
+                      onChange={(e) => {
+                        setInputKey(e.target.value);
+                        if (validationError) setValidationError(null);
+                      }}
+                      placeholder={
+                        configuringPlugin.id === "supabase"
+                          ? "sbp_xxxxxxxxxxxx (Recomendado) ou eyJhbGciOi..."
+                          : configuringPlugin.placeholder
+                      }
+                      className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground font-mono"
+                    />
+                    {configuringPlugin.id === "supabase" && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {t(
+                          "Dica: Usa o Personal Access Token (sbp_...) para permissão total de criação de tabelas e queries SQL PostgreSQL diretas.",
+                        )}
+                      </p>
+                    )}
+                    {configuringPlugin.id === "github" && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {t(
+                          "Dica: Gera um Personal Access Token com o escopo 'repo' marcado em github.com/settings/tokens para ver repositórios privados e criar/gravar ficheiros.",
+                        )}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[12px] font-medium text-foreground mb-1.5">
+                      {configuringPlugin.id === "supabase"
+                        ? t("Project Ref ou URL do Projeto (Opcional com token sbp_)")
+                        : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
+                          ? t("REST URL do Upstash / Redis (ex: https://xxx.upstash.io)")
+                          : t("Identificador da Conta ou Workspace (Opcional)")}
+                    </label>
+                    <input
+                      type="text"
+                      value={inputAccount}
+                      onChange={(e) => {
+                        setInputAccount(e.target.value);
+                        if (validationError) setValidationError(null);
+                      }}
+                      placeholder={
+                        configuringPlugin.id === "supabase"
+                          ? t("Ex.: meu-projeto-ref ou https://xyz.supabase.co")
+                          : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
+                            ? "https://xxx.upstash.io"
+                            : t("Ex.: org-principal, equipa-dev")
+                      }
+                      className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={inputIsPrimary}
+                      onChange={(e) => setInputIsPrimary(e.target.checked)}
+                      className="size-4 rounded accent-primary"
+                    />
+                    <span className="text-[12.5px] text-foreground font-medium">
+                      {t("Definir como conta Principal (padrão de execução)")}
+                    </span>
+                  </label>
+                </div>
+              )}
 
               {configuringPlugin.docsUrl && (
                 <a
@@ -518,29 +679,39 @@ export function PluginsView({ onBack }: PluginsViewProps) {
               <button
                 type="button"
                 disabled={isValidating}
-                onClick={() => setConfiguringPlugin(null)}
+                onClick={() => {
+                  if (showAddAccountForm && getPluginCredentials(configuringPlugin.id).length > 0) {
+                    setShowAddAccountForm(false);
+                  } else {
+                    setConfiguringPlugin(null);
+                  }
+                }}
                 className="rounded-full px-4 py-2 text-[13px] font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
               >
-                {t("Cancelar")}
+                {showAddAccountForm && getPluginCredentials(configuringPlugin.id).length > 0
+                  ? t("Voltar")
+                  : t("Concluído")}
               </button>
-              <button
-                type="button"
-                disabled={isValidating}
-                onClick={handleSaveConnection}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-xs transition-transform active:scale-95 disabled:opacity-50"
-              >
-                {isValidating ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin" />
-                    <span>{t("A Validar na API...")}</span>
-                  </>
-                ) : (
-                  <>
-                    <ShieldCheck className="size-3.5" />
-                    <span>{t("Validar e Ligar")}</span>
-                  </>
-                )}
-              </button>
+              {showAddAccountForm && (
+                <button
+                  type="button"
+                  disabled={isValidating}
+                  onClick={handleSaveConnection}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-[13px] font-medium text-primary-foreground shadow-xs transition-transform active:scale-95 disabled:opacity-50"
+                >
+                  {isValidating ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" />
+                      <span>{t("A Validar na API...")}</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="size-3.5" />
+                      <span>{t("Validar e Ligar")}</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

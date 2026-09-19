@@ -3,7 +3,16 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useT } from "@/lib/i18n";
 import { toast } from "sonner";
-import { ChevronLeft, Plus, MessageSquare, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  Plus,
+  MessageSquare,
+  Trash2,
+  Sparkles,
+  Clock,
+  Lock,
+  Calendar,
+} from "lucide-react";
 import {
   setActiveProject,
   deleteProject,
@@ -16,9 +25,11 @@ import {
   fetchProjectRepositoryBinding,
   fetchProjectComputeRuns,
   fetchProjectOpbEvents,
+  type ProjectTaskItem,
 } from "@/lib/project-service";
 import { getConnectedPlugins } from "@/lib/plugins-service";
 import { ConfirmationModal } from "@/components/griot/confirmation-modal";
+import { AutonomousTaskModal } from "@/components/griot/autonomous-task-modal";
 
 export type ProjectDetail = {
   id: string;
@@ -85,9 +96,10 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
   });
 
   const [activeTab, setActiveTab] = useState<ProjectTab>("tasks");
-  const [tasks, setTasks] = useState<TaskRow[]>(() => {
+  const [tasks, setTasks] = useState<ProjectTaskItem[]>(() => {
     return getProjectTasks(projectId);
   });
+  const [autonomousModalOpen, setAutonomousModalOpen] = useState(false);
   const [prs, setPrs] = useState<PrRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [repoBinding, setRepoBinding] = useState<any | null>(null);
@@ -239,7 +251,12 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
 
     // Adição otimista imediata
     const tempId = `t_${Date.now()}`;
-    const optimTask: TaskRow = { id: tempId, title, status: "todo" };
+    const optimTask: ProjectTaskItem = {
+      id: tempId,
+      title,
+      status: "todo",
+      created_at: new Date().toISOString(),
+    };
     const updated = [optimTask, ...tasks];
     setTasks(updated);
     saveProjectTasks(projectId, updated);
@@ -262,8 +279,10 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
     const target = tasks.find((t) => t.id === id);
     if (!target) return;
 
-    const nextStatus: "todo" | "doing" | "done" =
-      target.status === "todo" ? "doing" : target.status === "doing" ? "done" : "todo";
+    let nextStatus: ProjectTaskItem["status"] = "todo";
+    if (target.status === "todo" || target.status === "scheduled") nextStatus = "doing";
+    else if (target.status === "doing" || target.status === "running") nextStatus = "done";
+    else nextStatus = "todo";
 
     const updated = tasks.map((task) => {
       if (task.id !== id) return task;
@@ -342,9 +361,7 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
           <span className="text-[12px] font-semibold tracking-wider text-muted-foreground uppercase">
             {project?.status || t("Ativo")}
           </span>
-          <span className="text-[14px] font-bold text-foreground tabular-nums">
-            {prog}%
-          </span>
+          <span className="text-[14px] font-bold text-foreground tabular-nums">{prog}%</span>
         </div>
         <p className="mt-1.5 text-[13.5px] text-muted-foreground font-normal line-clamp-2">
           {project?.description || t("Projeto de automação GRIOT Mobile")}
@@ -385,22 +402,65 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
             <div
               key={task.id}
               onClick={() => cycleTaskStatus(task.id)}
-              className="flex cursor-pointer items-center justify-between rounded-[22px] border border-hairline bg-surface p-4 shadow-xs active:scale-[0.99] transition-transform"
+              className="flex cursor-pointer flex-col gap-2 rounded-[22px] border border-hairline bg-surface p-4 shadow-xs active:scale-[0.99] transition-transform"
             >
-              <span className="text-[15.5px] font-semibold text-foreground tracking-snug truncate pr-3">
-                {task.title}
-              </span>
-              <span
-                className={`rounded-full px-2.5 py-0.5 font-mono text-[11.5px] font-semibold uppercase tracking-wider shrink-0 ${
-                  task.status === "done"
-                    ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20"
-                    : task.status === "doing"
-                    ? "bg-amber-500/15 text-amber-500 border border-amber-500/20"
-                    : "bg-secondary text-muted-foreground border border-hairline"
-                }`}
-              >
-                {task.status}
-              </span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {task.autonomous && <Sparkles className="size-4 shrink-0 text-primary" />}
+                  <span className="text-[15px] font-semibold text-foreground tracking-snug truncate">
+                    {task.title}
+                  </span>
+                </div>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wider shrink-0 ${
+                    task.status === "done" || task.status === "completed"
+                      ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20"
+                      : task.status === "doing" || task.status === "running"
+                        ? "bg-amber-500/15 text-amber-500 border border-amber-500/20"
+                        : task.status === "scheduled"
+                          ? "bg-sky-500/15 text-sky-500 border border-sky-500/20"
+                          : task.status === "failed"
+                            ? "bg-destructive/15 text-destructive border border-destructive/20"
+                            : "bg-secondary text-muted-foreground border border-hairline"
+                  }`}
+                >
+                  {task.status}
+                </span>
+              </div>
+
+              {task.autonomous && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-hairline/50 text-[11px] text-muted-foreground">
+                  {task.autonomous.runAtTime && (
+                    <span className="flex items-center gap-1 font-mono">
+                      <Clock className="size-3 text-muted-foreground" />
+                      {task.autonomous.runAtTime}
+                    </span>
+                  )}
+                  {task.autonomous.repeat && (
+                    <span className="flex items-center gap-1 capitalize">
+                      • {task.autonomous.repeat}
+                    </span>
+                  )}
+                  {task.autonomous.secretRefs && task.autonomous.secretRefs.length > 0 && (
+                    <span className="flex items-center gap-1">
+                      <Lock className="size-3 text-muted-foreground" />
+                      {task.autonomous.secretRefs.length} secrets
+                    </span>
+                  )}
+                  {task.autonomous.pipeline && task.autonomous.pipeline.length > 0 && (
+                    <div className="flex items-center gap-1 ml-auto">
+                      {task.autonomous.pipeline.map((p) => (
+                        <span
+                          key={p}
+                          className="rounded-md border border-hairline bg-background/80 px-1.5 py-0.2 text-[9.5px] uppercase font-mono font-medium"
+                        >
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
 
@@ -428,6 +488,16 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
                   {t("Adicionar Tarefa")}
                 </button>
                 <button
+                  onClick={() => {
+                    setAddingTask(false);
+                    setAutonomousModalOpen(true);
+                  }}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-[13px] font-medium text-primary active:scale-95"
+                >
+                  <Sparkles className="size-3.5" />
+                  <span>{t("Autonomous...")}</span>
+                </button>
+                <button
                   onClick={() => setAddingTask(false)}
                   className="rounded-xl border border-hairline px-4 py-2 text-[14px] text-muted-foreground"
                 >
@@ -436,13 +506,22 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
               </div>
             </div>
           ) : (
-            <button
-              onClick={() => setAddingTask(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-[22px] border border-dashed border-hairline bg-surface/50 py-3 text-[14px] font-medium text-muted-foreground active:scale-[0.98]"
-            >
-              <Plus className="size-4" />
-              {t("Adicionar Tarefa")}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setAutonomousModalOpen(true)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-[22px] border border-primary/40 bg-primary/10 py-3 text-[14px] font-medium text-primary active:scale-[0.98] transition-colors"
+              >
+                <Sparkles className="size-4" />
+                {t("Autonomous Task")}
+              </button>
+              <button
+                onClick={() => setAddingTask(true)}
+                className="flex items-center justify-center gap-1.5 rounded-[22px] border border-dashed border-hairline bg-surface/50 px-4 py-3 text-[14px] font-medium text-muted-foreground active:scale-[0.98]"
+              >
+                <Plus className="size-4" />
+                {t("Rápida")}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -479,8 +558,8 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
                       pr.status === "merged"
                         ? "bg-purple-500/15 text-purple-400 border border-purple-500/20"
                         : pr.status === "open"
-                        ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20"
-                        : "bg-secondary text-muted-foreground border border-hairline"
+                          ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20"
+                          : "bg-secondary text-muted-foreground border border-hairline"
                     }`}
                   >
                     {pr.status}
@@ -508,7 +587,9 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
                   <p className="text-[12px] text-muted-foreground font-mono mb-1">
                     {log.source} · {log.timeAgo}
                   </p>
-                  <p className="text-[15px] font-semibold text-foreground leading-snug">{log.message}</p>
+                  <p className="text-[15px] font-semibold text-foreground leading-snug">
+                    {log.message}
+                  </p>
                 </div>
               ))}
             </div>
@@ -528,6 +609,17 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
         variant="destructive"
         onConfirm={handleDeleteConfirm}
         onClose={() => setShowDeleteModal(false)}
+      />
+
+      {/* Modal de Autonomous Task */}
+      <AutonomousTaskModal
+        open={autonomousModalOpen}
+        onClose={() => setAutonomousModalOpen(false)}
+        projectId={projectId}
+        createdFrom="project"
+        onTaskCreated={(newTask) => {
+          setTasks((prev) => [newTask, ...prev]);
+        }}
       />
     </div>
   );

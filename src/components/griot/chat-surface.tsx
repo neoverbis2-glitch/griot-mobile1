@@ -58,11 +58,7 @@ import {
   setActiveProject,
   type GriotProject,
 } from "@/lib/project-service";
-import {
-  processFileAttachment,
-  isImageFile,
-  isZipFile,
-} from "@/lib/file-attachment-processor";
+import { processFileAttachment, isImageFile, isZipFile } from "@/lib/file-attachment-processor";
 import { GRIOT_CHART_SYSTEM_PROMPT } from "@/lib/chart-system-prompt";
 
 import {
@@ -110,6 +106,7 @@ import {
 import { runQuickDeliberation } from "@/lib/runtime/quick-deliberation-engine";
 import type { MessageReaction } from "@/lib/chat-execution-manager";
 import { PluginsView } from "@/components/griot/plugins-view";
+import { AutonomousTaskModal } from "@/components/griot/autonomous-task-modal";
 
 import {
   captureAsText,
@@ -333,6 +330,8 @@ export function ChatSurface({ userId }: { userId: string }) {
   const [activeProject, setActiveProjectState] = useState<GriotProject | null>(() =>
     getActiveProjectSync(),
   );
+  const [autonomousTaskModalOpen, setAutonomousTaskModalOpen] = useState(false);
+  const [autonomousTaskInstruction, setAutonomousTaskInstruction] = useState("");
   const [captures, setCaptures] = useState<CaptureRow[]>([]);
   const [deliberationMission, setDeliberationMission] = useState<DeliberationMissionId>("ideate");
   const [quickRoomDrawerOpen, setQuickRoomDrawerOpen] = useState(false);
@@ -1235,9 +1234,7 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     }
 
     const effectiveModel =
-      model && model !== "Selecionar API"
-        ? model
-        : (availableModels[0]?.id || "gemini");
+      model && model !== "Selecionar API" ? model : availableModels[0]?.id || "gemini";
 
     setBusy(true);
     try {
@@ -1306,6 +1303,23 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
 
   async function send(text: string, options?: { effort?: Effort; voice?: boolean }) {
     if (!text.trim() || !conversationId || busy) return;
+
+    const trimmed = text.trim();
+    if (/^@tarefa(\s|$)/i.test(trimmed)) {
+      setDraft("");
+      const targetProjectId = conversation?.project_id || activeProject?.id;
+      if (!targetProjectId) {
+        toast.error(
+          t("O comando @tarefa só está disponível em conversas vinculadas a um projeto."),
+        );
+        return;
+      }
+      const instruction = trimmed.replace(/^@tarefa\s*/i, "");
+      setAutonomousTaskInstruction(instruction);
+      setAutonomousTaskModalOpen(true);
+      return;
+    }
+
     setDraft("");
     setPlugin(null);
 
@@ -2005,7 +2019,24 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
     setSheet(null);
   }
 
+  const currentChatProjectId = conversation?.project_id || activeProject?.id || null;
+
   const plusActions = [
+    ...(currentChatProjectId
+      ? [
+          {
+            id: "task",
+            label: t("Criar tarefa"),
+            hint: t("Autonomous Task no projeto"),
+            Icon: Sparkles,
+            run: () => {
+              setSheet(null);
+              setAutonomousTaskInstruction(draft.trim());
+              setAutonomousTaskModalOpen(true);
+            },
+          },
+        ]
+      : []),
     {
       id: "camera",
       label: t("Câmara"),
@@ -3173,6 +3204,20 @@ DIRETRIZES ESTRITAS DE FALA HUMANA:
         >
           <PluginsView onBack={() => setPluginsViewOpen(false)} />
         </div>
+      )}
+
+      {/* Modal de Autonomous Task vinculado ao projeto */}
+      {currentChatProjectId && (
+        <AutonomousTaskModal
+          open={autonomousTaskModalOpen}
+          onClose={() => setAutonomousTaskModalOpen(false)}
+          projectId={currentChatProjectId}
+          initialInstruction={autonomousTaskInstruction}
+          createdFrom="chat"
+          onTaskCreated={() => {
+            toast.success(t("Autonomous Task criada e agendada no projeto!"));
+          }}
+        />
       )}
     </div>
   );

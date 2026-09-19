@@ -17,10 +17,37 @@ export interface PluginDefinition {
   docsUrl: string;
 }
 
+export interface PluginCredential {
+  id: string;
+  label: string;
+  accountName?: string;
+  secretHint: string;
+  apiKey?: string;
+  customEndpoint?: string;
+  projectRef?: string;
+  isPrimary: boolean;
+  status: "active" | "revoked" | "pending";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResolvedCredential {
+  credentialId: string;
+  provider: string;
+  displayName: string;
+  accountName?: string;
+  isPrimary: boolean;
+  runtimeReference: string;
+  needsSelection?: boolean;
+  candidateCredentials?: Array<{ id: string; label: string; accountName?: string }>;
+}
+
 export interface ConnectedPluginData {
   id: string;
   connected: boolean;
   connectedAt: string;
+  credentials?: PluginCredential[];
+  primaryCredentialId?: string;
   secretHint?: string;
   apiKey?: string;
   accountName?: string;
@@ -383,7 +410,8 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     logoName: "SentryLogo",
     category: "dev_cloud",
     categoryLabel: "Monitorização & Erros",
-    description: "Monitorização de falhas de produção, rastreio de stacktraces e resolução de issues.",
+    description:
+      "Monitorização de falhas de produção, rastreio de stacktraces e resolução de issues.",
     authType: "token",
     placeholder: "sntrys_...",
     docsUrl: "https://sentry.io/settings/account/api/auth-tokens/",
@@ -449,37 +477,114 @@ export function countConnectedPlugins(): number {
   return Object.values(getConnectedPlugins()).filter((p) => p.connected).length;
 }
 
-/** Conecta e guarda a configuração de um plugin */
+/** Normaliza as credenciais de um plugin suportando compatibilidade com versões anteriores */
+export function normalizePluginCredentials(plugin: ConnectedPluginData): PluginCredential[] {
+  if (Array.isArray(plugin.credentials) && plugin.credentials.length > 0) {
+    return plugin.credentials;
+  }
+  if (!plugin.connected) return [];
+
+  // Migração transparente de conexão antiga de credencial única
+  const fallbackLabel = plugin.accountName
+    ? `${plugin.accountName} (Principal)`
+    : "Conta Principal";
+  const hint = plugin.secretHint || (plugin.apiKey ? `••••${plugin.apiKey.slice(-4)}` : "••••••••");
+
+  return [
+    {
+      id: `${plugin.id}_primary`,
+      label: fallbackLabel,
+      accountName: plugin.accountName,
+      secretHint: hint,
+      apiKey: plugin.apiKey,
+      customEndpoint: plugin.customEndpoint,
+      projectRef: plugin.projectRef,
+      isPrimary: true,
+      status: "active",
+      createdAt: plugin.connectedAt || new Date().toISOString(),
+      updatedAt: plugin.connectedAt || new Date().toISOString(),
+    },
+  ];
+}
+
+/** Retorna a lista de credenciais / contas conectadas de um plugin específico */
+export function getPluginCredentials(pluginId: string): PluginCredential[] {
+  const map = getConnectedPlugins();
+  const plugin = map[pluginId];
+  if (!plugin) return [];
+  return normalizePluginCredentials(plugin);
+}
+
+/** Conecta e guarda a configuração de um plugin (suporta múltiplas credenciais) */
 export function connectPlugin(
   pluginId: string,
   data?: {
     apiKey?: string;
     accountName?: string;
+    label?: string;
     customEndpoint?: string;
     projectRef?: string;
     projects?: Array<{ id: string; name: string; status?: string }>;
     verifiedAt?: string;
     validationStatus?: "verified" | "unverified" | "error";
     validationMessage?: string;
+    isPrimary?: boolean;
   },
 ): void {
   if (typeof window === "undefined") return;
   const map = getConnectedPlugins();
   const trimmed = data?.apiKey?.trim() || "";
+  const existing = map[pluginId];
+  const existingCreds = existing ? normalizePluginCredentials(existing) : [];
+
+  const hint = trimmed ? `••••${trimmed.slice(-4)}` : "••••••••";
+  const label =
+    data?.label?.trim() ||
+    (data?.accountName?.trim() ? `${data.accountName.trim()}` : "Conta Principal");
+
+  const newCredentialId = `cred_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const isFirst = existingCreds.length === 0;
+  const isPrimary = data?.isPrimary ?? isFirst;
+
+  // Se a nova for primária, desmarca as outras
+  const updatedCreds = existingCreds.map((c) => ({
+    ...c,
+    isPrimary: isPrimary ? false : c.isPrimary,
+  }));
+
+  const newCred: PluginCredential = {
+    id: newCredentialId,
+    label,
+    accountName: data?.accountName?.trim() || undefined,
+    secretHint: hint,
+    apiKey: trimmed,
+    customEndpoint: data?.customEndpoint?.trim() || undefined,
+    projectRef: data?.projectRef?.trim() || undefined,
+    isPrimary,
+    status: "active",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  updatedCreds.push(newCred);
+
+  const primaryCred = updatedCreds.find((c) => c.isPrimary) || updatedCreds[0];
 
   map[pluginId] = {
     id: pluginId,
     connected: true,
-    connectedAt: new Date().toISOString(),
-    apiKey: trimmed,
-    accountName: data?.accountName?.trim() || undefined,
-    customEndpoint: data?.customEndpoint?.trim() || undefined,
-    projectRef: data?.projectRef?.trim() || undefined,
-    projects: data?.projects || undefined,
+    connectedAt: existing?.connectedAt || new Date().toISOString(),
+    credentials: updatedCreds,
+    primaryCredentialId: primaryCred?.id,
+    apiKey: primaryCred?.apiKey || trimmed,
+    accountName: primaryCred?.accountName || data?.accountName?.trim() || undefined,
+    customEndpoint: primaryCred?.customEndpoint || data?.customEndpoint?.trim() || undefined,
+    projectRef: primaryCred?.projectRef || data?.projectRef?.trim() || undefined,
+    projects: data?.projects || existing?.projects || undefined,
     verifiedAt: data?.verifiedAt || new Date().toISOString(),
     validationStatus: data?.validationStatus || "verified",
     validationMessage: data?.validationMessage,
-    secretHint: trimmed ? `••••${trimmed.slice(-4)}` : undefined,
+    secretHint: primaryCred?.secretHint || hint,
   };
 
   try {
@@ -492,7 +597,87 @@ export function connectPlugin(
   }
 }
 
-/** Desconecta um plugin */
+/** Define uma credencial específica como Principal (default fallback) */
+export function setPrimaryPluginCredential(pluginId: string, credentialId: string): void {
+  if (typeof window === "undefined") return;
+  const map = getConnectedPlugins();
+  const plugin = map[pluginId];
+  if (!plugin) return;
+
+  const creds = normalizePluginCredentials(plugin);
+  const target = creds.find((c) => c.id === credentialId);
+  if (!target) return;
+
+  const updatedCreds = creds.map((c) => ({
+    ...c,
+    isPrimary: c.id === credentialId,
+  }));
+
+  map[pluginId] = {
+    ...plugin,
+    credentials: updatedCreds,
+    primaryCredentialId: credentialId,
+    apiKey: target.apiKey,
+    accountName: target.accountName,
+    secretHint: target.secretHint,
+    customEndpoint: target.customEndpoint,
+    projectRef: target.projectRef,
+  };
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    window.dispatchEvent(
+      new CustomEvent("griot-plugins-updated", { detail: { pluginId, connected: true } }),
+    );
+  } catch (err) {
+    console.error("Falha ao definir credencial principal:", err);
+  }
+}
+
+/** Remove ou revoga uma credencial de um plugin */
+export function removePluginCredential(pluginId: string, credentialId: string): void {
+  if (typeof window === "undefined") return;
+  const map = getConnectedPlugins();
+  const plugin = map[pluginId];
+  if (!plugin) return;
+
+  const creds = normalizePluginCredentials(plugin);
+  const remaining = creds.filter((c) => c.id !== credentialId);
+
+  if (remaining.length === 0) {
+    disconnectPlugin(pluginId);
+    return;
+  }
+
+  // Se a removida era a principal, elege a primeira restante
+  let nextPrimary = remaining.find((c) => c.isPrimary);
+  if (!nextPrimary) {
+    remaining[0].isPrimary = true;
+    nextPrimary = remaining[0];
+  }
+
+  map[pluginId] = {
+    ...plugin,
+    credentials: remaining,
+    primaryCredentialId: nextPrimary.id,
+    apiKey: nextPrimary.apiKey,
+    accountName: nextPrimary.accountName,
+    secretHint: nextPrimary.secretHint,
+    customEndpoint: nextPrimary.customEndpoint,
+    projectRef: nextPrimary.projectRef,
+  };
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    window.dispatchEvent(
+      new CustomEvent("griot-plugins-updated", { detail: { pluginId, connected: true } }),
+    );
+  } catch (err) {
+    console.error("Falha ao remover credencial:", err);
+  }
+}
+
+/** Desconecta completamente um plugin */
 export function disconnectPlugin(pluginId: string): void {
   if (typeof window === "undefined") return;
   const map = getConnectedPlugins();
@@ -508,10 +693,152 @@ export function disconnectPlugin(pluginId: string): void {
 }
 
 /**
+ * Camada Central de Resolução de Credenciais (Credential Resolution Layer)
+ *
+ * Regra Arquitetural:
+ * 1. Se requestedIdentity especificada (ex: "pedro"), encontra a credencial correspondente.
+ * 2. Se não especificada, utiliza a credencial marcada como isPrimary.
+ * 3. Se nenhuma identificada com certeza, devolve lista de opções para escolha.
+ * 4. SEGURANÇA: NUNCA retorna o token puro. Retorna apenas runtimeReference e metadados seguros.
+ */
+export function resolveCredential(
+  providerId: string,
+  requestedIdentity?: string,
+): ResolvedCredential | null {
+  const map = getConnectedPlugins();
+  const plugin = map[providerId];
+  if (!plugin || !plugin.connected) return null;
+
+  const creds = normalizePluginCredentials(plugin).filter((c) => c.status === "active");
+  if (creds.length === 0) return null;
+
+  if (requestedIdentity && requestedIdentity.trim()) {
+    const query = requestedIdentity.trim().toLowerCase();
+    const match = creds.find(
+      (c) =>
+        c.label.toLowerCase().includes(query) ||
+        (c.accountName && c.accountName.toLowerCase().includes(query)) ||
+        c.id.toLowerCase() === query,
+    );
+    if (match) {
+      return {
+        credentialId: match.id,
+        provider: providerId,
+        displayName: match.label,
+        accountName: match.accountName,
+        isPrimary: match.isPrimary,
+        runtimeReference: `vault://credentials/${providerId}/${match.id}`,
+      };
+    }
+  }
+
+  // Fallback: credencial principal
+  const primary = creds.find((c) => c.isPrimary) || creds[0];
+  if (primary) {
+    return {
+      credentialId: primary.id,
+      provider: providerId,
+      displayName: primary.label,
+      accountName: primary.accountName,
+      isPrimary: primary.isPrimary,
+      runtimeReference: `vault://credentials/${providerId}/${primary.id}`,
+    };
+  }
+
+  // Múltiplas opções sem padrão claro
+  return {
+    credentialId: "",
+    provider: providerId,
+    displayName: "Múltiplas contas disponíveis",
+    isPrimary: false,
+    runtimeReference: "",
+    needsSelection: true,
+    candidateCredentials: creds.map((c) => ({
+      id: c.id,
+      label: c.label,
+      accountName: c.accountName,
+    })),
+  };
+}
+
+/**
+ * Retorna as referências de secrets configuradas pelo utilizador em todos os conectores.
+ * Utilizado pelo Autonomous Task Creator para exibir credenciais seguras disponíveis.
+ * IMPORTANTE: Nunca expõe os valores reais das credenciais.
+ */
+export function getAvailableSecretReferences(): Array<{
+  key: string;
+  name: string;
+  providerId: string;
+  label: string;
+  hint: string;
+}> {
+  const map = getConnectedPlugins();
+  const results: Array<{
+    key: string;
+    name: string;
+    providerId: string;
+    label: string;
+    hint: string;
+  }> = [];
+
+  const KNOWN_SECRET_NAMES: Record<string, string> = {
+    github: "GITHUB_TOKEN",
+    gitlab: "GITLAB_TOKEN",
+    vercel: "VERCEL_TOKEN",
+    supabase: "SUPABASE_KEY",
+    firebase: "FIREBASE_TOKEN",
+    cloudflare: "CLOUDFLARE_API_TOKEN",
+    aws: "AWS_SECRET_ACCESS_KEY",
+    stripe: "STRIPE_SECRET_KEY",
+    resend: "RESEND_API_KEY",
+    sendgrid: "SENDGRID_API_KEY",
+    postmark: "POSTMARK_API_KEY",
+    twilio: "TWILIO_AUTH_TOKEN",
+    slack: "SLACK_BOT_TOKEN",
+    discord: "DISCORD_BOT_TOKEN",
+    telegram: "TELEGRAM_BOT_TOKEN",
+    redis: "UPSTASH_REDIS_REST_TOKEN",
+    upstash: "UPSTASH_REDIS_REST_TOKEN",
+    neon: "NEON_API_KEY",
+    turso: "TURSO_AUTH_TOKEN",
+    planetscale: "PLANETSCALE_SERVICE_TOKEN",
+    sentry: "SENTRY_AUTH_TOKEN",
+    posthog: "POSTHOG_API_KEY",
+    openai: "OPENAI_API_KEY",
+    anthropic: "ANTHROPIC_API_KEY",
+    gemini: "GEMINI_API_KEY",
+    groq: "GROQ_API_KEY",
+    linear: "LINEAR_API_KEY",
+    notion: "NOTION_API_KEY",
+    jira: "JIRA_API_TOKEN",
+    figma: "FIGMA_ACCESS_TOKEN",
+  };
+
+  for (const [providerId, pluginData] of Object.entries(map)) {
+    if (!pluginData.connected) continue;
+    const creds = normalizePluginCredentials(pluginData);
+    const secretKey = KNOWN_SECRET_NAMES[providerId] || `${providerId.toUpperCase()}_TOKEN`;
+    const primary = creds.find((c) => c.isPrimary) || creds[0];
+    const hint = primary?.secretHint || pluginData.secretHint || "••••••••";
+
+    results.push({
+      key: secretKey,
+      name: secretKey,
+      providerId,
+      label: primary?.label || providerId.toUpperCase(),
+      hint,
+    });
+  }
+
+  return results;
+}
+
+/**
  * Constrói o bloco de prompt de sistema injetado em tempo real
  * informando à IA quais conectores e serviços externos estão ATIVOS,
  * AUTENTICADOS e VALIDADOS, com os seus IDs, referências e ferramentas exatas.
- * 
+ *
  * Ensina tanto a invocação nativa de ferramentas como a chamada semântica via tag:
  * <connector_action connector="github" action="contents.write_file" params='{...}' />
  */
@@ -532,7 +859,8 @@ Nenhum conector externo está autenticado no momento. Se o utilizador solicitar 
     const name = meta?.name || cp.id.toUpperCase();
 
     if (cp.id === "supabase") {
-      const ref = cp.projectRef || cp.accountName || (cp.projects && cp.projects[0]?.id) || "auto-detectado";
+      const ref =
+        cp.projectRef || cp.accountName || (cp.projects && cp.projects[0]?.id) || "auto-detectado";
       const url = cp.customEndpoint || (ref ? `https://${ref}.supabase.co` : "Supabase API");
       prompt += `• ⚡ **SUPABASE (POSTGRESQL & MANAGEMENT API)**: CONECTADO E VALIDADO!\n`;
       prompt += `  - Project Ref: \`${ref}\` | Endpoint: \`${url}\`\n`;

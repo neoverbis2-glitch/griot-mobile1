@@ -253,10 +253,32 @@ export function saveProjectTasks(projectId: string, tasks: any[]): void {
   } catch {}
 }
 
+export interface AutonomousTaskPayload {
+  instruction: string;
+  runAtTime?: string; // ex: "20:00"
+  runAtDate?: string; // ex: "2026-09-20"
+  timezone?: string; // ex: "Europe/Lisbon"
+  repeat?: "once" | "daily" | "weekly" | "monthly";
+  secretRefs?: string[]; // ex: ["VERCEL_TOKEN", "GITHUB_TOKEN"]
+  pipeline?: Array<"plan" | "build" | "test" | "publish">;
+  createdFrom?: "project" | "chat";
+}
+
+export interface ProjectTaskItem {
+  id: string;
+  title: string;
+  status:
+    "todo" | "doing" | "done" | "scheduled" | "running" | "completed" | "failed" | "cancelled";
+  rawStatus?: string;
+  created_at: string;
+  autonomous?: AutonomousTaskPayload;
+}
+
 /**
- * Carrega as tarefas reais do Supabase para um projeto (griot_studio_tasks).
+ * Carrega as tarefas reais do Supabase para um projeto (griot_studio_tasks),
+ * com suporte transparente para tarefas normais e Autonomous Tasks enriquecidas.
  */
-export async function fetchProjectTasksFromDb(projectId: string): Promise<any[]> {
+export async function fetchProjectTasksFromDb(projectId: string): Promise<ProjectTaskItem[]> {
   if (!projectId) return [];
   try {
     const { data, error } = await (supabase as any)
@@ -271,13 +293,43 @@ export async function fetchProjectTasksFromDb(projectId: string): Promise<any[]>
     }
 
     if (Array.isArray(data)) {
-      const mapped = data.map((t: any) => ({
-        id: t.id,
-        title: t.title,
-        status: t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
-        rawStatus: t.status,
-        created_at: t.created_at,
-      }));
+      const mapped: ProjectTaskItem[] = data.map((t: any) => {
+        let displayTitle = t.title;
+        let autonomousMeta: AutonomousTaskPayload | undefined = undefined;
+
+        if (
+          typeof t.title === "string" &&
+          (t.title.startsWith('{"__griot_task"') || t.title.startsWith('{"instruction"'))
+        ) {
+          try {
+            const parsed = JSON.parse(t.title);
+            if (parsed.instruction) {
+              displayTitle = parsed.instruction;
+              autonomousMeta = parsed;
+            }
+          } catch {}
+        }
+
+        let normalizedStatus: ProjectTaskItem["status"] = "todo";
+        const raw = String(t.status || "").toLowerCase();
+        if (raw === "completed" || raw === "done") normalizedStatus = "done";
+        else if (raw === "in_progress" || raw === "doing") normalizedStatus = "doing";
+        else if (raw === "scheduled") normalizedStatus = "scheduled";
+        else if (raw === "running") normalizedStatus = "running";
+        else if (raw === "failed") normalizedStatus = "failed";
+        else if (raw === "cancelled") normalizedStatus = "cancelled";
+        else normalizedStatus = "todo";
+
+        return {
+          id: t.id,
+          title: displayTitle,
+          status: normalizedStatus,
+          rawStatus: t.status,
+          created_at: t.created_at,
+          autonomous: autonomousMeta,
+        };
+      });
+
       saveProjectTasks(projectId, mapped);
       return mapped;
     }
@@ -289,12 +341,28 @@ export async function fetchProjectTasksFromDb(projectId: string): Promise<any[]>
 
 /**
  * Cria uma tarefa real no Supabase na tabela griot_studio_tasks.
+ * Suporta tanto títulos simples como payloads enriquecidos de Autonomous Tasks.
  */
 export async function createProjectTaskInDb(
   projectId: string,
-  title: string,
-): Promise<{ id: string; title: string; status: "todo"; created_at: string } | null> {
-  if (!projectId || !title.trim()) return null;
+  titleOrPayload: string | AutonomousTaskPayload,
+  initialStatus: string = "todo",
+): Promise<ProjectTaskItem | null> {
+  if (!projectId) return null;
+
+  const isPayload = typeof titleOrPayload === "object" && titleOrPayload !== null;
+  const rawInstruction = isPayload ? titleOrPayload.instruction.trim() : titleOrPayload.trim();
+  if (!rawInstruction) return null;
+
+  const storedTitle = isPayload
+    ? JSON.stringify({ __griot_task: true, ...titleOrPayload })
+    : rawInstruction;
+
+  const dbStatus = isPayload
+    ? titleOrPayload.runAtTime
+      ? "scheduled"
+      : initialStatus
+    : initialStatus;
 
   try {
     const { data: userAuth } = await supabase.auth.getUser();
@@ -312,7 +380,6 @@ export async function createProjectTaskInDb(
       if (member?.workspace_id) workspaceId = member.workspace_id;
     }
 
-    // Se o projeto tiver workspace_id vinculado, utiliza-o
     if (!workspaceId) {
       const { data: proj } = await (supabase as any)
         .from("griot_studio_projects")
@@ -329,8 +396,8 @@ export async function createProjectTaskInDb(
           project_id: projectId,
           workspace_id: workspaceId,
           created_by: userId,
-          title: title.trim(),
-          status: "todo",
+          title: storedTitle,
+          status: dbStatus,
         })
         .select("id, title, status, created_at")
         .single();
@@ -338,9 +405,11 @@ export async function createProjectTaskInDb(
       if (!error && data) {
         return {
           id: data.id,
-          title: data.title,
-          status: "todo",
+          title: rawInstruction,
+          status: dbStatus as any,
+          rawStatus: dbStatus,
           created_at: data.created_at,
+          autonomous: isPayload ? titleOrPayload : undefined,
         };
       }
     }
@@ -351,9 +420,11 @@ export async function createProjectTaskInDb(
   // Fallback local se estiver offline ou deslogado
   return {
     id: `t_${Date.now()}`,
-    title: title.trim(),
-    status: "todo",
+    title: rawInstruction,
+    status: dbStatus as any,
+    rawStatus: dbStatus,
     created_at: new Date().toISOString(),
+    autonomous: isPayload ? titleOrPayload : undefined,
   };
 }
 
@@ -362,11 +433,13 @@ export async function createProjectTaskInDb(
  */
 export async function updateProjectTaskStatusInDb(
   taskId: string,
-  nextStatus: "todo" | "doing" | "done",
+  nextStatus: string,
 ): Promise<boolean> {
   if (!taskId) return false;
 
-  const dbStatus = nextStatus === "done" ? "completed" : nextStatus === "doing" ? "in_progress" : "todo";
+  let dbStatus = nextStatus;
+  if (nextStatus === "done") dbStatus = "completed";
+  else if (nextStatus === "doing") dbStatus = "in_progress";
 
   try {
     if (!taskId.startsWith("t_")) {
@@ -391,7 +464,9 @@ export async function fetchProjectRepositoryBinding(projectId: string): Promise<
   try {
     const { data, error } = await (supabase as any)
       .from("griot_studio_repository_bindings")
-      .select("id, repository_full_name, repository_owner, repository_name, default_branch, ref, status, verified_at, provider")
+      .select(
+        "id, repository_full_name, repository_owner, repository_name, default_branch, ref, status, verified_at, provider",
+      )
       .eq("project_id", projectId)
       .maybeSingle();
 
@@ -410,7 +485,9 @@ export async function fetchProjectComputeRuns(projectId: string): Promise<any[]>
   try {
     const { data, error } = await (supabase as any)
       .from("griot_studio_compute_runs")
-      .select("id, internal_run_id, runtime_id, provider, repository_full_name, repository_ref, source_commit_sha, status, created_at, updated_at, finished_at")
+      .select(
+        "id, internal_run_id, runtime_id, provider, repository_full_name, repository_ref, source_commit_sha, status, created_at, updated_at, finished_at",
+      )
       .eq("project_id", projectId)
       .order("created_at", { ascending: false })
       .limit(15);
@@ -450,4 +527,3 @@ export async function fetchProjectOpbEvents(projectId: string): Promise<any[]> {
   }
   return [];
 }
-
