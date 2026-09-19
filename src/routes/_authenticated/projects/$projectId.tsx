@@ -61,6 +61,7 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId")({
       },
     ],
   }),
+  component: ProjectDetailPage,
 });
 
 type ProjectTab = "tasks" | "prs" | "logs";
@@ -69,7 +70,18 @@ function ProjectDetailPage() {
   const { projectId } = Route.useParams();
   const t = useT();
   const navigate = useNavigate();
-  const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [project, setProject] = useState<ProjectDetail | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = localStorage.getItem("griot_local_projects");
+      if (stored) {
+        const list: ProjectDetail[] = JSON.parse(stored);
+        const found = list.find((p) => p.id === projectId);
+        if (found) return found;
+      }
+    } catch {}
+    return null;
+  });
   const [activeTab, setActiveTab] = useState<ProjectTab>("tasks");
 
   const [tasks, setTasks] = useState<TaskRow[]>([]);
@@ -114,16 +126,21 @@ function ProjectDetailPage() {
             created_at: data.created_at,
           });
         } else {
-          const stored =
-            typeof window !== "undefined" ? localStorage.getItem("griot_local_projects") : null;
-          if (stored) {
-            const list: ProjectDetail[] = JSON.parse(stored);
-            const found = list.find((p) => p.id === projectId);
-            if (found) setProject(found);
+          let found: ProjectDetail | null = null;
+          if (typeof window !== "undefined") {
+            try {
+              const stored = localStorage.getItem("griot_local_projects");
+              if (stored) {
+                const list: ProjectDetail[] = JSON.parse(stored);
+                found = list.find((p) => p.id === projectId) || null;
+              }
+            } catch {}
           }
 
-          if (!project) {
-            setProject({
+          if (found) {
+            setProject(found);
+          } else {
+            setProject((curr) => curr || {
               id: projectId,
               name: t("Projeto"),
               description: t("Projeto do workspace GRIOT"),
