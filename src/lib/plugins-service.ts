@@ -3,6 +3,8 @@
  * Local-first persistence and state management for the 30 official integrated services (Lotes 1 a 6).
  */
 
+import { saveGriotCredential, verifyGriotCredential, deleteGriotCredential } from "@/lib/griot-api";
+
 export type PluginCategory = "all" | "dev_cloud" | "database" | "productivity" | "ai_tools";
 
 export interface PluginDefinition {
@@ -27,6 +29,7 @@ export interface PluginCredential {
   projectRef?: string;
   isPrimary: boolean;
   status: "active" | "revoked" | "pending";
+  remoteCredentialId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -48,6 +51,7 @@ export interface ConnectedPluginData {
   connectedAt: string;
   credentials?: PluginCredential[];
   primaryCredentialId?: string;
+  remoteCredentialId?: string;
   secretHint?: string;
   apiKey?: string;
   accountName?: string;
@@ -515,8 +519,8 @@ export function getPluginCredentials(pluginId: string): PluginCredential[] {
   return normalizePluginCredentials(plugin);
 }
 
-/** Conecta e guarda a configuração de um plugin (suporta múltiplas credenciais) */
-export function connectPlugin(
+/** Conecta e guarda a configuração de um plugin no servidor (griot_credentials) e sincroniza localmente */
+export async function connectPluginUnified(
   pluginId: string,
   data?: {
     apiKey?: string;
@@ -530,8 +534,11 @@ export function connectPlugin(
     validationMessage?: string;
     isPrimary?: boolean;
   },
-): void {
-  if (typeof window === "undefined") return;
+): Promise<{ remoteId?: string; status: "active" | "pending" | "error"; error?: string }> {
+  if (typeof window === "undefined") {
+    return { status: "error", error: "Window undefined" };
+  }
+
   const map = getConnectedPlugins();
   const trimmed = data?.apiKey?.trim() || "";
   const existing = map[pluginId];
@@ -576,6 +583,7 @@ export function connectPlugin(
     connectedAt: existing?.connectedAt || new Date().toISOString(),
     credentials: updatedCreds,
     primaryCredentialId: primaryCred?.id,
+    remoteCredentialId: primaryCred?.remoteCredentialId,
     apiKey: primaryCred?.apiKey || trimmed,
     accountName: primaryCred?.accountName || data?.accountName?.trim() || undefined,
     customEndpoint: primaryCred?.customEndpoint || data?.customEndpoint?.trim() || undefined,
@@ -593,8 +601,80 @@ export function connectPlugin(
       new CustomEvent("griot-plugins-updated", { detail: { pluginId, connected: true } }),
     );
   } catch (err) {
-    console.error("Falha ao guardar plugin:", err);
+    console.error("Falha ao guardar plugin localmente:", err);
   }
+
+  // Se for fornecida uma chave/token de API real, persiste e ativa no servidor
+  if (trimmed && trimmed !== "connected_oauth" && trimmed !== "connected_direct") {
+    try {
+      const saveRes = await saveGriotCredential({
+        kind: "plugin",
+        providerId: pluginId,
+        secret: trimmed,
+        label,
+        settings: {
+          accountName: data?.accountName?.trim() || undefined,
+          customEndpoint: data?.customEndpoint?.trim() || undefined,
+          projectRef: data?.projectRef?.trim() || undefined,
+        },
+      });
+
+      const remoteId = saveRes.data?.credential?.id;
+      if (remoteId) {
+        const verifyRes = await verifyGriotCredential(remoteId);
+        const isVerified = verifyRes.data?.valid === true;
+
+        newCred.remoteCredentialId = remoteId;
+        newCred.status = isVerified ? "active" : "pending";
+
+        // Atualiza o registo local com remoteCredentialId
+        const currentMap = getConnectedPlugins();
+        if (currentMap[pluginId]?.credentials) {
+          const idx = currentMap[pluginId].credentials!.findIndex((c) => c.id === newCredentialId);
+          if (idx !== -1) {
+            currentMap[pluginId].credentials![idx].remoteCredentialId = remoteId;
+            currentMap[pluginId].credentials![idx].status = isVerified ? "active" : "pending";
+          }
+          if (currentMap[pluginId].primaryCredentialId === newCredentialId) {
+            currentMap[pluginId].remoteCredentialId = remoteId;
+          }
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(currentMap));
+          window.dispatchEvent(
+            new CustomEvent("griot-plugins-updated", {
+              detail: { pluginId, connected: true, remoteCredentialId: remoteId },
+            }),
+          );
+        }
+
+        return { remoteId, status: isVerified ? "active" : "pending" };
+      }
+      return { status: "pending", error: saveRes.error || undefined };
+    } catch (serverErr: any) {
+      console.warn("[GRIOT] Falha ao sincronizar plugin com servidor:", serverErr);
+      return { status: "error", error: serverErr?.message || String(serverErr) };
+    }
+  }
+
+  return { status: "active" };
+}
+
+/** Conecta e guarda a configuração de um plugin (compatibilidade síncrona/background) */
+export function connectPlugin(
+  pluginId: string,
+  data?: {
+    apiKey?: string;
+    accountName?: string;
+    label?: string;
+    customEndpoint?: string;
+    projectRef?: string;
+    projects?: Array<{ id: string; name: string; status?: string }>;
+    verifiedAt?: string;
+    validationStatus?: "verified" | "unverified" | "error";
+    validationMessage?: string;
+    isPrimary?: boolean;
+  },
+): void {
+  void connectPluginUnified(pluginId, data);
 }
 
 /** Define uma credencial específica como Principal (default fallback) */
@@ -617,6 +697,7 @@ export function setPrimaryPluginCredential(pluginId: string, credentialId: strin
     ...plugin,
     credentials: updatedCreds,
     primaryCredentialId: credentialId,
+    remoteCredentialId: target.remoteCredentialId || plugin.remoteCredentialId,
     apiKey: target.apiKey,
     accountName: target.accountName,
     secretHint: target.secretHint,
@@ -634,7 +715,29 @@ export function setPrimaryPluginCredential(pluginId: string, credentialId: strin
   }
 }
 
-/** Remove ou revoga uma credencial de um plugin */
+/** Remove ou revoga uma credencial de um plugin no servidor e localmente */
+export async function removePluginCredentialUnified(
+  pluginId: string,
+  credentialId: string,
+): Promise<void> {
+  if (typeof window === "undefined") return;
+  const map = getConnectedPlugins();
+  const plugin = map[pluginId];
+  if (plugin) {
+    const creds = normalizePluginCredentials(plugin);
+    const target = creds.find((c) => c.id === credentialId);
+    if (target?.remoteCredentialId) {
+      try {
+        await deleteGriotCredential(target.remoteCredentialId);
+      } catch (err) {
+        console.warn("Erro ao remover credencial no servidor:", err);
+      }
+    }
+  }
+  removePluginCredential(pluginId, credentialId);
+}
+
+/** Remove ou revoga uma credencial de um plugin (síncrono/local) */
 export function removePluginCredential(pluginId: string, credentialId: string): void {
   if (typeof window === "undefined") return;
   const map = getConnectedPlugins();
@@ -660,6 +763,7 @@ export function removePluginCredential(pluginId: string, credentialId: string): 
     ...plugin,
     credentials: remaining,
     primaryCredentialId: nextPrimary.id,
+    remoteCredentialId: nextPrimary.remoteCredentialId,
     apiKey: nextPrimary.apiKey,
     accountName: nextPrimary.accountName,
     secretHint: nextPrimary.secretHint,
@@ -675,6 +779,26 @@ export function removePluginCredential(pluginId: string, credentialId: string): 
   } catch (err) {
     console.error("Falha ao remover credencial:", err);
   }
+}
+
+/** Desconecta completamente um plugin no servidor e localmente */
+export async function disconnectPluginUnified(pluginId: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  const map = getConnectedPlugins();
+  const plugin = map[pluginId];
+  if (plugin) {
+    const creds = normalizePluginCredentials(plugin);
+    for (const cred of creds) {
+      if (cred.remoteCredentialId) {
+        try {
+          await deleteGriotCredential(cred.remoteCredentialId);
+        } catch (err) {
+          console.warn("Erro ao remover credencial no servidor:", err);
+        }
+      }
+    }
+  }
+  disconnectPlugin(pluginId);
 }
 
 /** Desconecta completamente um plugin */

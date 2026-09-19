@@ -20,11 +20,11 @@ import {
 import {
   PLUGINS_LIST,
   getConnectedPlugins,
-  connectPlugin,
-  disconnectPlugin,
+  connectPluginUnified,
+  disconnectPluginUnified,
+  removePluginCredentialUnified,
   getPluginCredentials,
   setPrimaryPluginCredential,
-  removePluginCredential,
   type PluginDefinition,
   type PluginCategory,
   type ConnectedPluginData,
@@ -108,9 +108,9 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     refreshConnections();
   };
 
-  const handleRemoveCredential = (credId: string) => {
+  const handleRemoveCredential = async (credId: string) => {
     if (!configuringPlugin) return;
-    removePluginCredential(configuringPlugin.id, credId);
+    await removePluginCredentialUnified(configuringPlugin.id, credId);
     toast.success(t("Credencial removida."));
     refreshConnections();
   };
@@ -141,7 +141,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
         return;
       }
 
-      connectPlugin(configuringPlugin.id, {
+      await connectPluginUnified(configuringPlugin.id, {
         label: inputLabel.trim() || undefined,
         apiKey: key || "connected_oauth",
         accountName: inputAccount.trim() || result.details?.username || undefined,
@@ -172,7 +172,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     }
   };
 
-  const handleForceSaveConnection = () => {
+  const handleForceSaveConnection = async () => {
     if (!configuringPlugin) return;
     const key = inputKey.trim();
     if (!key && configuringPlugin.authType !== "oauth" && configuringPlugin.id !== "slack") {
@@ -180,7 +180,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
       return;
     }
 
-    connectPlugin(configuringPlugin.id, {
+    await connectPluginUnified(configuringPlugin.id, {
       label: inputLabel.trim() || undefined,
       apiKey: key || "connected_direct",
       accountName: inputAccount.trim() || undefined,
@@ -203,8 +203,8 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     setConfiguringPlugin(null);
   };
 
-  const handleDisconnect = (plugin: PluginDefinition) => {
-    disconnectPlugin(plugin.id);
+  const handleDisconnect = async (plugin: PluginDefinition) => {
+    await disconnectPluginUnified(plugin.id);
     toast.success(t(`${plugin.name} desligado.`));
     refreshConnections();
   };

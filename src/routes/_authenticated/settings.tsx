@@ -972,8 +972,8 @@ function SettingsPage() {
       </Section>
 
       <Section title={t("Advanced")} note={t("Só se precisares")} Icon={Terminal}>
-        <InfoRow label={t("Versão da app")} value="1.0.64" />
-        <InfoRow label={t("Build")} value="Build 64 (Produção)" />
+        <InfoRow label={t("Versão da app")} value="1.0.65" />
+        <InfoRow label={t("Build")} value="Build 65 (Produção)" />
         <InfoRow label={t("Região / backend")} value="eu-central-1 (Supabase)" />
         <ActionRow label={t("Logs")} onClick={() => void navigate({ to: "/control" })} />
         <ActionRow

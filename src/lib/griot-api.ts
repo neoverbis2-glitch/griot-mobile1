@@ -98,21 +98,25 @@ export async function listGriotCredentials(kind?: "provider" | "plugin") {
   );
 }
 
-/** Saves a new provider API key (e.g. Gemini) — stored encrypted server-side. */
+/** Saves a new credential (provider API key or plugin token) — stored encrypted server-side. */
 export async function saveGriotCredential(input: {
-  providerId: "gemini" | "openai" | "anthropic" | "groq" | "openrouter" | "deepseek";
+  providerId: string;
   secret: string;
+  kind?: "provider" | "plugin";
   label?: string;
   model?: string;
+  settings?: Record<string, unknown>;
 }) {
+  const kind = input.kind || "provider";
+  const settings = input.settings || (input.model ? { model: input.model } : {});
   return callGriotApi<{ credential: GriotCredential }>("/credentials", {
     method: "POST",
     body: {
-      kind: "provider",
+      kind,
       providerId: input.providerId,
       secret: input.secret,
       label: input.label || input.providerId,
-      settings: input.model ? { model: input.model } : undefined,
+      settings,
     },
   });
 }
