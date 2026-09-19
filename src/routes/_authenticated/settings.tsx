@@ -7,7 +7,6 @@ import { UserAvatar } from "@/components/griot/user-avatar";
 import { useCurrentUser } from "@/hooks/use-user";
 import { Section, ToggleRow, SelectRow, InfoRow, ActionRow } from "@/components/griot/settings-kit";
 import { useTheme } from "@/lib/theme";
-import { DEFAULT_MODEL, QUICK_CHAT_MODELS } from "@/lib/griot";
 import { uploadUserAvatar, getLocalCacheStats } from "@/lib/storage";
 import {
   APP_LANGUAGES,
@@ -24,7 +23,6 @@ import {
 } from "@/lib/griot-api";
 import { saveUserApi } from "@/lib/user-apis";
 import { getSavedApiKey } from "@/lib/ai-client";
-import { resolveSpeechLanguage } from "@/lib/speech-transcriber";
 import { useI18n, useT, labelFromLocale, localeFromLabel } from "@/lib/i18n";
 import { toast } from "sonner";
 import {
@@ -38,10 +36,8 @@ import {
 } from "@/lib/permissions";
 import { testSystemNotification, requestRealNotificationPermission } from "@/lib/notifications";
 import { sendGriotNotification, requestAllNativePermissions } from "@/lib/native-notifications";
-import { VoiceTestModal } from "@/components/griot/voice-test-modal";
 import {
   Bell,
-  Camera,
   ChevronLeft,
   Cpu,
   Database,
@@ -55,7 +51,6 @@ import {
   Terminal,
   Upload,
   User,
-  MessageCircle,
   FileText,
 } from "lucide-react";
 import { TermsDialog } from "@/components/griot/terms-dialog";
@@ -78,8 +73,6 @@ export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsPage,
 });
 
-const MODEL_KEY = "griot-default-model";
-const MODEL_LABELS = QUICK_CHAT_MODELS.map((model) => model.label);
 const LANGUAGE_LABELS = APP_LANGUAGES.map((language) => language.label);
 
 function SettingsPage() {
@@ -95,7 +88,6 @@ function SettingsPage() {
   const [geminiKeyInput, setGeminiKeyInput] = useState("");
   const [savingGeminiKey, setSavingGeminiKey] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [defaultModel, setDefaultModel] = useState(DEFAULT_MODEL);
   const [prefs, setPrefs] = useState<Prefs>({});
   const [cacheStats, setCacheStats] = useState(() => getLocalCacheStats());
   const [gcpUrlInput, setGcpUrlInput] = useState(() =>
@@ -114,8 +106,6 @@ function SettingsPage() {
   );
   const [verifyingGcpToken, setVerifyingGcpToken] = useState(false);
   const [testingGcp, setTestingGcp] = useState(false);
-  const [testModalOpen, setTestModalOpen] = useState(false);
-  const [testModalMode, setTestModalMode] = useState<"voice" | "mic" | "camera">("voice");
   const [showTerms, setShowTerms] = useState(false);
   const [pluginsViewOpen, setPluginsViewOpen] = useState(false);
   const [connectedPluginsCount, setConnectedPluginsCount] = useState(() => countConnectedPlugins());
@@ -135,55 +125,7 @@ function SettingsPage() {
     if (displayName) setName(displayName);
   }, [displayName]);
 
-  const currentAppLang = (prefs["appLanguage"] ||
-    prefs["voiceLanguage"] ||
-    labelFromLocale(locale) ||
-    "Português") as string;
-  const langInfo = useMemo(() => resolveSpeechLanguage(currentAppLang), [currentAppLang]);
-  const [deviceVoices, setDeviceVoices] = useState<string[]>([]);
-
   useEffect(() => {
-    function updateVoices() {
-      if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-      const all = window.speechSynthesis.getVoices();
-      const matching = all
-        .filter((v) => v.lang.toLowerCase().replace("_", "-").startsWith(langInfo.code))
-        .map((v) => v.name);
-      setDeviceVoices(matching);
-    }
-    updateVoices();
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.onvoiceschanged = updateVoices;
-    }
-    return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.onvoiceschanged = null;
-      }
-    };
-  }, [langInfo.code]);
-
-  const voiceOptions = useMemo(() => {
-    const baseTones =
-      langInfo.code === "pt"
-        ? ["GRIOT Nativa (Português)", "Serena (pt)", "Grave (pt)", "Neutra (pt)"]
-        : langInfo.code === "en"
-          ? ["GRIOT Native (English)", "Serene (en)", "Deep (en)", "Neutral (en)"]
-          : langInfo.code === "es"
-            ? ["GRIOT Nativo (Español)", "Serena (es)", "Grave (es)", "Neutra (es)"]
-            : [
-                `GRIOT Nativa (${langInfo.name})`,
-                `Serena (${langInfo.code})`,
-                `Grave (${langInfo.code})`,
-                `Neutra (${langInfo.code})`,
-              ];
-
-    const filteredDevice = deviceVoices.filter((v) => !baseTones.includes(v));
-    return [...baseTones, ...filteredDevice];
-  }, [langInfo.code, langInfo.name, deviceVoices]);
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(MODEL_KEY);
-    if (stored) setDefaultModel(stored);
     setPrefs(loadPrefs());
     setCacheStats(getLocalCacheStats());
 
@@ -447,9 +389,6 @@ function SettingsPage() {
     void navigate({ to: "/auth" });
   }
 
-  const modelName =
-    QUICK_CHAT_MODELS.find((model) => model.id === defaultModel)?.label ?? defaultModel;
-
   // There is no subscription-tier column on the real wallet — only a real
   // GCU balance. Avoid inventing a "Free/Pro" label that isn't backed by data.
   const planTier = "GRIOT";
@@ -659,24 +598,6 @@ function SettingsPage() {
       </Section>
 
       <Section
-        title={t("Quick Chat")}
-        note={`${t("Modelo predefinido")}: ${modelName}`}
-        Icon={MessageCircle}
-      >
-        <SelectRow
-          label={t("Modelo predefinido")}
-          value={modelName}
-          options={MODEL_LABELS}
-          onChange={(label) => {
-            const found = QUICK_CHAT_MODELS.find((model) => model.label === label);
-            if (!found) return;
-            setDefaultModel(found.id);
-            window.localStorage.setItem(MODEL_KEY, found.id);
-          }}
-        />
-      </Section>
-
-      <Section
         title={t("Uso & Compute")}
         note={`${(status?.spent ?? 0).toFixed(2)} ${t("GCU consumidos")}`}
         Icon={Gauge}
@@ -688,10 +609,6 @@ function SettingsPage() {
         <ActionRow
           label={t("Consumo por conversas")}
           onClick={() => void navigate({ to: "/projects" })}
-        />
-        <ActionRow
-          label={t("Consumo por Quick Chat")}
-          onClick={() => void navigate({ to: "/home" })}
         />
         <ActionRow
           label={t("Histórico de GCU/compute")}
@@ -720,7 +637,7 @@ function SettingsPage() {
               }}
               className="text-left px-3 py-2 rounded-lg border border-hairline bg-card hover:bg-accent/40 text-[12px] font-medium transition-colors flex items-center justify-between"
             >
-              <span>⚡ {t("Aprovação (Aprovar / Recusar)")}</span>
+              <span>{t("Aprovação (Aprovar / Recusar)")}</span>
               <span className="text-[10px] uppercase font-mono text-amber-500 font-bold">
                 Interativa
               </span>
@@ -738,7 +655,7 @@ function SettingsPage() {
               }}
               className="text-left px-3 py-2 rounded-lg border border-hairline bg-card hover:bg-accent/40 text-[12px] font-medium transition-colors flex items-center justify-between"
             >
-              <span>💬 {t("Mensagem de IA")}</span>
+              <span>{t("Mensagem de IA")}</span>
               <span className="text-[10px] uppercase font-mono text-primary font-bold">Chat</span>
             </button>
 
@@ -746,14 +663,14 @@ function SettingsPage() {
               onClick={async () => {
                 await sendGriotNotification({
                   type: "deploy",
-                  title: "Site Deployado com Sucesso! 🚀",
+                  title: "Site Deployado com Sucesso!",
                   message: "O teu projeto foi publicado: https://griot.ai/preview",
                   url: "https://griot.ai",
                 });
               }}
               className="text-left px-3 py-2 rounded-lg border border-hairline bg-card hover:bg-accent/40 text-[12px] font-medium transition-colors flex items-center justify-between"
             >
-              <span>🚀 {t("Site Deployado")}</span>
+              <span>{t("Site Deployado")}</span>
               <span className="text-[10px] uppercase font-mono text-emerald-500 font-bold">
                 Deploy
               </span>
@@ -769,7 +686,7 @@ function SettingsPage() {
               }}
               className="text-left px-3 py-2 rounded-lg border border-hairline bg-card hover:bg-accent/40 text-[12px] font-medium transition-colors flex items-center justify-between"
             >
-              <span>✅ {t("Tarefa Concluída")}</span>
+              <span>{t("Tarefa Concluída")}</span>
               <span className="text-[10px] uppercase font-mono text-sky-500 font-bold">Task</span>
             </button>
           </div>
@@ -797,48 +714,6 @@ function SettingsPage() {
             }}
           />
         ))}
-      </Section>
-
-      <Section title={t("Voice & Capture")} note={t("Voz, câmara e microfone reais")} Icon={Camera}>
-        <ActionRow
-          label={t("Testar Voz do GRIOT e Microfone")}
-          onClick={() => {
-            setTestModalMode("voice");
-            setTestModalOpen(true);
-          }}
-        />
-        <ActionRow
-          label={t("Testar Câmara e Resolução de Vídeo")}
-          onClick={() => {
-            setTestModalMode("camera");
-            setTestModalOpen(true);
-          }}
-        />
-        <SelectRow
-          label={t("Voz do GRIOT")}
-          value={voiceOptions.includes(text("voice")) ? text("voice") : (voiceOptions[0] ?? "")}
-          options={voiceOptions}
-          searchable
-          onChange={(v) => set("voice", v)}
-        />
-        <SelectRow
-          label={t("Velocidade")}
-          value={text("voiceSpeed")}
-          options={["0.8×", "1.0×", "1.2×", "1.5×"]}
-          onChange={(v) => set("voiceSpeed", v)}
-        />
-        <SelectRow
-          label={t("Idioma da voz")}
-          value={text("voiceLanguage")}
-          options={LANGUAGE_LABELS}
-          searchable
-          onChange={(v) => set("voiceLanguage", v)}
-        />
-        <ToggleRow
-          label={t("Interromper o GRIOT enquanto fala")}
-          value={bool("allowInterrupt")}
-          onChange={(v) => set("allowInterrupt", v)}
-        />
       </Section>
 
       <Section
@@ -1097,8 +972,8 @@ function SettingsPage() {
       </Section>
 
       <Section title={t("Advanced")} note={t("Só se precisares")} Icon={Terminal}>
-        <InfoRow label={t("Versão da app")} value="1.0.62" />
-        <InfoRow label={t("Build")} value="Build 62 (Produção)" />
+        <InfoRow label={t("Versão da app")} value="1.0.63" />
+        <InfoRow label={t("Build")} value="Build 63 (Produção)" />
         <InfoRow label={t("Região / backend")} value="eu-central-1 (Supabase)" />
         <ActionRow label={t("Logs")} onClick={() => void navigate({ to: "/control" })} />
         <ActionRow
@@ -1122,11 +997,6 @@ function SettingsPage() {
         <Sparkle className="size-3.5" /> GRIOT Mobile · {t("centro de comando")}
       </p>
 
-      <VoiceTestModal
-        open={testModalOpen}
-        onClose={() => setTestModalOpen(false)}
-        mode={testModalMode}
-      />
       {showTerms && <TermsDialog forceOpen onClose={() => setShowTerms(false)} />}
     </Screen>
   );

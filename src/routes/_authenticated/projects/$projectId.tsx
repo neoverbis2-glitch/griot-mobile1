@@ -488,16 +488,6 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
                   {t("Adicionar Tarefa")}
                 </button>
                 <button
-                  onClick={() => {
-                    setAddingTask(false);
-                    setAutonomousModalOpen(true);
-                  }}
-                  className="flex items-center justify-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-[13px] font-medium text-primary active:scale-95"
-                >
-                  <Sparkles className="size-3.5" />
-                  <span>{t("Autonomous...")}</span>
-                </button>
-                <button
                   onClick={() => setAddingTask(false)}
                   className="rounded-xl border border-hairline px-4 py-2 text-[14px] text-muted-foreground"
                 >
@@ -509,16 +499,14 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setAutonomousModalOpen(true)}
-                className="flex flex-1 items-center justify-center gap-2 rounded-[22px] border border-primary/40 bg-primary/10 py-3 text-[14px] font-medium text-primary active:scale-[0.98] transition-colors"
+                className="flex flex-1 items-center justify-center rounded-[22px] border border-primary/40 bg-primary/10 py-3 text-[14px] font-medium text-primary active:scale-[0.98] transition-colors"
               >
-                <Sparkles className="size-4" />
                 {t("Autonomous Task")}
               </button>
               <button
                 onClick={() => setAddingTask(true)}
-                className="flex items-center justify-center gap-1.5 rounded-[22px] border border-dashed border-hairline bg-surface/50 px-4 py-3 text-[14px] font-medium text-muted-foreground active:scale-[0.98]"
+                className="flex items-center justify-center rounded-[22px] border border-dashed border-hairline bg-surface/50 px-5 py-3 text-[14px] font-medium text-muted-foreground active:scale-[0.98]"
               >
-                <Plus className="size-4" />
                 {t("Rápida")}
               </button>
             </div>
