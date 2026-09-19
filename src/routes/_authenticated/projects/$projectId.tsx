@@ -10,7 +10,14 @@ import {
   getLocalProjectsSync,
   getProjectTasks,
   saveProjectTasks,
+  fetchProjectTasksFromDb,
+  createProjectTaskInDb,
+  updateProjectTaskStatusInDb,
+  fetchProjectRepositoryBinding,
+  fetchProjectComputeRuns,
+  fetchProjectOpbEvents,
 } from "@/lib/project-service";
+import { getConnectedPlugins } from "@/lib/plugins-service";
 import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 
 export type ProjectDetail = {
@@ -60,23 +67,6 @@ function relativeTime(dateStr?: string | null): string {
 
 type ProjectTab = "tasks" | "prs" | "logs";
 
-const DEFAULT_STARTER_TASKS: TaskRow[] = [
-  { id: "t_1", title: "Configuração do repositório e ambiente", status: "done" },
-  { id: "t_2", title: "Definição do escopo e arquitetura do app", status: "done" },
-  { id: "t_3", title: "Desenvolvimento dos módulos centrais", status: "doing" },
-  { id: "t_4", title: "Testes automatizados e compilação", status: "todo" },
-];
-
-const DEFAULT_PRS: PrRow[] = [
-  { id: "pr_1", title: "feat: setup de arquitetura do projeto", branch: "feat/core", status: "merged" },
-  { id: "pr_2", title: "fix: sincronização offline e persistência", branch: "fix/sync", status: "open" },
-];
-
-const DEFAULT_LOGS: LogRow[] = [
-  { id: "log_1", source: "BUILD", timeAgo: "há 5m", message: "Ambiente do projeto verificado e pronto" },
-  { id: "log_2", source: "SYNC", timeAgo: "há 10m", message: "Workspace sincronizado com storage local" },
-];
-
 export interface ProjectDetailViewProps {
   projectId: string;
   onBack?: () => void;
@@ -96,11 +86,11 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
 
   const [activeTab, setActiveTab] = useState<ProjectTab>("tasks");
   const [tasks, setTasks] = useState<TaskRow[]>(() => {
-    const saved = getProjectTasks(projectId);
-    return saved.length > 0 ? saved : DEFAULT_STARTER_TASKS;
+    return getProjectTasks(projectId);
   });
-  const [prs, setPrs] = useState<PrRow[]>(DEFAULT_PRS);
-  const [logs, setLogs] = useState<LogRow[]>(DEFAULT_LOGS);
+  const [prs, setPrs] = useState<PrRow[]>([]);
+  const [logs, setLogs] = useState<LogRow[]>([]);
+  const [repoBinding, setRepoBinding] = useState<any | null>(null);
 
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -120,30 +110,21 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
     const savedTasks = getProjectTasks(projectId);
     if (savedTasks.length > 0) {
       setTasks(savedTasks);
-    } else {
-      setTasks(DEFAULT_STARTER_TASKS);
-      saveProjectTasks(projectId, DEFAULT_STARTER_TASKS);
     }
 
     let cancelled = false;
     async function loadDetail() {
       try {
-        const [projectRes, tasksRes, opbEventsRes] = await Promise.all([
+        const [projectRes, dbTasks, binding, computeRuns, opbEvents] = await Promise.all([
           (supabase as any)
             .from("griot_studio_projects")
             .select("id, name, description, brief, created_at, updated_at")
             .eq("id", projectId)
             .maybeSingle(),
-          (supabase as any)
-            .from("griot_studio_tasks")
-            .select("id, title, status, created_at")
-            .eq("project_id", projectId)
-            .order("created_at", { ascending: false }),
-          (supabase as any)
-            .from("griot_opb_events")
-            .select("id, event_type, payload, created_at")
-            .order("created_at", { ascending: false })
-            .limit(10),
+          fetchProjectTasksFromDb(projectId),
+          fetchProjectRepositoryBinding(projectId),
+          fetchProjectComputeRuns(projectId),
+          fetchProjectOpbEvents(projectId),
         ]);
 
         if (cancelled) return;
@@ -160,29 +141,85 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
           });
         }
 
-        const dbTasks = tasksRes?.data;
-        if (dbTasks && dbTasks.length > 0) {
-          const mapped: TaskRow[] = dbTasks.map((t: any) => ({
-            id: t.id,
-            title: t.title,
-            status:
-              t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
-          }));
-          setTasks(mapped);
-          saveProjectTasks(projectId, mapped);
+        // Tarefas Reais do Supabase
+        if (Array.isArray(dbTasks)) {
+          setTasks(dbTasks);
         }
 
-        const opbLogs = opbEventsRes?.data;
-        if (opbLogs && opbLogs.length > 0) {
-          setLogs(
-            opbLogs.map((e: any) => ({
-              id: e.id,
+        // Repositório e Pull Requests Reais
+        setRepoBinding(binding);
+        if (binding?.repository_full_name) {
+          try {
+            const plugins = getConnectedPlugins();
+            const ghToken = plugins["github"]?.apiKey || "";
+            const headers: Record<string, string> = {
+              Accept: "application/vnd.github.v3+json",
+            };
+            if (ghToken) {
+              headers.Authorization = `Bearer ${ghToken}`;
+            }
+
+            const response = await fetch(
+              `https://api.github.com/repos/${binding.repository_full_name}/pulls?state=all&per_page=15`,
+              { headers },
+            );
+
+            if (response.ok) {
+              const pullRequests = await response.json();
+              if (Array.isArray(pullRequests)) {
+                setPrs(
+                  pullRequests.map((pr: any) => ({
+                    id: String(pr.id || pr.number),
+                    title: pr.title || `PR #${pr.number}`,
+                    branch: pr.head?.ref || binding.default_branch || "main",
+                    status: pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed",
+                  })),
+                );
+              }
+            } else {
+              setPrs([]);
+            }
+          } catch (ghErr) {
+            console.warn("Erro ao buscar PRs do GitHub:", ghErr);
+            setPrs([]);
+          }
+        } else {
+          setPrs([]);
+        }
+
+        // Logs Reais do GRIOT Sandbox e OPB
+        const allLogs: LogRow[] = [];
+
+        if (Array.isArray(computeRuns)) {
+          for (const run of computeRuns) {
+            const providerName =
+              run.provider === "container" || run.provider === "griot_sandbox"
+                ? "GRIOT SANDBOX"
+                : run.provider.toUpperCase();
+            const refText =
+              run.repository_ref ||
+              (run.source_commit_sha ? run.source_commit_sha.slice(0, 7) : "");
+            allLogs.push({
+              id: `run_${run.id}`,
+              source: providerName,
+              timeAgo: relativeTime(run.created_at),
+              message: `Execução ${run.status}${refText ? ` (${refText})` : ""}: ${run.internal_run_id?.slice(0, 8) || "run"}`,
+            });
+          }
+        }
+
+        if (Array.isArray(opbEvents)) {
+          for (const e of opbEvents) {
+            allLogs.push({
+              id: `opb_${e.id}`,
               source: "OPB",
               timeAgo: relativeTime(e.created_at),
               message: `${e.event_type.replace(/_/g, " ")}: ${e.payload?.receiptId || e.payload?.messageId || "processado"}`,
-            })),
-          );
+            });
+          }
         }
+
+        setLogs(allLogs);
       } catch (err) {
         console.warn("Carregamento do projeto:", err);
       }
@@ -194,28 +231,49 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
     };
   }, [projectId]);
 
-  function addTask() {
+  async function addTask() {
     if (!newTaskTitle.trim()) return;
-    const updated: TaskRow[] = [
-      ...tasks,
-      { id: `t_${Date.now()}`, title: newTaskTitle.trim(), status: "todo" },
-    ];
-    setTasks(updated);
-    saveProjectTasks(projectId, updated);
+    const title = newTaskTitle.trim();
     setNewTaskTitle("");
     setAddingTask(false);
+
+    // Adição otimista imediata
+    const tempId = `t_${Date.now()}`;
+    const optimTask: TaskRow = { id: tempId, title, status: "todo" };
+    const updated = [optimTask, ...tasks];
+    setTasks(updated);
+    saveProjectTasks(projectId, updated);
     toast.success(t("Tarefa adicionada!"));
+
+    // Persistência real no Supabase
+    try {
+      const created = await createProjectTaskInDb(projectId, title);
+      if (created) {
+        setTasks((prev) =>
+          prev.map((item) => (item.id === tempId ? { ...item, id: created.id } : item)),
+        );
+      }
+    } catch (err) {
+      console.warn("Erro ao persistir tarefa no Supabase:", err);
+    }
   }
 
   function cycleTaskStatus(id: string) {
+    const target = tasks.find((t) => t.id === id);
+    if (!target) return;
+
+    const nextStatus: "todo" | "doing" | "done" =
+      target.status === "todo" ? "doing" : target.status === "doing" ? "done" : "todo";
+
     const updated = tasks.map((task) => {
       if (task.id !== id) return task;
-      const nextStatus: "todo" | "doing" | "done" =
-        task.status === "todo" ? "doing" : task.status === "doing" ? "done" : "todo";
       return { ...task, status: nextStatus };
     });
     setTasks(updated);
     saveProjectTasks(projectId, updated);
+
+    // Atualização real em griot_studio_tasks
+    void updateProjectTaskStatusInDb(id, nextStatus);
   }
 
   async function handleDeleteConfirm() {
@@ -346,6 +404,12 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
             </div>
           ))}
 
+          {tasks.length === 0 && (
+            <div className="rounded-[22px] border border-hairline bg-surface p-6 text-center text-muted-foreground text-[14px]">
+              {t("Nenhuma tarefa criada para este projeto.")}
+            </div>
+          )}
+
           {addingTask ? (
             <div className="rounded-[22px] border border-hairline bg-surface p-4 rise">
               <input
@@ -386,37 +450,69 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
       {/* TAB 2: PRs */}
       {activeTab === "prs" && (
         <div className="space-y-3 rise">
-          {prs.map((pr) => (
-            <div
-              key={pr.id}
-              className="rounded-[22px] border border-hairline bg-surface p-4 shadow-xs"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[15.5px] font-semibold text-foreground tracking-snug">
-                  {pr.title}
-                </span>
-                <span className="rounded-full bg-secondary px-2.5 py-0.5 font-mono text-[11.5px] text-muted-foreground">
-                  {pr.status}
-                </span>
-              </div>
-              <p className="mt-1.5 text-[12.5px] font-mono text-muted-foreground">{pr.branch}</p>
+          {repoBinding && (
+            <div className="flex items-center justify-between rounded-[22px] border border-hairline bg-surface/60 px-4 py-2.5 text-[12.5px] font-mono text-muted-foreground">
+              <span className="truncate">📦 {repoBinding.repository_full_name}</span>
+              <span className="shrink-0 text-[11px] rounded-full bg-secondary px-2 py-0.5 font-semibold">
+                {repoBinding.default_branch || repoBinding.ref || "main"}
+              </span>
             </div>
-          ))}
+          )}
+          {prs.length === 0 ? (
+            <div className="rounded-[22px] border border-hairline bg-surface p-6 text-center text-muted-foreground text-[14px]">
+              {repoBinding
+                ? t("Nenhum Pull Request aberto ou fechado neste repositório.")
+                : t("Nenhum repositório GitHub vinculado a este projeto.")}
+            </div>
+          ) : (
+            prs.map((pr) => (
+              <div
+                key={pr.id}
+                className="rounded-[22px] border border-hairline bg-surface p-4 shadow-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[15.5px] font-semibold text-foreground tracking-snug">
+                    {pr.title}
+                  </span>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 font-mono text-[11.5px] font-semibold uppercase tracking-wider shrink-0 ${
+                      pr.status === "merged"
+                        ? "bg-purple-500/15 text-purple-400 border border-purple-500/20"
+                        : pr.status === "open"
+                        ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20"
+                        : "bg-secondary text-muted-foreground border border-hairline"
+                    }`}
+                  >
+                    {pr.status}
+                  </span>
+                </div>
+                <p className="mt-1.5 text-[12.5px] font-mono text-muted-foreground">{pr.branch}</p>
+              </div>
+            ))
+          )}
         </div>
       )}
 
       {/* TAB 3: LOGS */}
       {activeTab === "logs" && (
-        <div className="rise rounded-[22px] border border-hairline bg-surface p-4 shadow-xs space-y-3">
-          {logs.map((log, index) => (
-            <div key={log.id}>
-              {index > 0 && <div className="border-b border-hairline my-3" />}
-              <p className="text-[12px] text-muted-foreground font-mono mb-1">
-                {log.source} · {log.timeAgo}
-              </p>
-              <p className="text-[15px] font-semibold text-foreground leading-snug">{log.message}</p>
+        <div className="space-y-3 rise">
+          {logs.length === 0 ? (
+            <div className="rounded-[22px] border border-hairline bg-surface p-6 text-center text-muted-foreground text-[14px]">
+              {t("Nenhum registo de execução encontrado para este projeto.")}
             </div>
-          ))}
+          ) : (
+            <div className="rounded-[22px] border border-hairline bg-surface p-4 shadow-xs space-y-3">
+              {logs.map((log, index) => (
+                <div key={log.id}>
+                  {index > 0 && <div className="border-b border-hairline my-3" />}
+                  <p className="text-[12px] text-muted-foreground font-mono mb-1">
+                    {log.source} · {log.timeAgo}
+                  </p>
+                  <p className="text-[15px] font-semibold text-foreground leading-snug">{log.message}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

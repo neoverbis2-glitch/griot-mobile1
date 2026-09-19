@@ -652,31 +652,14 @@ export async function executeLocalAction(
         };
       }
 
-      // Verificação se requer ambiente pesado (Node.js, npm, pip, build, sandbox)
-      const isConnected = isCloudShellConnected();
-      if (!isConnected) {
-        requestCloudShellConnection(action);
-        return {
-          actionId: action.id,
-          actionType: action.type,
-          status: "failed",
-          exitCode: 126,
-          stdout: "",
-          stderr: `[Google Cloud Shell Requerido]: Para instalar pacotes (npm/pip) ou executar processos Node.js em sandbox remota na cloud, por favor autoriza a ligação ao Google Cloud Shell clicando na barra acima no ecrã.`,
-          durationMs: Date.now() - start,
-          data: { requiresCloudShell: true, command: cmd },
-          timestamp: new Date().toISOString(),
-        };
-      }
-
-      // Se conectado ao Cloud Shell / Runner, informa sucesso da execução remota
+      // A execução de processos de shell e build pertence exclusivamente ao GRIOT Sandbox
       return {
         actionId: action.id,
         actionType: action.type,
-        status: "success",
-        exitCode: 0,
-        stdout: `[Google Cloud Shell] Comando '${cmd}' executado com sucesso no container remoto.\nAmbiente isolado pronto.`,
-        stderr: "",
+        status: "failed",
+        exitCode: 1,
+        stdout: "",
+        stderr: `[GRIOT Sandbox Requerido]: Comandos de shell e compilação devem ser despachados para o GRIOT Sandbox isolado.`,
         durationMs: Date.now() - start,
         timestamp: new Date().toISOString(),
       };

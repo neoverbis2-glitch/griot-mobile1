@@ -8,6 +8,7 @@
 
 import { executeRemoteAction } from "./remote-executor";
 import { executeLocalAction } from "./local-harness";
+import { executeInGriotSandbox } from "./sandbox-executor";
 import type { GriotAction, GriotExecutionResult } from "./protocol";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { supabase } from "@/integrations/supabase/client";
@@ -112,40 +113,15 @@ export class GriotActionExecutor {
 
     const effectiveWsId = workspaceId || "local-default";
 
-    // 1. Operações de sistema de ficheiros (fs.*), pesquisa (search.*) e git.* são geridas no workspace local
-    if (action.category === "fs" || action.category === "git" || action.category === "search") {
+    // 1. Operações de sistema de ficheiros (fs.*), pesquisa (search.*) são geridas no workspace local
+    if (action.category === "fs" || action.category === "search") {
       return executeLocalAction(action, effectiveWsId);
     }
 
-    // 2. Operações de terminal/shell/testes: verificar se há runner remoto configurado
-    const customRunnerUrl =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem("griot_gcp_runner_url") || ""
-        : "";
-    const configuredEndpoint = import.meta.env.VITE_GRIOT_RUNTIME_EXECUTOR_URL || customRunnerUrl;
-
-    if (configuredEndpoint) {
-      try {
-        const remoteRes = await executeRemoteAction(action, {
-          workspaceId: effectiveWsId,
-          endpoint: configuredEndpoint,
-        });
-
-        if (
-          remoteRes.status === "success" ||
-          (remoteRes.status === "failed" &&
-            !remoteRes.stderr.includes("Runtime unavailable") &&
-            !remoteRes.stderr.includes("invalid result"))
-        ) {
-          return remoteRes;
-        }
-      } catch (err) {
-        console.warn("[GRIOT] Remote runner falhou, caindo para Local/Cloud Shell Harness:", err);
-      }
-    }
-
-    // 3. Fallback inteligente: executa localmente ou solicita ativação do Cloud Shell se for comando pesado
-    return executeLocalAction(action, effectiveWsId);
+    // 2. Runtime Primário: GRIOT Sandbox (Container isolado)
+    // Fluxo Arquitetural: GRIOT Studio → Studio Compute → Connected Compute → GRIOT Sandbox → execução
+    // Regra: Sem fallback para Cloud Run, sem fallback para Cloud Shell, sem mocks locais.
+    return executeInGriotSandbox(action);
   }
 
   formatFeedbackForAI(result: GriotExecutionResult): string {

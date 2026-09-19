@@ -252,3 +252,202 @@ export function saveProjectTasks(projectId: string, tasks: any[]): void {
     localStorage.setItem(`${STORAGE_TASKS_PREFIX}${projectId}`, JSON.stringify(tasks));
   } catch {}
 }
+
+/**
+ * Carrega as tarefas reais do Supabase para um projeto (griot_studio_tasks).
+ */
+export async function fetchProjectTasksFromDb(projectId: string): Promise<any[]> {
+  if (!projectId) return [];
+  try {
+    const { data, error } = await (supabase as any)
+      .from("griot_studio_tasks")
+      .select("id, project_id, workspace_id, created_by, title, status, created_at, updated_at")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.warn("Erro ao buscar tarefas do Supabase:", error.message);
+      return getProjectTasks(projectId);
+    }
+
+    if (Array.isArray(data)) {
+      const mapped = data.map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        status: t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
+        rawStatus: t.status,
+        created_at: t.created_at,
+      }));
+      saveProjectTasks(projectId, mapped);
+      return mapped;
+    }
+  } catch (err) {
+    console.warn("Falha de rede ao buscar tarefas:", err);
+  }
+  return getProjectTasks(projectId);
+}
+
+/**
+ * Cria uma tarefa real no Supabase na tabela griot_studio_tasks.
+ */
+export async function createProjectTaskInDb(
+  projectId: string,
+  title: string,
+): Promise<{ id: string; title: string; status: "todo"; created_at: string } | null> {
+  if (!projectId || !title.trim()) return null;
+
+  try {
+    const { data: userAuth } = await supabase.auth.getUser();
+    const userId = userAuth?.user?.id;
+
+    let workspaceId: string | null = null;
+    if (userId) {
+      const { data: member } = await (supabase as any)
+        .from("griot_workspace_members")
+        .select("workspace_id")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (member?.workspace_id) workspaceId = member.workspace_id;
+    }
+
+    // Se o projeto tiver workspace_id vinculado, utiliza-o
+    if (!workspaceId) {
+      const { data: proj } = await (supabase as any)
+        .from("griot_studio_projects")
+        .select("workspace_id")
+        .eq("id", projectId)
+        .maybeSingle();
+      if (proj?.workspace_id) workspaceId = proj.workspace_id;
+    }
+
+    if (workspaceId && userId) {
+      const { data, error } = await (supabase as any)
+        .from("griot_studio_tasks")
+        .insert({
+          project_id: projectId,
+          workspace_id: workspaceId,
+          created_by: userId,
+          title: title.trim(),
+          status: "todo",
+        })
+        .select("id, title, status, created_at")
+        .single();
+
+      if (!error && data) {
+        return {
+          id: data.id,
+          title: data.title,
+          status: "todo",
+          created_at: data.created_at,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Falha ao criar tarefa no Supabase:", err);
+  }
+
+  // Fallback local se estiver offline ou deslogado
+  return {
+    id: `t_${Date.now()}`,
+    title: title.trim(),
+    status: "todo",
+    created_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Atualiza o status de uma tarefa real em griot_studio_tasks.
+ */
+export async function updateProjectTaskStatusInDb(
+  taskId: string,
+  nextStatus: "todo" | "doing" | "done",
+): Promise<boolean> {
+  if (!taskId) return false;
+
+  const dbStatus = nextStatus === "done" ? "completed" : nextStatus === "doing" ? "in_progress" : "todo";
+
+  try {
+    if (!taskId.startsWith("t_")) {
+      const { error } = await (supabase as any)
+        .from("griot_studio_tasks")
+        .update({ status: dbStatus, updated_at: new Date().toISOString() })
+        .eq("id", taskId);
+      if (error) console.warn("Erro ao atualizar status da tarefa:", error.message);
+    }
+    return true;
+  } catch (err) {
+    console.warn("Falha ao atualizar tarefa:", err);
+    return false;
+  }
+}
+
+/**
+ * Consulta a vinculação real de repositório do projeto em griot_studio_repository_bindings.
+ */
+export async function fetchProjectRepositoryBinding(projectId: string): Promise<any | null> {
+  if (!projectId) return null;
+  try {
+    const { data, error } = await (supabase as any)
+      .from("griot_studio_repository_bindings")
+      .select("id, repository_full_name, repository_owner, repository_name, default_branch, ref, status, verified_at, provider")
+      .eq("project_id", projectId)
+      .maybeSingle();
+
+    if (!error && data) return data;
+  } catch (err) {
+    console.warn("Erro ao carregar repository binding:", err);
+  }
+  return null;
+}
+
+/**
+ * Consulta as execuções reais de computação do GRIOT Sandbox para o projeto (griot_studio_compute_runs).
+ */
+export async function fetchProjectComputeRuns(projectId: string): Promise<any[]> {
+  if (!projectId) return [];
+  try {
+    const { data, error } = await (supabase as any)
+      .from("griot_studio_compute_runs")
+      .select("id, internal_run_id, runtime_id, provider, repository_full_name, repository_ref, source_commit_sha, status, created_at, updated_at, finished_at")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(15);
+
+    if (!error && Array.isArray(data)) return data;
+  } catch (err) {
+    console.warn("Erro ao carregar compute runs:", err);
+  }
+  return [];
+}
+
+/**
+ * Consulta os eventos reais do Project Brain associados ao projeto (griot_opb_events).
+ */
+export async function fetchProjectOpbEvents(projectId: string): Promise<any[]> {
+  if (!projectId) return [];
+  try {
+    const { data, error } = await (supabase as any)
+      .from("griot_opb_events")
+      .select("id, event_type, payload, created_at")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(15);
+
+    if (!error && Array.isArray(data) && data.length > 0) return data;
+
+    // Se não houver eventos com project_id estrito, pesquisa eventos recentes gerais do workspace
+    const { data: generalEvents } = await (supabase as any)
+      .from("griot_opb_events")
+      .select("id, event_type, payload, created_at")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    return Array.isArray(generalEvents) ? generalEvents : [];
+  } catch (err) {
+    console.warn("Erro ao carregar OPB events:", err);
+  }
+  return [];
+}
+
