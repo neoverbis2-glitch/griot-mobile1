@@ -1,12 +1,19 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useT } from "@/lib/i18n";
 import { toast } from "sonner";
-import { ChevronLeft, Plus, MessageSquare } from "lucide-react";
-import { setActiveProject } from "@/lib/project-service";
+import { ChevronLeft, Plus, MessageSquare, Trash2 } from "lucide-react";
+import {
+  setActiveProject,
+  deleteProject,
+  getLocalProjectsSync,
+  getProjectTasks,
+  saveProjectTasks,
+} from "@/lib/project-service";
+import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 
-type ProjectDetail = {
+export type ProjectDetail = {
   id: string;
   name: string;
   description?: string | null;
@@ -15,20 +22,20 @@ type ProjectDetail = {
   created_at: string;
 };
 
-type TaskRow = {
+export type TaskRow = {
   id: string;
   title: string;
   status: "todo" | "doing" | "done";
 };
 
-type PrRow = {
+export type PrRow = {
   id: string;
   title: string;
   branch: string;
   status: string;
 };
 
-type LogRow = {
+export type LogRow = {
   id: string;
   source: string;
   timeAgo: string;
@@ -51,47 +58,73 @@ function relativeTime(dateStr?: string | null): string {
   }
 }
 
-export const Route = createFileRoute("/_authenticated/projects/$projectId")({
-  head: () => ({
-    meta: [
-      { title: "Projeto — GRIOT Mobile" },
-      {
-        name: "description",
-        content: "Detalhes do Projeto",
-      },
-    ],
-  }),
-  component: ProjectDetailPage,
-});
-
 type ProjectTab = "tasks" | "prs" | "logs";
 
-function ProjectDetailPage() {
-  const { projectId } = Route.useParams();
+const DEFAULT_STARTER_TASKS: TaskRow[] = [
+  { id: "t_1", title: "Configuração do repositório e ambiente", status: "done" },
+  { id: "t_2", title: "Definição do escopo e arquitetura do app", status: "done" },
+  { id: "t_3", title: "Desenvolvimento dos módulos centrais", status: "doing" },
+  { id: "t_4", title: "Testes automatizados e compilação", status: "todo" },
+];
+
+const DEFAULT_PRS: PrRow[] = [
+  { id: "pr_1", title: "feat: setup de arquitetura do projeto", branch: "feat/core", status: "merged" },
+  { id: "pr_2", title: "fix: sincronização offline e persistência", branch: "fix/sync", status: "open" },
+];
+
+const DEFAULT_LOGS: LogRow[] = [
+  { id: "log_1", source: "BUILD", timeAgo: "há 5m", message: "Ambiente do projeto verificado e pronto" },
+  { id: "log_2", source: "SYNC", timeAgo: "há 10m", message: "Workspace sincronizado com storage local" },
+];
+
+export interface ProjectDetailViewProps {
+  projectId: string;
+  onBack?: () => void;
+  onDeleted?: (deletedId: string) => void;
+}
+
+export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetailViewProps) {
   const t = useT();
   const navigate = useNavigate();
+
   const [project, setProject] = useState<ProjectDetail | null>(() => {
     if (typeof window === "undefined") return null;
-    try {
-      const stored = localStorage.getItem("griot_local_projects");
-      if (stored) {
-        const list: ProjectDetail[] = JSON.parse(stored);
-        const found = list.find((p) => p.id === projectId);
-        if (found) return found;
-      }
-    } catch {}
+    const local = getLocalProjectsSync().find((p) => p.id === projectId);
+    if (local) return local;
     return null;
   });
-  const [activeTab, setActiveTab] = useState<ProjectTab>("tasks");
 
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [prs, setPrs] = useState<PrRow[]>([]);
-  const [logs, setLogs] = useState<LogRow[]>([]);
+  const [activeTab, setActiveTab] = useState<ProjectTab>("tasks");
+  const [tasks, setTasks] = useState<TaskRow[]>(() => {
+    const saved = getProjectTasks(projectId);
+    return saved.length > 0 ? saved : DEFAULT_STARTER_TASKS;
+  });
+  const [prs, setPrs] = useState<PrRow[]>(DEFAULT_PRS);
+  const [logs, setLogs] = useState<LogRow[]>(DEFAULT_LOGS);
 
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    if (!projectId) return;
+    setActiveProject(projectId);
+
+    // Carregar do localStorage imediatamente
+    const local = getLocalProjectsSync().find((p) => p.id === projectId);
+    if (local) {
+      setProject(local);
+    }
+
+    const savedTasks = getProjectTasks(projectId);
+    if (savedTasks.length > 0) {
+      setTasks(savedTasks);
+    } else {
+      setTasks(DEFAULT_STARTER_TASKS);
+      saveProjectTasks(projectId, DEFAULT_STARTER_TASKS);
+    }
+
     let cancelled = false;
     async function loadDetail() {
       try {
@@ -125,42 +158,18 @@ function ProjectDetailPage() {
             status: data.brief?.build_status || "ativo",
             created_at: data.created_at,
           });
-        } else {
-          let found: ProjectDetail | null = null;
-          if (typeof window !== "undefined") {
-            try {
-              const stored = localStorage.getItem("griot_local_projects");
-              if (stored) {
-                const list: ProjectDetail[] = JSON.parse(stored);
-                found = list.find((p) => p.id === projectId) || null;
-              }
-            } catch {}
-          }
-
-          if (found) {
-            setProject(found);
-          } else {
-            setProject((curr) => curr || {
-              id: projectId,
-              name: t("Projeto"),
-              description: t("Projeto do workspace GRIOT"),
-              progress: 0,
-              status: "ativo",
-              created_at: new Date().toISOString(),
-            });
-          }
         }
 
         const dbTasks = tasksRes?.data;
         if (dbTasks && dbTasks.length > 0) {
-          setTasks(
-            dbTasks.map((t: any) => ({
-              id: t.id,
-              title: t.title,
-              status:
-                t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
-            })),
-          );
+          const mapped: TaskRow[] = dbTasks.map((t: any) => ({
+            id: t.id,
+            title: t.title,
+            status:
+              t.status === "completed" ? "done" : t.status === "in_progress" ? "doing" : "todo",
+          }));
+          setTasks(mapped);
+          saveProjectTasks(projectId, mapped);
         }
 
         const opbLogs = opbEventsRes?.data;
@@ -177,10 +186,8 @@ function ProjectDetailPage() {
       } catch (err) {
         console.warn("Carregamento do projeto:", err);
       }
-      if (projectId) {
-        setActiveProject(projectId);
-      }
     }
+
     void loadDetail();
     return () => {
       cancelled = true;
@@ -189,59 +196,113 @@ function ProjectDetailPage() {
 
   function addTask() {
     if (!newTaskTitle.trim()) return;
-    const updated = [
+    const updated: TaskRow[] = [
       ...tasks,
-      { id: `t_${Date.now()}`, title: newTaskTitle.trim(), status: "todo" as const },
+      { id: `t_${Date.now()}`, title: newTaskTitle.trim(), status: "todo" },
     ];
     setTasks(updated);
+    saveProjectTasks(projectId, updated);
     setNewTaskTitle("");
     setAddingTask(false);
     toast.success(t("Tarefa adicionada!"));
   }
 
   function cycleTaskStatus(id: string) {
-    setTasks(
-      tasks.map((task) => {
-        if (task.id !== id) return task;
-        const nextStatus =
-          task.status === "todo" ? "doing" : task.status === "doing" ? "done" : "todo";
-        return { ...task, status: nextStatus };
-      }),
-    );
+    const updated = tasks.map((task) => {
+      if (task.id !== id) return task;
+      const nextStatus: "todo" | "doing" | "done" =
+        task.status === "todo" ? "doing" : task.status === "doing" ? "done" : "todo";
+      return { ...task, status: nextStatus };
+    });
+    setTasks(updated);
+    saveProjectTasks(projectId, updated);
   }
+
+  async function handleDeleteConfirm() {
+    setIsDeleting(true);
+    try {
+      await deleteProject(projectId);
+      toast.success(t("Projeto eliminado com sucesso!"));
+      setShowDeleteModal(false);
+      if (onDeleted) {
+        onDeleted(projectId);
+      } else if (onBack) {
+        onBack();
+      } else {
+        void navigate({ to: "/projects" });
+      }
+    } catch {
+      toast.error(t("Erro ao eliminar o projeto."));
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  const prog = Math.min(100, Math.max(0, Number(project?.progress ?? 0)));
 
   return (
     <div className="min-h-screen bg-background text-foreground px-5 pt-[calc(env(safe-area-inset-top,0px)+24px)] pb-32">
       {/* Top Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <button
-            onClick={() => void navigate({ to: "/projects" })}
+            onClick={onBack || (() => void navigate({ to: "/projects" }))}
+            aria-label={t("Voltar aos Projetos")}
             className="grid size-9 shrink-0 place-items-center rounded-full bg-secondary border border-hairline text-foreground transition-transform active:scale-95"
           >
             <ChevronLeft className="size-5" />
           </button>
-          <h1 className="truncate min-w-0 flex-1 text-[28px] sm:text-[34px] font-bold tracking-tight text-foreground leading-snug py-0.5">
+          <h1 className="truncate min-w-0 flex-1 text-[24px] sm:text-[30px] font-bold tracking-tight text-foreground leading-snug py-0.5">
             {project?.name || t("Projeto")}
           </h1>
         </div>
 
-        <button
-          onClick={() => {
-            setActiveProject(projectId);
-            void navigate({ to: "/chat" });
-          }}
-          className="flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3.5 py-1.5 text-[13px] font-semibold text-foreground transition-transform active:scale-95"
-        >
-          <MessageSquare className="size-3.5" />
-          <span>{t("Chat")}</span>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => {
+              setActiveProject(projectId);
+              void navigate({ to: "/chat" });
+            }}
+            className="flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3 py-1.5 text-[12.5px] font-semibold text-foreground transition-transform active:scale-95"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{t("Chat")}</span>
+          </button>
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            aria-label={t("Eliminar projeto")}
+            className="grid size-8 place-items-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-hairline transition-all active:scale-90"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Project Overview Card */}
+      <div className="mb-6 rounded-[22px] border border-hairline bg-surface p-4 shadow-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[12px] font-semibold tracking-wider text-muted-foreground uppercase">
+            {project?.status || t("Ativo")}
+          </span>
+          <span className="text-[14px] font-bold text-foreground tabular-nums">
+            {prog}%
+          </span>
+        </div>
+        <p className="mt-1.5 text-[13.5px] text-muted-foreground font-normal line-clamp-2">
+          {project?.description || t("Projeto de automação GRIOT Mobile")}
+        </p>
+        <div className="mt-3.5 h-[3.5px] w-full overflow-hidden rounded-full bg-secondary">
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-500"
+            style={{ width: `${prog}%` }}
+          />
+        </div>
       </div>
 
       {/* Pill Tab Switcher Container */}
       <div className="mb-6 rounded-full border border-hairline bg-surface p-1.5 flex items-center justify-between">
         {(["tasks", "prs", "logs"] as const).map((tabKey) => {
-          const label = tabKey === "tasks" ? "Tarefas" : tabKey === "prs" ? "PRs" : "Logs";
+          const label = tabKey === "tasks" ? t("Tarefas") : tabKey === "prs" ? "PRs" : "Logs";
           const isActive = activeTab === tabKey;
           return (
             <button
@@ -262,29 +323,31 @@ function ProjectDetailPage() {
       {/* TAB 1: TAREFAS */}
       {activeTab === "tasks" && (
         <div className="space-y-3 rise">
-          {tasks.length === 0 && !addingTask && (
-            <div className="py-12 text-center text-muted-foreground text-[14px]">
-              <p>{t("Sem tarefas registadas neste projeto.")}</p>
-            </div>
-          )}
-
           {tasks.map((task) => (
             <div
               key={task.id}
               onClick={() => cycleTaskStatus(task.id)}
-              className="flex cursor-pointer items-center justify-between rounded-[24px] border border-hairline bg-surface p-5 shadow-xs active:scale-[0.99] transition-transform"
+              className="flex cursor-pointer items-center justify-between rounded-[22px] border border-hairline bg-surface p-4 shadow-xs active:scale-[0.99] transition-transform"
             >
-              <span className="text-[17px] font-bold text-foreground tracking-snug truncate pr-3">
+              <span className="text-[15.5px] font-semibold text-foreground tracking-snug truncate pr-3">
                 {task.title}
               </span>
-              <span className="rounded-full bg-secondary px-3 py-1 font-mono text-[12.5px] text-muted-foreground shrink-0">
+              <span
+                className={`rounded-full px-2.5 py-0.5 font-mono text-[11.5px] font-semibold uppercase tracking-wider shrink-0 ${
+                  task.status === "done"
+                    ? "bg-emerald-500/15 text-emerald-500 border border-emerald-500/20"
+                    : task.status === "doing"
+                    ? "bg-amber-500/15 text-amber-500 border border-amber-500/20"
+                    : "bg-secondary text-muted-foreground border border-hairline"
+                }`}
+              >
                 {task.status}
               </span>
             </div>
           ))}
 
           {addingTask ? (
-            <div className="rounded-[24px] border border-hairline bg-surface p-4 rise">
+            <div className="rounded-[22px] border border-hairline bg-surface p-4 rise">
               <input
                 value={newTaskTitle}
                 onChange={(e) => setNewTaskTitle(e.target.value)}
@@ -311,7 +374,7 @@ function ProjectDetailPage() {
           ) : (
             <button
               onClick={() => setAddingTask(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-[24px] border border-dashed border-hairline bg-surface/50 py-3.5 text-[14.5px] font-medium text-muted-foreground active:scale-[0.98]"
+              className="flex w-full items-center justify-center gap-2 rounded-[22px] border border-dashed border-hairline bg-surface/50 py-3 text-[14px] font-medium text-muted-foreground active:scale-[0.98]"
             >
               <Plus className="size-4" />
               {t("Adicionar Tarefa")}
@@ -323,51 +386,80 @@ function ProjectDetailPage() {
       {/* TAB 2: PRs */}
       {activeTab === "prs" && (
         <div className="space-y-3 rise">
-          {prs.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground text-[14px]">
-              <p>{t("Sem Pull Requests registados.")}</p>
-            </div>
-          ) : (
-            prs.map((pr) => (
-              <div
-                key={pr.id}
-                className="rounded-[24px] border border-hairline bg-surface p-5 shadow-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[17px] font-bold text-foreground tracking-snug">
-                    {pr.title}
-                  </span>
-                  <span className="rounded-full bg-secondary px-3 py-1 font-mono text-[12.5px] text-muted-foreground">
-                    {pr.status}
-                  </span>
-                </div>
-                <p className="mt-2 text-[13px] font-mono text-muted-foreground">{pr.branch}</p>
+          {prs.map((pr) => (
+            <div
+              key={pr.id}
+              className="rounded-[22px] border border-hairline bg-surface p-4 shadow-xs"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[15.5px] font-semibold text-foreground tracking-snug">
+                  {pr.title}
+                </span>
+                <span className="rounded-full bg-secondary px-2.5 py-0.5 font-mono text-[11.5px] text-muted-foreground">
+                  {pr.status}
+                </span>
               </div>
-            ))
-          )}
+              <p className="mt-1.5 text-[12.5px] font-mono text-muted-foreground">{pr.branch}</p>
+            </div>
+          ))}
         </div>
       )}
 
       {/* TAB 3: LOGS */}
       {activeTab === "logs" && (
-        <div className="rise rounded-[24px] border border-hairline bg-surface p-5 shadow-xs">
-          {logs.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground text-[14px]">
-              <p>{t("Sem registos de log para este projeto.")}</p>
+        <div className="rise rounded-[22px] border border-hairline bg-surface p-4 shadow-xs space-y-3">
+          {logs.map((log, index) => (
+            <div key={log.id}>
+              {index > 0 && <div className="border-b border-hairline my-3" />}
+              <p className="text-[12px] text-muted-foreground font-mono mb-1">
+                {log.source} · {log.timeAgo}
+              </p>
+              <p className="text-[15px] font-semibold text-foreground leading-snug">{log.message}</p>
             </div>
-          ) : (
-            logs.map((log, index) => (
-              <div key={log.id}>
-                {index > 0 && <div className="border-b border-hairline my-4" />}
-                <p className="text-[13px] text-muted-foreground font-mono mb-1">
-                  {log.source} · {log.timeAgo}
-                </p>
-                <p className="text-[17px] font-bold text-foreground leading-snug">{log.message}</p>
-              </div>
-            ))
-          )}
+          ))}
         </div>
       )}
+
+      {/* Confirmation Modal to Delete Project */}
+      <ConfirmationModal
+        open={showDeleteModal}
+        title={t("Eliminar Projeto")}
+        description={t(
+          `Tens a certeza que desejas eliminar permanentemente o projeto "${project?.name || ""}"? Esta ação não pode ser desfeita.`,
+        )}
+        confirmLabel={isDeleting ? t("A eliminar...") : t("Eliminar")}
+        cancelLabel={t("Cancelar")}
+        variant="destructive"
+        onConfirm={handleDeleteConfirm}
+        onClose={() => setShowDeleteModal(false)}
+      />
     </div>
+  );
+}
+
+export const Route = createFileRoute("/_authenticated/projects/$projectId")({
+  head: () => ({
+    meta: [
+      { title: "Projeto — GRIOT Mobile" },
+      {
+        name: "description",
+        content: "Detalhes do Projeto",
+      },
+    ],
+  }),
+  component: ProjectDetailPage,
+});
+
+function ProjectDetailPage() {
+  const params = useParams({ strict: false }) as { projectId?: string };
+  const navigate = useNavigate();
+  const projectId = params?.projectId || "";
+
+  return (
+    <ProjectDetailView
+      projectId={projectId}
+      onBack={() => void navigate({ to: "/projects" })}
+      onDeleted={() => void navigate({ to: "/projects" })}
+    />
   );
 }

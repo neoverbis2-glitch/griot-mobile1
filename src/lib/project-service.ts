@@ -20,17 +20,40 @@ export interface GriotProject {
 
 const STORAGE_PROJECTS_KEY = "griot_local_projects";
 const STORAGE_ACTIVE_PROJECT_KEY = "griot_active_project_id";
+const STORAGE_DELETED_PROJECTS_KEY = "griot_deleted_projects";
+const STORAGE_TASKS_PREFIX = "griot_tasks_";
+
+function getDeletedProjectIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_PROJECTS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function addDeletedProjectId(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const set = getDeletedProjectIds();
+    set.add(id);
+    localStorage.setItem(STORAGE_DELETED_PROJECTS_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+}
 
 /**
  * Obtém a lista unificada de projetos armazenados localmente e no Supabase.
  */
 export async function getUnifiedProjects(): Promise<GriotProject[]> {
+  const deletedIds = getDeletedProjectIds();
   let localList: GriotProject[] = [];
   if (typeof window !== "undefined") {
     try {
       const stored = localStorage.getItem(STORAGE_PROJECTS_KEY);
       if (stored) {
-        localList = JSON.parse(stored);
+        const parsed: GriotProject[] = JSON.parse(stored);
+        localList = parsed.filter((p) => !deletedIds.has(p.id));
       }
     } catch (err) {
       console.warn("Erro ao ler projetos locais:", err);
@@ -45,15 +68,17 @@ export async function getUnifiedProjects(): Promise<GriotProject[]> {
       .order("updated_at", { ascending: false });
 
     if (Array.isArray(rawProjects) && rawProjects.length > 0) {
-      const remoteList: GriotProject[] = rawProjects.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description || p.brief?.goal || "Projeto GRIOT Studio",
-        progress: typeof p.brief?.progress === "number" ? p.brief.progress : 0,
-        status: p.brief?.build_status || "ativo",
-        created_at: p.created_at,
-        updated_at: p.updated_at,
-      }));
+      const remoteList: GriotProject[] = rawProjects
+        .filter((p: any) => !deletedIds.has(p.id))
+        .map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description || p.brief?.goal || "Projeto GRIOT Studio",
+          progress: typeof p.brief?.progress === "number" ? p.brief.progress : 0,
+          status: p.brief?.build_status || "ativo",
+          created_at: p.created_at,
+          updated_at: p.updated_at,
+        }));
 
       for (const rem of remoteList) {
         if (!localList.some((l) => l.id === rem.id)) {
@@ -160,4 +185,70 @@ export async function saveProject(
   } catch {}
 
   return newProj;
+}
+
+/**
+ * Elimina um projeto local e remotamente, limpando referências e impedindo ressurreição.
+ */
+export async function deleteProject(projectId: string): Promise<boolean> {
+  if (!projectId) return false;
+
+  // Marcar na blacklist para nunca ser ressuscitado por cache remota
+  addDeletedProjectId(projectId);
+
+  if (typeof window !== "undefined") {
+    try {
+      const list = getLocalProjectsSync().filter((p) => p.id !== projectId);
+      localStorage.setItem(STORAGE_PROJECTS_KEY, JSON.stringify(list));
+      localStorage.removeItem(`${STORAGE_TASKS_PREFIX}${projectId}`);
+
+      const currentActive = localStorage.getItem(STORAGE_ACTIVE_PROJECT_KEY);
+      if (currentActive === projectId) {
+        const nextActiveId = list[0]?.id || "";
+        if (nextActiveId) {
+          localStorage.setItem(STORAGE_ACTIVE_PROJECT_KEY, nextActiveId);
+        } else {
+          localStorage.removeItem(STORAGE_ACTIVE_PROJECT_KEY);
+        }
+        window.dispatchEvent(
+          new CustomEvent("griot-active-project-changed", { detail: nextActiveId }),
+        );
+      }
+    } catch (err) {
+      console.warn("Erro ao eliminar projeto local:", err);
+    }
+  }
+
+  // Tentar arquivar/eliminar no Supabase se autenticado
+  try {
+    await (supabase as any)
+      .from("griot_studio_projects")
+      .update({ archived: true })
+      .eq("id", projectId);
+  } catch {}
+
+  return true;
+}
+
+/**
+ * Obtém as tarefas persistidas de um projeto.
+ */
+export function getProjectTasks(projectId: string): any[] {
+  if (typeof window === "undefined" || !projectId) return [];
+  try {
+    const raw = localStorage.getItem(`${STORAGE_TASKS_PREFIX}${projectId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Guarda as tarefas de um projeto localmente.
+ */
+export function saveProjectTasks(projectId: string, tasks: any[]): void {
+  if (typeof window === "undefined" || !projectId) return;
+  try {
+    localStorage.setItem(`${STORAGE_TASKS_PREFIX}${projectId}`, JSON.stringify(tasks));
+  } catch {}
 }
