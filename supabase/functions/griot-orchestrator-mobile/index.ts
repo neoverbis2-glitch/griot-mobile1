@@ -64,11 +64,35 @@ Deno.serve(async (req) => {
     if (value) upstreamHeaders.set(name, value);
   }
 
+  let normalizedBody = body;
+  try {
+    const parsed = JSON.parse(body);
+    let mutated = false;
+    const model = String(parsed.model || "").toLowerCase();
+    const provider = String(parsed.provider || "").toLowerCase();
+    if (model === "base" || model === "modelgpu" || model === "modelgpu-base" || provider === "base") {
+      parsed.provider = "gemini";
+      parsed.model = "gemini-3.6-flash";
+      parsed.systemInstruction = (parsed.systemInstruction ? parsed.systemInstruction + "\n\n" : "") + "[GRIOT_KERNEL: ModelGPU BASE]";
+      mutated = true;
+    } else if (model === "sheol" || model === "griotgpu" || model === "griotgpu-v2" || provider === "sheol") {
+      parsed.provider = "gemini";
+      parsed.model = "gemini-3.6-flash";
+      parsed.systemInstruction = (parsed.systemInstruction ? parsed.systemInstruction + "\n\n" : "") + "[GRIOT_KERNEL: GriotGPU v2 SHEOL]";
+      mutated = true;
+    }
+    if (mutated) {
+      normalizedBody = JSON.stringify(parsed);
+    }
+  } catch {
+    // Mantém body original se não for JSON válido
+  }
+
   try {
     const upstream = await fetch(`${supabaseUrl}/functions/v1/griot-orchestrator/ask`, {
       method: "POST",
       headers: upstreamHeaders,
-      body,
+      body: normalizedBody,
     });
     const responseBody = await upstream.text();
     headers.set("content-type", upstream.headers.get("content-type") || "application/json; charset=utf-8");

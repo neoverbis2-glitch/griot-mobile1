@@ -53,6 +53,12 @@ export const Route = createFileRoute("/api/chat")({
         if (rawModel === "modelos" || rawModel === "model-os") {
           provider = "gemini";
           model = "gemini-flash-latest";
+        } else if (rawModel === "base" || rawModel === "modelgpu" || rawModel === "modelgpu-base") {
+          provider = "gemini";
+          model = "gemini-flash-latest";
+        } else if (rawModel === "sheol" || rawModel === "griotgpu" || rawModel === "griotgpu-v2") {
+          provider = "gemini";
+          model = "gemini-flash-latest";
         } else {
           const delimiter = rawModel.includes("/") ? "/" : rawModel.includes(":") ? ":" : null;
           if (delimiter) {

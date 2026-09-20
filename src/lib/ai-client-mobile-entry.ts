@@ -463,12 +463,18 @@ async function streamGpuModel(params: {
   }
 
   // CASO 3: NENHUMA API LOCAL CONFIGURADA
-  // Conecta ao backend real (griot-orchestrator-mobile) usando o token Supabase do utilizador
-  callbacks?.onReasoning?.(
-    `\n[GRIOT ${displayName} · CONEXÃO BACKEND ORQUESTRADOR]\n`,
-  );
+  // Mobiliza o orquestrador backend com modelo base correspondente e diretrizes cognitivas
+  const kernelInstruction = isBase
+    ? "Atua como ModelGPU (BASE): motor cognitivo de alto desempenho, coerência lógica e robustez operacional."
+    : "Atua como GriotGPU v2 (SHEOL): síntese analítica profunda, arquitetura avançada e rigor técnico.";
+
+  const effectiveSystemInstruction = params.systemInstruction
+    ? `${params.systemInstruction}\n\n[GRIOT_KERNEL: ${displayName}]\n${kernelInstruction}`
+    : `[GRIOT_KERNEL: ${displayName}]\n${kernelInstruction}`;
+
   return streamMobileOrchestrator({
     ...params,
+    systemInstruction: effectiveSystemInstruction,
     modelId: isBase ? "modelgpu-base" : "griotgpu-v2",
   });
 }
