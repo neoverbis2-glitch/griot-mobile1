@@ -232,6 +232,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "Bot Token (123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)...",
     docsUrl: "https://core.telegram.org/bots/api",
+    supportsOAuth: true,
+    oauthProvider: "telegram",
+    oauthScopes: ["messages:send", "bot:manage", "files:upload"],
     advancedCapabilities: [
       "Envio de alertas, relatórios e notificações em canais e grupos",
       "Upload e envio de ficheiros, documentos e imagens",
@@ -248,6 +251,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "Auth Token (Account SID no campo de Conta)...",
     docsUrl: "https://www.twilio.com/console",
+    supportsOAuth: true,
+    oauthProvider: "twilio",
+    oauthScopes: ["sms:send", "whatsapp:send", "verify:otp"],
     advancedCapabilities: [
       "Envio de SMS global para telemóveis em mais de 180 países",
       "Mensagens interativas via WhatsApp Business API",
@@ -264,6 +270,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "re_...",
     docsUrl: "https://resend.com/api-keys",
+    supportsOAuth: true,
+    oauthProvider: "resend",
+    oauthScopes: ["emails:send", "domains:read", "templates:read"],
     advancedCapabilities: [
       "Envio de emails transacionais com templates HTML modernos",
       "Anexação de relatórios, faturas e ficheiros gerados",
@@ -284,6 +293,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "neon_api_key_... ou postgres://...",
     docsUrl: "https://console.neon.tech/app/settings/api-keys",
+    supportsOAuth: true,
+    oauthProvider: "postgresql",
+    oauthScopes: ["projects:read", "databases:read", "sql:execute"],
     advancedCapabilities: [
       "Execução de queries SQL completas (SELECT, INSERT, UPDATE, DDL)",
       "Branching instantâneo de bases de dados para desenvolvimento",
@@ -300,6 +312,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "UPSTASH_REDIS_REST_TOKEN ou redis://...",
     docsUrl: "https://console.upstash.com",
+    supportsOAuth: true,
+    oauthProvider: "redis",
+    oauthScopes: ["databases:read", "keys:read_write", "cache:purge"],
     advancedCapabilities: [
       "Comandos Redis de alta velocidade via REST (GET, SET, DEL, EXPIRE)",
       "Caching distribuído de contexto e sessões de agentes",
@@ -316,6 +331,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "Chave pública/privada Atlas ou URI...",
     docsUrl: "https://cloud.mongodb.com",
+    supportsOAuth: true,
+    oauthProvider: "mongodb",
+    oauthScopes: ["clusters:read", "database:read_write", "indexes:manage"],
     advancedCapabilities: [
       "Consultas NoSQL em coleções MongoDB Atlas",
       "Inserção, atualização e agregação de documentos BSON/JSON",
@@ -351,6 +369,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "pcsk_... (Host no campo de Endpoint)...",
     docsUrl: "https://app.pinecone.io",
+    supportsOAuth: true,
+    oauthProvider: "pinecone",
+    oauthScopes: ["vectors:upsert", "vectors:query", "indexes:read"],
     advancedCapabilities: [
       "Upsert de vetores e metadados para RAG semântico",
       "Pesquisa por similaridade de cosseno e produto escalar",
@@ -472,6 +493,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "AWS Secret Key (Access Key ID no campo de Conta)...",
     docsUrl: "https://aws.amazon.com/console",
+    supportsOAuth: true,
+    oauthProvider: "aws",
+    oauthScopes: ["s3:manage", "lambda:invoke", "cloudwatch:read"],
     advancedCapabilities: [
       "Listagem e gestão de ficheiros e permissões em buckets S3",
       "Invocação e monitorização de funções serverless AWS Lambda",
@@ -545,6 +569,9 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "dckr_pat_...",
     docsUrl: "https://hub.docker.com/settings/security",
+    supportsOAuth: true,
+    oauthProvider: "dockerhub",
+    oauthScopes: ["repo:read", "repo:write", "builds:read"],
     advancedCapabilities: [
       "Inspeção de repositórios de imagens e tags Docker públicas e privadas",
       "Acompanhamento de builds automáticos e webhooks de container",

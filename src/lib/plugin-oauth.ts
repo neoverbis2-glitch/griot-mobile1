@@ -453,8 +453,180 @@ export const PLUGIN_OAUTH_REGISTRY: Record<string, PluginOAuthSpec> = {
       "Captura e inspeção de eventos de telemetria de produto",
       "Consulta e ativação/desativação de Feature Flags",
       "Análise de funis de conversão e comportamento de utilizadores",
+      "Monitorização de tendências e cohorts de utilizadores",
     ],
     directTokenPresetUrl: "https://app.posthog.com/project/settings",
+  },
+  telegram: {
+    pluginId: "telegram",
+    provider: "telegram",
+    displayName: "Telegram",
+    badge: "Telegram Bot & Account Login",
+    scopes: ["messages:send", "bot:manage", "files:upload"],
+    scopeLabels: [
+      "messages:send: Envio de mensagens em canais e chats",
+      "bot:manage: Gestão de comandos e webhooks do bot",
+      "files:upload: Upload e envio de ficheiros e multimédia",
+    ],
+    advancedFeatures: [
+      "Envio de alertas, relatórios e notificações em canais e grupos",
+      "Upload e envio de ficheiros, documentos e imagens",
+      "Interação com utilizadores e processamento de comandos de bots",
+      "Transmissão de logs de build e status de tarefas em tempo real",
+    ],
+    directTokenPresetUrl: "https://t.me/BotFather",
+  },
+  twilio: {
+    pluginId: "twilio",
+    provider: "twilio",
+    displayName: "Twilio / WhatsApp",
+    badge: "Twilio Console Login",
+    scopes: ["sms:send", "whatsapp:send", "verify:otp"],
+    scopeLabels: [
+      "sms:send: Envio de SMS transacionais globais",
+      "whatsapp:send: Mensagens via WhatsApp Business API",
+      "verify:otp: Geração e validação de códigos 2FA/OTP",
+    ],
+    advancedFeatures: [
+      "Envio de SMS global para telemóveis em mais de 180 países",
+      "Mensagens interativas via WhatsApp Business API",
+      "Verificação de números e envio de códigos OTP/2FA",
+      "Notificações de emergência e alertas críticos instantâneos",
+    ],
+    directTokenPresetUrl: "https://www.twilio.com/console",
+  },
+  resend: {
+    pluginId: "resend",
+    provider: "resend",
+    displayName: "Resend / SendGrid",
+    badge: "Resend Dashboard Login",
+    scopes: ["emails:send", "domains:read", "templates:read"],
+    scopeLabels: [
+      "emails:send: Envio de emails transacionais",
+      "domains:read: Verificação de reputação e DNS de domínios",
+      "templates:read: Renderização de templates HTML modernos",
+    ],
+    advancedFeatures: [
+      "Envio de emails transacionais com templates HTML modernos",
+      "Anexação de relatórios, faturas e ficheiros gerados",
+      "Verificação de status de entrega e reputação de domínios",
+      "Acompanhamento de métricas de abertura e cliques em tempo real",
+    ],
+    directTokenPresetUrl: "https://resend.com/api-keys",
+  },
+  postgresql: {
+    pluginId: "postgresql",
+    provider: "postgresql",
+    displayName: "PostgreSQL / Neon",
+    badge: "Neon Serverless Postgres Login",
+    scopes: ["projects:read", "databases:read", "sql:execute"],
+    scopeLabels: [
+      "projects:read: Leitura de instâncias e branches Postgres",
+      "databases:read: Inspeção de tabelas e esquemas relacionais",
+      "sql:execute: Execução de queries SQL completas e migrações",
+    ],
+    advancedFeatures: [
+      "Execução de queries SQL completas (SELECT, INSERT, UPDATE, DDL)",
+      "Branching instantâneo de bases de dados para desenvolvimento",
+      "Inspeção de tabelas, índices e esquemas relacionais",
+      "Sincronização bidirecional de dados com os agentes GRIOT",
+    ],
+    directTokenPresetUrl: "https://console.neon.tech/app/settings/api-keys",
+  },
+  redis: {
+    pluginId: "redis",
+    provider: "redis",
+    displayName: "Redis / Upstash",
+    badge: "Upstash Serverless Login",
+    scopes: ["databases:read", "keys:read_write", "cache:purge"],
+    scopeLabels: [
+      "databases:read: Listagem de instâncias Redis ativas",
+      "keys:read_write: Comandos GET, SET, HSET e TTL via HTTP",
+      "cache:purge: Purge de chaves de sessão e filas de contexto",
+    ],
+    advancedFeatures: [
+      "Comandos Redis de alta velocidade via REST (GET, SET, DEL, EXPIRE)",
+      "Caching distribuído de contexto e sessões de agentes",
+      "Filas de tarefas e pub/sub de baixa latência",
+      "Armazenamento de cache volátil para execução rápida de IA",
+    ],
+    directTokenPresetUrl: "https://console.upstash.com",
+  },
+  mongodb: {
+    pluginId: "mongodb",
+    provider: "mongodb",
+    displayName: "MongoDB Atlas",
+    badge: "MongoDB Atlas Cloud Login",
+    scopes: ["clusters:read", "database:read_write", "indexes:manage"],
+    scopeLabels: [
+      "clusters:read: Listagem de clusters e deployments Atlas",
+      "database:read_write: Operações de documentos BSON/JSON",
+      "indexes:manage: Otimização de consultas e pipelines",
+    ],
+    advancedFeatures: [
+      "Consultas NoSQL em coleções MongoDB Atlas",
+      "Inserção, atualização e agregação de documentos BSON/JSON",
+      "Gestão de índices e pipelines de agregação",
+      "Sincronização flexível de esquemas para dados não estruturados",
+    ],
+    directTokenPresetUrl: "https://cloud.mongodb.com",
+  },
+  pinecone: {
+    pluginId: "pinecone",
+    provider: "pinecone",
+    displayName: "Pinecone / Qdrant",
+    badge: "Pinecone Vector Console Login",
+    scopes: ["vectors:upsert", "vectors:query", "indexes:read"],
+    scopeLabels: [
+      "vectors:upsert: Inserção de vetores e metadados RAG",
+      "vectors:query: Pesquisa por similaridade de cosseno",
+      "indexes:read: Inspeção de namespaces e métricas de índice",
+    ],
+    advancedFeatures: [
+      "Upsert de vetores e metadados para RAG semântico",
+      "Pesquisa por similaridade de cosseno e produto escalar",
+      "Filtragem contextual sobre vetores de embeddings",
+      "Recuperação de memória de longo prazo para os agentes",
+    ],
+    directTokenPresetUrl: "https://app.pinecone.io",
+  },
+  aws: {
+    pluginId: "aws",
+    provider: "aws",
+    displayName: "Amazon Web Services (AWS)",
+    badge: "AWS IAM / SSO Login",
+    scopes: ["s3:manage", "lambda:invoke", "cloudwatch:read"],
+    scopeLabels: [
+      "s3:manage: Listagem e gestão de buckets S3",
+      "lambda:invoke: Execução de funções serverless AWS Lambda",
+      "cloudwatch:read: Consulta de métricas e alarmes CloudWatch",
+    ],
+    advancedFeatures: [
+      "Listagem e gestão de ficheiros e permissões em buckets S3",
+      "Invocação e monitorização de funções serverless AWS Lambda",
+      "Consulta de métricas e alarmes no Amazon CloudWatch",
+      "Acesso a recursos de infraestrutura corporativa",
+    ],
+    directTokenPresetUrl: "https://aws.amazon.com/console",
+  },
+  dockerhub: {
+    pluginId: "dockerhub",
+    provider: "dockerhub",
+    displayName: "Docker Hub",
+    badge: "Docker Hub Account Login",
+    scopes: ["repo:read", "repo:write", "builds:read"],
+    scopeLabels: [
+      "repo:read: Listagem de repositórios e tags de imagem",
+      "repo:write: Atualização de metadados e tags de imagem",
+      "builds:read: Inspeção de estado de builds e webhooks",
+    ],
+    advancedFeatures: [
+      "Inspeção de repositórios de imagens e tags Docker públicas e privadas",
+      "Acompanhamento de builds automáticos e webhooks de container",
+      "Verificação de vulnerabilidades de segurança e camadas de imagem",
+      "Sincronização com registos de containers em pipelines",
+    ],
+    directTokenPresetUrl: "https://hub.docker.com/settings/security",
   },
 };
 
@@ -543,38 +715,54 @@ export async function startPluginOAuthFlow(
     : `${origin}/oauth-callback?plugin=${encodeURIComponent(spec.pluginId)}`;
 
   try {
-    // 1. Pede ao Supabase o URL de autorização com os escopos avançados requeridos
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: spec.provider as any,
-      options: {
-        scopes: spec.scopes.join(" "),
-        redirectTo: redirectUri,
-        skipBrowserRedirect: true,
-        queryParams: {
-          access_type: "offline",
-          prompt: "consent",
-        },
-      },
-    });
+    const nativeSupabaseProviders = [
+      "github",
+      "gitlab",
+      "google",
+      "discord",
+      "slack",
+      "notion",
+      "spotify",
+      "bitbucket",
+      "azure",
+      "apple",
+      "twitter",
+      "twitch",
+    ];
 
-    if (error) {
-      const msg = error.message || "";
-      if (
-        msg.includes("provider is not enabled") ||
-        msg.includes("validation_failed") ||
-        msg.includes("unauthorized_client")
-      ) {
-        callbacks.onError(
-          `O fornecedor ${spec.displayName} precisa de estar ativado no painel do Supabase com as credenciais OAuth. Em alternativa, podes usar a ligação com token pessoal abaixo.`,
-        );
-        return;
+    let authUrl: string | undefined;
+
+    if (nativeSupabaseProviders.includes(spec.provider.toLowerCase())) {
+      try {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: spec.provider as any,
+          options: {
+            scopes: spec.scopes.join(" "),
+            redirectTo: redirectUri,
+            skipBrowserRedirect: true,
+            queryParams: {
+              access_type: "offline",
+              prompt: "consent",
+            },
+          },
+        });
+
+        if (!error && data?.url) {
+          authUrl = data.url;
+        } else if (error) {
+          console.warn(`[OAuth] Supabase provider ${spec.provider} not active:`, error.message);
+        }
+      } catch (e) {
+        console.warn(`[OAuth] Supabase OAuth attempt failed:`, e);
       }
-      throw error;
     }
 
-    const authUrl = data?.url;
     if (!authUrl) {
-      throw new Error("Não foi possível gerar o endereço de autorização OAuth.");
+      if (spec.directTokenPresetUrl) {
+        authUrl = spec.directTokenPresetUrl;
+      } else {
+        throw new Error(`Não foi possível gerar o endereço de autorização para ${spec.displayName}.`);
+      }
     }
 
     // 2. Ambiente Móvel Nativo (Capacitor)
@@ -694,7 +882,7 @@ async function processOAuthToken(
       label: accountLabel,
       verifiedAt: new Date().toISOString(),
       validationStatus: "verified",
-      validationMessage: `⚡ Conexão Avançada Ativa via ${spec.displayName} OAuth 2.0.`,
+      validationMessage: `Conexão Ativa via ${spec.displayName} OAuth 2.0.`,
       isPrimary: true,
       projects: validation.details?.projects,
       projectRef: validation.details?.detectedRef,
