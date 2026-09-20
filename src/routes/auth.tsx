@@ -17,6 +17,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { TermsDialog, checkTermsAccepted } from "@/components/griot/terms-dialog";
+import { initNativeAuthDeepLink, startOAuthFlow } from "@/lib/native-auth-deeplink";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -50,6 +51,14 @@ function AuthPage() {
 
   // Se o utilizador já tiver sessão válida no dispositivo, verifica os termos antes de avançar
   useEffect(() => {
+    initNativeAuthDeepLink(() => {
+      if (!checkTermsAccepted()) {
+        setShowTerms(true);
+      } else {
+        void navigate({ to: "/home", replace: true });
+      }
+    });
+
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) {
         if (!checkTermsAccepted()) {
@@ -260,29 +269,20 @@ function AuthPage() {
     }
   }
 
-  // Login Social (Google ou GitHub)
+  // Login Social (Google ou GitHub) com Deep Link nativo
   async function handleOAuth(provider: "google" | "github") {
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: window.location.origin + "/home",
-        },
-      });
-
-      if (error) {
-        if (error.message.includes("provider is not enabled") || error.message.includes("validation_failed")) {
-          toast.error(
-            `O fornecedor ${provider === "google" ? "Google" : "GitHub"} precisa de ser ativado no teu painel Supabase (Authentication -> Providers). Usa o Código de 6 dígitos!`,
-            { duration: 7000 },
-          );
-          return;
-        }
-        throw error;
-      }
+      await startOAuthFlow(provider);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      toast.error(msg || t("Erro ao iniciar sessão com o fornecedor."));
+      if (msg.includes("provider is not enabled") || msg.includes("validation_failed")) {
+        toast.error(
+          `O fornecedor ${provider === "google" ? "Google" : "GitHub"} precisa de ser ativado no teu painel Supabase (Authentication -> Providers). Usa o Código de 6 dígitos!`,
+          { duration: 7000 },
+        );
+      } else {
+        toast.error(msg || t("Erro ao iniciar sessão com o fornecedor."));
+      }
     }
   }
 
