@@ -8,6 +8,8 @@
  * 5. Firebase (Firestore documents, coleções, leitura estruturada e status do projeto)
  */
 
+import { safeFetch, handleHttpError } from "./connector-http";
+
 export interface ConnectorExecutionContext {
   credential: string;
   account?: string;
@@ -24,39 +26,6 @@ export interface ConnectorResult {
 
 const USER_AGENT = { "User-Agent": "Griot-Connector-Runner/2.0 (Mobile/Web)" };
 
-/**
- * Trata respostas de erro HTTP com explicações claras em português e diagnósticos acionáveis
- */
-async function handleHttpError(res: Response, serviceName: string): Promise<string> {
-  let body = "";
-  try {
-    body = await res.text();
-  } catch {
-    body = res.statusText;
-  }
-
-  if (res.status === 401) {
-    return `${serviceName}: Autenticação falhou (Código 401). O token fornecido é inválido, expirou ou foi revogado. Verifica a credencial em Definições → Plugins.`;
-  }
-  if (res.status === 403) {
-    if (body.toLowerCase().includes("rate limit") || body.toLowerCase().includes("secondary rate")) {
-      return `${serviceName}: Limite de requisições excedido (Rate Limit - Código 403). Aguarda alguns momentos antes de tentar novamente.`;
-    }
-    return `${serviceName}: Acesso negado (Código 403). A tua credencial não possui permissões suficientes (scopes) para esta ação.`;
-  }
-  if (res.status === 404) {
-    return `${serviceName}: Recurso não encontrado (Código 404). Verifica se o repositório, projeto ou caminho especificado está correto e acessível.`;
-  }
-  if (res.status === 429) {
-    return `${serviceName}: Demasiados pedidos (Código 429). Aguarda alguns segundos antes de voltar a tentar.`;
-  }
-  if (res.status >= 500) {
-    return `${serviceName}: O servidor remoto respondeu com erro interno (${res.status}). Detalhes: ${body.slice(0, 300)}`;
-  }
-
-  return `${serviceName} erro (${res.status}): ${body.slice(0, 300)}`;
-}
-
 // ==========================================
 // 1. GITHUB CONNECTOR
 // ==========================================
@@ -70,9 +39,10 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
     };
   }
 
+  const cleanToken = token.replace(/^(Bearer|token)\s+/i, "").trim();
   const headers = {
     ...USER_AGENT,
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${cleanToken}`,
     Accept: "application/vnd.github.v3+json",
   };
 
@@ -83,7 +53,7 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
   const resolveOwner = async (): Promise<string> => {
     if (owner) return owner;
     try {
-      const uRes = await fetch("https://api.github.com/user", { headers });
+      const uRes = await safeFetch("https://api.github.com/user", { headers });
       if (uRes.ok) {
         const u = await uRes.json();
         if (u.login) {
@@ -113,18 +83,31 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
       action === "repos" ||
       action === "list" ||
       action === "repositories" ||
-      action === "list_repositories"
+      action === "list_repositories" ||
+      action === "projectlist" ||
+      action === "projects.list" ||
+      action === "projects" ||
+      action === "project_list" ||
+      action === "projects_list" ||
+      action === "listprojects"
     ) {
       const perPage = Math.min(Math.max(Number(p.limit || 30), 1), 100);
+      const sort = String(p.sort || "updated");
       let url = `https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}`;
-      if (p.visibility) {
-        url += `&visibility=${encodeURIComponent(String(p.visibility))}`;
-      } else if (p.type && p.type !== "all") {
-        url += `&type=${encodeURIComponent(String(p.type))}`;
-      } else {
-        url += `&affiliation=${encodeURIComponent(String(p.affiliation || "owner,collaborator,organization_member"))}`;
+      if (!cleanToken.startsWith("github_pat_")) {
+        if (p.visibility) {
+          url += `&visibility=${encodeURIComponent(String(p.visibility))}`;
+        } else if (p.type && p.type !== "all") {
+          url += `&type=${encodeURIComponent(String(p.type))}`;
+        } else {
+          url += `&affiliation=${encodeURIComponent(String(p.affiliation || "owner,collaborator,organization_member"))}`;
+        }
       }
-      const res = await fetch(url, { headers });
+      let res = await safeFetch(url, { headers });
+      if (!res.ok && (res.status === 422 || res.status === 400) && url.includes("&affiliation=")) {
+        url = `https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}`;
+        res = await safeFetch(url, { headers });
+      }
       if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
 
       const repos = (await res.json()) as Array<{
@@ -175,7 +158,11 @@ export async function executeGitHub(ctx: ConnectorExecutionContext): Promise<Con
       action === "repos.get" ||
       action === "repo_details" ||
       action === "repo" ||
-      action === "get"
+      action === "get" ||
+      action === "projects.get" ||
+      action === "get_project" ||
+      action === "project" ||
+      action === "repository"
     ) {
       const rawRepo = String(p.repo || p.full_name || ctx.account || "").trim();
       const repo = await resolveRepo(rawRepo);
@@ -488,9 +475,11 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     };
   }
 
+  const cleanToken = token.replace(/^(Bearer|token)\s+/i, "").trim();
   const headers = {
     ...USER_AGENT,
-    "PRIVATE-TOKEN": token,
+    "PRIVATE-TOKEN": cleanToken,
+    Authorization: `Bearer ${cleanToken}`,
   };
 
   const action = (ctx.action || "list_projects").toLowerCase();
@@ -498,15 +487,27 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
 
   try {
     // 2.1 Listar Projetos
-    if (action === "list_projects" || action === "projects") {
-      const perPage = Math.min(Math.max(Number(p.limit || 15), 1), 50);
-      const res = await fetch(
+    if (
+      action === "list_projects" ||
+      action === "projects" ||
+      action === "projects.list" ||
+      action === "projectlist" ||
+      action === "projects_list" ||
+      action === "project_list" ||
+      action === "listprojects" ||
+      action === "repos.list" ||
+      action === "list_repos" ||
+      action === "repos" ||
+      action === "list"
+    ) {
+      const perPage = Math.min(Math.max(Number(p.limit || p.per_page || 15), 1), 50);
+      let res = await safeFetch(
         `https://gitlab.com/api/v4/projects?membership=true&order_by=updated_at&per_page=${perPage}`,
         { headers },
       );
       if (!res.ok) throw new Error(await handleHttpError(res, "GitLab"));
 
-      const projects = (await res.json()) as Array<{
+      let projects = (await res.json()) as Array<{
         id: number;
         name: string;
         path_with_namespace: string;
@@ -516,6 +517,20 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
         star_count: number;
         last_activity_at: string;
       }>;
+
+      // Fallback: se membership=true não devolver projetos, tenta min_access_level=10 (Developer ou acima)
+      if (!Array.isArray(projects) || projects.length === 0) {
+        const fallbackRes = await safeFetch(
+          `https://gitlab.com/api/v4/projects?min_access_level=10&order_by=updated_at&per_page=${perPage}`,
+          { headers },
+        );
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json();
+          if (Array.isArray(fallbackData) && fallbackData.length > 0) {
+            projects = fallbackData;
+          }
+        }
+      }
 
       return {
         success: true,
@@ -534,10 +549,18 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.2 Detalhes de um Projeto
-    if (action === "get_project" || action === "project_details") {
-      const projectId = p.project_id || p.id || ctx.account;
+    if (
+      action === "get_project" ||
+      action === "project_details" ||
+      action === "projects.get" ||
+      action === "project" ||
+      action === "repos.get" ||
+      action === "get_repo" ||
+      action === "repo"
+    ) {
+      const projectId = p.project_id || p.id || p.repo || ctx.account;
       if (!projectId) throw new Error("Parâmetro 'project_id' (ID numérico ou caminho 'grupo/projeto') obrigatório.");
-      const res = await fetch(
+      const res = await safeFetch(
         `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}`,
         { headers },
       );
@@ -548,9 +571,9 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
         success: true,
         data: pr,
         summary:
-          `🦊 **Projeto GitLab: [${pr.name_with_namespace}](${pr.web_url})**\n` +
+          `🦊 **Projeto GitLab: [${pr.name_with_namespace || pr.name}](${pr.web_url})**\n` +
           `• ID: \`${pr.id}\` | Visibilidade: ${pr.visibility}\n` +
-          `• Branch Padrão: \`${pr.default_branch}\`\n` +
+          `• Branch Padrão: \`${pr.default_branch || "main"}\`\n` +
           `• Descrição: ${pr.description || "Sem descrição"}\n` +
           `• SSH URL: \`${pr.ssh_url_to_repo}\`\n` +
           `• HTTP URL: \`${pr.http_url_to_repo}\``,
@@ -558,12 +581,12 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.3 Listar Issues
-    if (action === "list_issues" || action === "issues") {
-      const projectId = p.project_id || p.id || ctx.account;
+    if (action === "list_issues" || action === "issues" || action === "issues.list" || action === "get_issues") {
+      const projectId = p.project_id || p.id || p.repo || ctx.account;
       const url = projectId
         ? `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/issues?per_page=15`
         : `https://gitlab.com/api/v4/issues?scope=all&per_page=15`;
-      const res = await fetch(url, { headers });
+      const res = await safeFetch(url, { headers });
       if (!res.ok) throw new Error(await handleHttpError(res, "GitLab"));
 
       const issues = (await res.json()) as Array<{
@@ -593,14 +616,14 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.4 Criar Issue
-    if (action === "create_issue") {
-      const projectId = p.project_id || p.id || ctx.account;
+    if (action === "create_issue" || action === "issues.create" || action === "new_issue") {
+      const projectId = p.project_id || p.id || p.repo || ctx.account;
       if (!projectId) throw new Error("Parâmetro 'project_id' obrigatório para criar issue no GitLab.");
       const title = String(p.title || "").trim();
       if (!title) throw new Error("Parâmetro 'title' é obrigatório.");
       const description = String(p.description || p.body || "");
 
-      const res = await fetch(
+      const res = await safeFetch(
         `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/issues`,
         {
           method: "POST",
@@ -619,10 +642,17 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.5 Listar Pipelines de CI/CD
-    if (action === "list_pipelines" || action === "pipelines") {
-      const projectId = p.project_id || p.id || ctx.account;
+    if (
+      action === "list_pipelines" ||
+      action === "pipelines" ||
+      action === "pipelines.list" ||
+      action === "actions.list_runs" ||
+      action === "runs" ||
+      action === "pipeline"
+    ) {
+      const projectId = p.project_id || p.id || p.repo || ctx.account;
       if (!projectId) throw new Error("Parâmetro 'project_id' é obrigatório para consultar pipelines.");
-      const res = await fetch(
+      const res = await safeFetch(
         `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/pipelines?per_page=10`,
         { headers },
       );
@@ -662,8 +692,15 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.6 Obter Conteúdo de Ficheiro (Raw File)
-    if (action === "get_raw_file" || action === "read_file" || action === "repository.get_raw_file") {
-      const projectId = p.project_id || p.id || ctx.account;
+    if (
+      action === "get_raw_file" ||
+      action === "read_file" ||
+      action === "repository.get_raw_file" ||
+      action === "contents.read_file" ||
+      action === "file.read" ||
+      action === "get_file"
+    ) {
+      const projectId = p.project_id || p.id || p.repo || ctx.account;
       const filePath = String(p.file_path || p.filePath || p.path || p.file || "").trim();
       const ref = String(p.ref || p.branch || "main").trim();
 
@@ -671,7 +708,7 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
         throw new Error("Parâmetros 'project_id' e 'file_path' são obrigatórios para ler ficheiro no GitLab.");
       }
 
-      const res = await fetch(
+      const res = await safeFetch(
         `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/repository/files/${encodeURIComponent(filePath)}/raw?ref=${encodeURIComponent(ref)}`,
         { headers },
       );
@@ -686,8 +723,16 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.7 Árvore do Repositório (Repository Tree)
-    if (action === "tree" || action === "repository.tree") {
-      const projectId = p.project_id || p.id || ctx.account;
+    if (
+      action === "tree" ||
+      action === "repository.tree" ||
+      action === "get_tree" ||
+      action === "list_files" ||
+      action === "files.list" ||
+      action === "contents.get_tree" ||
+      action === "contents.tree"
+    ) {
+      const projectId = p.project_id || p.id || p.repo || ctx.account;
       const ref = String(p.ref || p.branch || "main").trim();
       const path = String(p.path || "").trim();
 
@@ -696,7 +741,7 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
       let url = `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/repository/tree?per_page=50&ref=${encodeURIComponent(ref)}`;
       if (path) url += `&path=${encodeURIComponent(path)}`;
 
-      const res = await fetch(url, { headers });
+      const res = await safeFetch(url, { headers });
       if (!res.ok) throw new Error(await handleHttpError(res, "GitLab Tree"));
 
       const tree = (await res.json()) as Array<{ id: string; name: string; type: string; path: string; mode: string }>;
@@ -711,11 +756,18 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.8 Listar Merge Requests
-    if (action === "list_merge_requests" || action === "merge_requests" || action === "merge_requests.list") {
-      const projectId = p.project_id || p.id || ctx.account;
+    if (
+      action === "list_merge_requests" ||
+      action === "merge_requests" ||
+      action === "merge_requests.list" ||
+      action === "pulls.list" ||
+      action === "list_prs" ||
+      action === "prs"
+    ) {
+      const projectId = p.project_id || p.id || p.repo || ctx.account;
       if (!projectId) throw new Error("Parâmetro 'project_id' é obrigatório para listar merge requests.");
 
-      const res = await fetch(
+      const res = await safeFetch(
         `https://gitlab.com/api/v4/projects/${encodeURIComponent(String(projectId))}/merge_requests?per_page=15`,
         { headers },
       );
@@ -733,8 +785,8 @@ export async function executeGitLab(ctx: ConnectorExecutionContext): Promise<Con
     }
 
     // 2.9 Perfil da Conta Autenticada
-    if (action === "get_user" || action === "profile" || action === "user") {
-      const userRes = await fetch("https://gitlab.com/api/v4/user", { headers });
+    if (action === "get_user" || action === "profile" || action === "user" || action === "account" || action === "default") {
+      const userRes = await safeFetch("https://gitlab.com/api/v4/user", { headers });
       if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitLab"));
       const user = await userRes.json();
 

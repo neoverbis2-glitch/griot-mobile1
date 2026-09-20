@@ -6,9 +6,11 @@
  * 1. Neon Postgres (Serverless Postgres, branches, projetos)
  * 2. Upstash Redis (Serverless Redis REST: get, set, del, keys, ping, stats)
  * 3. MongoDB Atlas (Data API / NoSQL: find, find_one, insert_one, collections)
- * 4. Cloudflare (API v4: D1 SQL, Workers, DNS zones, verificação de token)
+ * 4. Cloudflare (API v4: D1 SQL, Workers, DNS zones, verificação de token, Pages)
  * 5. Qdrant (Vector Database: collections, search, points count, telemetria)
  */
+
+import { safeFetch, handleHttpError } from "./connector-http";
 
 export interface ConnectorExecutionContext {
   credential: string;
@@ -25,55 +27,6 @@ export interface ConnectorExecutionResponse {
   summary: string;
   data?: unknown;
   error?: string;
-}
-
-/**
- * Tratamento universal de erros HTTP com orientações em português.
- */
-async function handleHttpError(res: Response, serviceName: string): Promise<string> {
-  let detail = "";
-  try {
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      detail =
-        json.message ||
-        json.error?.message ||
-        json.error ||
-        json.description ||
-        JSON.stringify(json);
-    } catch {
-      detail = text.slice(0, 300);
-    }
-  } catch {
-    detail = res.statusText;
-  }
-
-  switch (res.status) {
-    case 401:
-      return (
-        `🔐 **Autenticação falhou em ${serviceName}** (HTTP 401):\n` +
-        `A chave de API ou token fornecido é inválido ou expirou.\n` +
-        `➡️ Vai a **Definições → Plugins → ${serviceName}** e atualiza a tua credencial.\n` +
-        (detail ? `Detalhe retornado: ${detail}` : "")
-      );
-    case 403:
-      return (
-        `🚫 **Acesso negado em ${serviceName}** (HTTP 403):\n` +
-        `O token não tem permissões suficientes para esta ação.\n` +
-        (detail ? `Detalhe retornado: ${detail}` : "")
-      );
-    case 404:
-      return (
-        `🔍 **Recurso não encontrado em ${serviceName}** (HTTP 404):\n` +
-        `Verifica se o projeto, banco de dados ou coleção especificado existe.\n` +
-        (detail ? `Detalhe retornado: ${detail}` : "")
-      );
-    case 429:
-      return `⏳ **Limite de requisições excedido em ${serviceName}** (HTTP 429). Tenta novamente em alguns instantes.`;
-    default:
-      return `⚠️ **Erro ${res.status} em ${serviceName}**: ${detail || res.statusText}`;
-  }
 }
 
 // ============================================================================
@@ -950,7 +903,7 @@ export async function executeMongoDb(
 }
 
 // ============================================================================
-// 4. CLOUDFLARE CONNECTOR (API v4: D1 SQL, Workers, DNS)
+// 4. CLOUDFLARE CONNECTOR (API v4: D1 SQL, Workers, DNS, Pages)
 // ============================================================================
 
 export async function executeCloudflare(
@@ -968,19 +921,37 @@ export async function executeCloudflare(
     };
   }
 
+  const cleanToken = token.replace(/^(Bearer|token)\s+/i, "").trim();
   const BASE_URL = "https://api.cloudflare.com/client/v4";
   const headers = {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${cleanToken}`,
     "Content-Type": "application/json",
     Accept: "application/json",
   };
 
-  const accountId = String(ctx.params.account_id || ctx.accountName || "").trim();
+  const resolveAccountId = async (): Promise<string> => {
+    let acc = String(ctx.params.account_id || ctx.accountName || "").trim();
+    if (acc) return acc;
+    try {
+      const accRes = await safeFetch(`${BASE_URL}/accounts`, { headers });
+      if (accRes.ok) {
+        const accData = await accRes.json();
+        if (Array.isArray(accData.result) && accData.result.length > 0) {
+          return accData.result[0].id;
+        }
+      }
+    } catch {
+      // Ignora erro de lookup
+    }
+    return "";
+  };
 
   try {
-    switch (ctx.action) {
+    const act = (ctx.action || "verify_token").toLowerCase();
+
+    switch (act) {
       case "verify_token": {
-        const res = await fetch(`${BASE_URL}/user/tokens/verify`, { headers });
+        const res = await safeFetch(`${BASE_URL}/user/tokens/verify`, { headers });
         if (!res.ok) {
           return {
             success: false,
@@ -1012,7 +983,7 @@ export async function executeCloudflare(
       case "list_zones":
       case "zones.list":
       case "zones": {
-        const res = await fetch(`${BASE_URL}/zones`, { headers });
+        const res = await safeFetch(`${BASE_URL}/zones`, { headers });
         if (!res.ok) {
           return {
             success: false,
@@ -1050,10 +1021,72 @@ export async function executeCloudflare(
         };
       }
 
+      case "list_pages":
+      case "pages.list_projects":
+      case "pages.projects":
+      case "pages.list":
+      case "pages":
+      case "list_projects":
+      case "projects.list":
+      case "projects": {
+        const accountId = await resolveAccountId();
+        if (!accountId) {
+          return {
+            success: false,
+            connector: "cloudflare",
+            action: ctx.action,
+            summary:
+              "⚠️ **Account ID Ausente**: Especifica `account_id` ou insere o ID da tua conta Cloudflare " +
+              "em Definições → Plugins → Cloudflare.",
+            error: "account_id ausente",
+          };
+        }
+
+        const res = await safeFetch(`${BASE_URL}/accounts/${accountId}/pages/projects`, { headers });
+        if (!res.ok) {
+          return {
+            success: false,
+            connector: "cloudflare",
+            action: ctx.action,
+            summary: await handleHttpError(res, "Cloudflare Pages"),
+            error: `HTTP ${res.status}`,
+          };
+        }
+
+        const data = await res.json();
+        const projects = (data.result || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          subdomain: p.subdomain,
+          productionBranch: p.production_branch,
+          createdOn: p.created_on,
+          canonicalDeployment: p.canonical_deployment?.url,
+        }));
+
+        let summary = `📄 **Cloudflare Pages (${projects.length} projetos)**:\n\n`;
+        if (projects.length === 0) {
+          summary += "Nenhum projeto Pages encontrado nesta conta.";
+        } else {
+          projects.forEach((p: any, idx: number) => {
+            summary += `${idx + 1}. **${p.name}** (\`${p.subdomain || p.name}.pages.dev\`)\n` +
+              `   Branch: \`${p.productionBranch || "main"}\` | Criado: ${p.createdOn ? new Date(p.createdOn).toLocaleDateString("pt-PT") : "N/D"}\n`;
+          });
+        }
+
+        return {
+          success: true,
+          connector: "cloudflare",
+          action: ctx.action,
+          summary,
+          data: projects,
+        };
+      }
+
       case "list_d1":
       case "list_d1_databases":
       case "d1.list":
       case "d1": {
+        const accountId = await resolveAccountId();
         if (!accountId) {
           return {
             success: false,
@@ -1066,7 +1099,7 @@ export async function executeCloudflare(
           };
         }
 
-        const res = await fetch(`${BASE_URL}/accounts/${accountId}/d1/database`, { headers });
+        const res = await safeFetch(`${BASE_URL}/accounts/${accountId}/d1/database`, { headers });
         if (!res.ok) {
           return {
             success: false,
@@ -1108,6 +1141,7 @@ export async function executeCloudflare(
       case "d1.query":
       case "d1_query":
       case "query": {
+        const accountId = await resolveAccountId();
         const dbId = String(ctx.params.database_id || ctx.params.database || "").trim();
         const sql = String(ctx.params.sql || ctx.params.query || "").trim();
 
@@ -1121,7 +1155,7 @@ export async function executeCloudflare(
           };
         }
 
-        const res = await fetch(`${BASE_URL}/accounts/${accountId}/d1/database/${dbId}/query`, {
+        const res = await safeFetch(`${BASE_URL}/accounts/${accountId}/d1/database/${dbId}/query`, {
           method: "POST",
           headers,
           body: JSON.stringify({
@@ -1161,6 +1195,7 @@ export async function executeCloudflare(
       case "list_workers":
       case "workers.list":
       case "workers": {
+        const accountId = await resolveAccountId();
         if (!accountId) {
           return {
             success: false,
@@ -1171,7 +1206,7 @@ export async function executeCloudflare(
           };
         }
 
-        const res = await fetch(`${BASE_URL}/accounts/${accountId}/workers/scripts`, { headers });
+        const res = await safeFetch(`${BASE_URL}/accounts/${accountId}/workers/scripts`, { headers });
         if (!res.ok) {
           return {
             success: false,
@@ -1191,9 +1226,13 @@ export async function executeCloudflare(
         }));
 
         let summary = `🚀 **Cloudflare Workers (${workers.length} scripts)**:\n\n`;
-        workers.forEach((w: any, idx: number) => {
-          summary += `${idx + 1}. **${w.id}** (Modificado em: ${w.modifiedOn || "N/D"})\n`;
-        });
+        if (workers.length === 0) {
+          summary += "Nenhum script Worker encontrado nesta conta.";
+        } else {
+          workers.forEach((w: any, idx: number) => {
+            summary += `${idx + 1}. **${w.id}** (Modificado em: ${w.modifiedOn || "N/D"})\n`;
+          });
+        }
 
         return {
           success: true,
@@ -1209,7 +1248,7 @@ export async function executeCloudflare(
           success: false,
           connector: "cloudflare",
           action: ctx.action,
-          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Cloudflare.**\nAções disponíveis: d1.query, d1.list, workers.list, zones.list, verify_token.`,
+          summary: `❌ **Ação '${ctx.action}' não reconhecida no conector Cloudflare.**\nAções disponíveis: pages.list_projects, d1.query, d1.list, workers.list, zones.list, verify_token.`,
           error: `Ação não suportada: ${ctx.action}`,
         };
       }

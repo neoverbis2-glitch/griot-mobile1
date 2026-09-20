@@ -13,7 +13,7 @@ import type { GriotAction, GriotExecutionResult } from "./protocol";
 import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { supabase } from "@/integrations/supabase/client";
 import { executeUniversalConnector, normalizeConnectorId } from "@/lib/connectors-hub";
-import { getConnectedPlugins } from "@/lib/plugins-service";
+import { getConnectedPlugins, isPluginConnected, resolveActivePluginCredentials } from "@/lib/plugins-service";
 
 export class GriotActionExecutor {
   async execute(action: GriotAction): Promise<GriotExecutionResult> {
@@ -29,18 +29,14 @@ export class GriotActionExecutor {
       const actionName = String(action.params.action || "default");
       const connectorParams = (action.params.params || action.params) as Record<string, unknown>;
 
-      // Recupera credenciais guardadas no ecrã de Plugins do GRIOT
-      const plugins = getConnectedPlugins();
-      const savedPlugin =
-        plugins[normConnector] ||
-        plugins[connectorName] ||
-        Object.values(plugins).find((p) => p.id === normConnector || normalizeConnectorId(p.id) === normConnector);
+      // Recupera credenciais ativas do plugin
+      const resolvedCreds = resolveActivePluginCredentials(normConnector);
 
       const credential = String(
         action.params.credential ||
           action.params.token ||
           action.params.apiKey ||
-          savedPlugin?.apiKey ||
+          resolvedCreds.apiKey ||
           "",
       ).trim();
 
@@ -48,15 +44,15 @@ export class GriotActionExecutor {
         action.params.account ||
           action.params.accountName ||
           action.params.ref ||
-          savedPlugin?.accountName ||
-          savedPlugin?.projectRef ||
+          resolvedCreds.accountName ||
+          resolvedCreds.projectRef ||
           "",
       ).trim();
 
       const customEndpoint = String(
         action.params.customEndpoint ||
           action.params.endpoint ||
-          savedPlugin?.customEndpoint ||
+          resolvedCreds.customEndpoint ||
           "",
       ).trim();
 
@@ -64,12 +60,12 @@ export class GriotActionExecutor {
         action.params.ref ||
           action.params.projectRef ||
           action.params.project_id ||
-          savedPlugin?.projectRef ||
+          resolvedCreds.projectRef ||
           account ||
           "",
       ).trim();
 
-      if (!savedPlugin?.connected && !credential) {
+      if (!isPluginConnected(normConnector) && !credential) {
         return {
           actionId: action.id,
           actionType: action.type,

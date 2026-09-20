@@ -30,7 +30,7 @@ import {
   executeShopify,
   executePostHog,
 } from "./connectors-lot2-lot6";
-import { getConnectedPlugins } from "./plugins-service";
+import { getConnectedPlugins, resolveActivePluginCredentials } from "./plugins-service";
 
 /**
  * Normaliza o ID do conector para a chave canônica correspondente
@@ -186,16 +186,9 @@ export async function executeUniversalConnector(
   let account = ctx.account?.trim() || "";
 
   if (!credential || !account) {
-    const connected = getConnectedPlugins();
-    // Tenta correspondência direta ou por aliases no mapa
-    const plugin =
-      connected[normId] ||
-      Object.values(connected).find((p) => p.id === normId || normalizeConnectorId(p.id) === normId);
-
-    if (plugin) {
-      if (!credential) credential = plugin.apiKey || "";
-      if (!account) account = plugin.accountName || plugin.projectRef || plugin.customEndpoint || "";
-    }
+    const creds = resolveActivePluginCredentials(normId);
+    if (!credential) credential = creds.apiKey || "";
+    if (!account) account = creds.accountName || creds.projectRef || creds.customEndpoint || "";
   }
 
   const effectiveCtx: ConnectorExecutionContext = {

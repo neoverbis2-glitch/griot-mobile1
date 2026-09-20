@@ -519,6 +519,59 @@ export function getPluginCredentials(pluginId: string): PluginCredential[] {
   return normalizePluginCredentials(plugin);
 }
 
+/** Resolve de forma centralizada e resiliente as credenciais ativas de um plugin */
+export function resolveActivePluginCredentials(pluginId: string): {
+  apiKey: string;
+  accountName?: string;
+  projectRef?: string;
+  customEndpoint?: string;
+  primaryCredential?: PluginCredential;
+} {
+  const map = getConnectedPlugins();
+  const norm = pluginId.toLowerCase().trim();
+  const plugin =
+    map[norm] ||
+    map[pluginId] ||
+    Object.values(map).find(
+      (p) => p.id === norm || p.id.toLowerCase() === norm || p.id === pluginId
+    );
+
+  if (!plugin || !plugin.connected) {
+    return { apiKey: "" };
+  }
+
+  const creds = normalizePluginCredentials(plugin);
+  const primary = creds.find((c) => c.isPrimary) || creds[0];
+
+  const apiKey =
+    primary?.apiKey?.trim() ||
+    plugin.apiKey?.trim() ||
+    "";
+
+  const accountName =
+    primary?.accountName?.trim() ||
+    plugin.accountName?.trim() ||
+    undefined;
+
+  const projectRef =
+    primary?.projectRef?.trim() ||
+    plugin.projectRef?.trim() ||
+    accountName;
+
+  const customEndpoint =
+    primary?.customEndpoint?.trim() ||
+    plugin.customEndpoint?.trim() ||
+    undefined;
+
+  return {
+    apiKey,
+    accountName,
+    projectRef,
+    customEndpoint,
+    primaryCredential: primary,
+  };
+}
+
 /** Conecta e guarda a configuração de um plugin no servidor (griot_credentials) e sincroniza localmente */
 export async function connectPluginUnified(
   pluginId: string,
@@ -1003,8 +1056,17 @@ Nenhum conector externo está autenticado no momento. Se o utilizador solicitar 
       prompt += `  - Ações suportadas: repos.list, repos.get, repos.create, contents.read_file, contents.write_file, contents.delete_file, contents.get_tree, search.code, branches.list, pulls.list, pulls.create, issues.list, issues.create, actions.list_workflows\n\n`;
     } else if (cp.id === "gitlab") {
       prompt += `• 🦊 **GITLAB**: CONECTADO E VALIDADO!\n`;
-      prompt += `  - Chamada Semântica: <connector_action connector="gitlab" action="repository.get_raw_file" params='{"projectId":"123","filePath":"README.md"}' />\n`;
-      prompt += `  - Ações suportadas: projects.list, projects.get, repository.tree, repository.get_raw_file, merge_requests.list, merge_requests.create, pipelines.list\n\n`;
+      prompt += `  - Listar Projetos: <connector_action connector="gitlab" action="projects.list" params='{}' />\n`;
+      prompt += `  - Detalhes do Projeto: <connector_action connector="gitlab" action="projects.get" params='{"projectId":"123"}' />\n`;
+      prompt += `  - Ler Ficheiro: <connector_action connector="gitlab" action="repository.get_raw_file" params='{"projectId":"123","filePath":"README.md"}' />\n`;
+      prompt += `  - Ações suportadas: projects.list, projects.get, repository.tree, repository.get_raw_file, merge_requests.list, merge_requests.create, pipelines.list, issues.list, issues.create\n\n`;
+    } else if (cp.id === "cloudflare") {
+      prompt += `• ☁️ **CLOUDFLARE**: CONECTADO E VALIDADO! (Conta: ${cp.accountName || "auto-detectada"})\n`;
+      prompt += `  - Listar Zonas DNS: <connector_action connector="cloudflare" action="zones.list" params='{}' />\n`;
+      prompt += `  - Listar Projetos Pages: <connector_action connector="cloudflare" action="pages.list_projects" params='{}' />\n`;
+      prompt += `  - Listar Workers: <connector_action connector="cloudflare" action="workers.list" params='{}' />\n`;
+      prompt += `  - Listar Bases D1: <connector_action connector="cloudflare" action="d1.list" params='{}' />\n`;
+      prompt += `  - Ações suportadas: zones.list, pages.list_projects, workers.list, d1.list, d1.query, verify_token\n\n`;
     } else if (cp.id === "vercel") {
       prompt += `• ▲ **VERCEL**: CONECTADO E VALIDADO!\n`;
       prompt += `  - Chamada Semântica: <connector_action connector="vercel" action="deployments.list" params='{"projectId":"prj_..."}' />\n`;

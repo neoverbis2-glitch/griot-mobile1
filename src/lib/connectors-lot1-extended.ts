@@ -10,19 +10,9 @@
  */
 
 import { executeBatch1Connector, type ConnectorExecutionContext, type ConnectorResult } from "./connectors-batch1";
+import { safeFetch, handleHttpError } from "./connector-http";
 
 const USER_AGENT = { "User-Agent": "Griot-Mobile-Agent/1.0.49" };
-
-async function handleHttpError(res: Response, service: string): Promise<string> {
-  const status = res.status;
-  let body = "";
-  try {
-    body = await res.text();
-  } catch {
-    body = "Sem resposta do servidor.";
-  }
-  return `[${service}] Erro HTTP ${status}: ${body.slice(0, 400)}`;
-}
 
 export async function executeLot1Extended(
   connector: string,
@@ -46,9 +36,10 @@ export async function executeLot1Extended(
       };
     }
 
+    const cleanToken = token.replace(/^(Bearer|token)\s+/i, "").trim();
     const headers: Record<string, string> = {
       ...USER_AGENT,
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${cleanToken}`,
       Accept: "application/vnd.github.v3+json",
     };
 
@@ -58,7 +49,7 @@ export async function executeLot1Extended(
     const resolveOwner = async (): Promise<string> => {
       if (owner) return owner;
       try {
-        const uRes = await fetch("https://api.github.com/user", { headers });
+        const uRes = await safeFetch("https://api.github.com/user", { headers });
         if (uRes.ok) {
           const u = await uRes.json();
           if (u.login) {
@@ -108,7 +99,7 @@ export async function executeLot1Extended(
         const isPrivate = p.private !== undefined ? Boolean(p.private) : false;
         const autoInit = p.auto_init !== undefined ? Boolean(p.auto_init) : true;
 
-        const res = await fetch("https://api.github.com/user/repos", {
+        const res = await safeFetch("https://api.github.com/user/repos", {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -154,21 +145,34 @@ export async function executeLot1Extended(
         action === "repos" ||
         action === "list" ||
         action === "repositories" ||
-        action === "list_repositories"
+        action === "list_repositories" ||
+        action === "projectlist" ||
+        action === "projects.list" ||
+        action === "projects" ||
+        action === "project_list" ||
+        action === "projects_list" ||
+        action === "listprojects"
       ) {
         const perPage = Math.min(Math.max(Number(p.limit || p.per_page || 30), 1), 100);
         const sort = String(p.sort || "updated");
 
         let url = `https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}`;
-        if (p.visibility) {
-          url += `&visibility=${encodeURIComponent(String(p.visibility))}`;
-        } else if (p.type && p.type !== "all") {
-          url += `&type=${encodeURIComponent(String(p.type))}`;
-        } else {
-          url += `&affiliation=${encodeURIComponent(String(p.affiliation || "owner,collaborator,organization_member"))}`;
+        if (!cleanToken.startsWith("github_pat_")) {
+          if (p.visibility) {
+            url += `&visibility=${encodeURIComponent(String(p.visibility))}`;
+          } else if (p.type && p.type !== "all") {
+            url += `&type=${encodeURIComponent(String(p.type))}`;
+          } else {
+            url += `&affiliation=${encodeURIComponent(String(p.affiliation || "owner,collaborator,organization_member"))}`;
+          }
         }
 
-        const res = await fetch(url, { headers });
+        let res = await safeFetch(url, { headers });
+        // Se falhar com 422 ou 400 (ex: affiliation não suportado em fine-grained PAT), tenta chamada limpa
+        if (!res.ok && (res.status === 422 || res.status === 400) && url.includes("&affiliation=")) {
+          url = `https://api.github.com/user/repos?sort=${sort}&per_page=${perPage}`;
+          res = await safeFetch(url, { headers });
+        }
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
 
         const scopes = res.headers.get("x-oauth-scopes");
@@ -228,7 +232,11 @@ export async function executeLot1Extended(
         action === "get_repo" ||
         action === "repo_details" ||
         action === "repo" ||
-        action === "get"
+        action === "get" ||
+        action === "projects.get" ||
+        action === "get_project" ||
+        action === "project" ||
+        action === "repository"
       ) {
         let rawRepo = String(p.repo || p.full_name || p.name || repo || "").trim();
         let targetRepo = await resolveRepo(rawRepo);
@@ -237,13 +245,13 @@ export async function executeLot1Extended(
           throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/nome-do-repo' (ex: facebook/react ou 'nome-do-repo' da tua conta).");
         }
 
-        let res = await fetch(`https://api.github.com/repos/${targetRepo}`, { headers });
+        let res = await safeFetch(`https://api.github.com/repos/${targetRepo}`, { headers });
 
         // Se 404, tenta busca insensível a maiúsculas/minúsculas entre os repositórios do utilizador
         if (res.status === 404) {
           try {
-            const listRes = await fetch(
-              `https://api.github.com/user/repos?per_page=100&affiliation=owner,collaborator,organization_member`,
+            const listRes = await safeFetch(
+              `https://api.github.com/user/repos?per_page=100`,
               { headers }
             );
             if (listRes.ok) {
@@ -256,7 +264,7 @@ export async function executeLot1Extended(
               );
               if (matched) {
                 targetRepo = matched.full_name;
-                res = await fetch(`https://api.github.com/repos/${targetRepo}`, { headers });
+                res = await safeFetch(`https://api.github.com/repos/${targetRepo}`, { headers });
               }
             }
           } catch {
@@ -309,7 +317,7 @@ export async function executeLot1Extended(
         }
 
         const ref = p.ref || p.branch ? `?ref=${encodeURIComponent(String(p.ref || p.branch))}` : "";
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/contents/${path}${ref}`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/contents/${path}${ref}`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
 
         const data = await res.json();
@@ -342,7 +350,7 @@ export async function executeLot1Extended(
       if (action === "repos.fork" || action === "fork_repo") {
         const targetRepo = await resolveRepo(String(p.repo || p.full_name || repo || "").trim());
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/repo'.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/forks`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/forks`, {
           method: "POST",
           headers,
         });
@@ -371,7 +379,7 @@ export async function executeLot1Extended(
         // Se SHA não fornecido, tenta buscar ficheiro existente para obter SHA atual
         if (!sha) {
           try {
-            const checkRes = await fetch(`https://api.github.com/repos/${targetRepo}/contents/${path}${branch ? `?ref=${branch}` : ""}`, { headers });
+            const checkRes = await safeFetch(`https://api.github.com/repos/${targetRepo}/contents/${path}${branch ? `?ref=${branch}` : ""}`, { headers });
             if (checkRes.ok) {
               const fileMeta = await checkRes.json();
               if (fileMeta?.sha) sha = fileMeta.sha;
@@ -388,7 +396,7 @@ export async function executeLot1Extended(
           base64Content = btoa(unescape(encodeURIComponent(content)));
         }
 
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/contents/${path}`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/contents/${path}`, {
           method: "PUT",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -418,13 +426,13 @@ export async function executeLot1Extended(
 
         if (!targetRepo.includes("/") || !path) throw new Error("Parâmetros 'repo' e 'path' são obrigatórios.");
         if (!sha) {
-          const checkRes = await fetch(`https://api.github.com/repos/${targetRepo}/contents/${path}${branch ? `?ref=${branch}` : ""}`, { headers });
+          const checkRes = await safeFetch(`https://api.github.com/repos/${targetRepo}/contents/${path}${branch ? `?ref=${branch}` : ""}`, { headers });
           if (!checkRes.ok) throw new Error("Não foi possível encontrar o ficheiro para apagar.");
           const fileMeta = await checkRes.json();
           sha = fileMeta.sha;
         }
 
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/contents/${path}`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/contents/${path}`, {
           method: "DELETE",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ message, sha, branch }),
@@ -443,7 +451,7 @@ export async function executeLot1Extended(
         const targetRepo = await resolveRepo(String(p.repo || p.full_name || repo || "").trim());
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
         const branchOrSha = String(p.sha || p.branch || p.ref || "HEAD");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/git/trees/${branchOrSha}?recursive=1`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/git/trees/${branchOrSha}?recursive=1`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const data = await res.json();
         const tree = (data.tree || []).slice(0, 80);
@@ -462,7 +470,7 @@ export async function executeLot1Extended(
         if (!query) throw new Error("Parâmetro 'query' ou 'q' é obrigatório.");
         const targetRepo = repo ? await resolveRepo(repo) : "";
         const fullQ = targetRepo ? `${query} repo:${targetRepo}` : query;
-        const res = await fetch(`https://api.github.com/search/code?q=${encodeURIComponent(fullQ)}&per_page=15`, { headers });
+        const res = await safeFetch(`https://api.github.com/search/code?q=${encodeURIComponent(fullQ)}&per_page=15`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const data = await res.json();
         return {
@@ -477,7 +485,7 @@ export async function executeLot1Extended(
       if (action === "branches.list" || action === "list_branches" || action === "branches") {
         const targetRepo = await resolveRepo(String(p.repo || p.full_name || repo || "").trim());
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/branches?per_page=30`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/branches?per_page=30`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const branches = await res.json();
         return {
@@ -496,11 +504,11 @@ export async function executeLot1Extended(
         let sha = String(p.sha || "").trim();
         if (!branchName) throw new Error("Parâmetro 'branch' obrigatório.");
         if (!sha) {
-          const repoRes = await fetch(`https://api.github.com/repos/${targetRepo}`, { headers });
+          const repoRes = await safeFetch(`https://api.github.com/repos/${targetRepo}`, { headers });
           if (repoRes.ok) {
             const rData = await repoRes.json();
             const defBranch = rData.default_branch || "main";
-            const bRes = await fetch(`https://api.github.com/repos/${targetRepo}/branches/${defBranch}`, { headers });
+            const bRes = await safeFetch(`https://api.github.com/repos/${targetRepo}/branches/${defBranch}`, { headers });
             if (bRes.ok) {
               const bData = await bRes.json();
               sha = bData.commit?.sha;
@@ -509,7 +517,7 @@ export async function executeLot1Extended(
         }
         if (!sha) throw new Error("Não foi possível obter SHA de referência para criar branch.");
 
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/git/refs`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/git/refs`, {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha }),
@@ -530,7 +538,7 @@ export async function executeLot1Extended(
         const base = String(p.base || "main");
         const head = String(p.head || "").trim();
         if (!head) throw new Error("Parâmetro 'head' é obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/merges`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/merges`, {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ base, head, commit_message: p.commit_message || undefined }),
@@ -549,7 +557,7 @@ export async function executeLot1Extended(
         const targetRepo = await resolveRepo(String(p.repo || p.full_name || repo || "").trim());
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/repo'.");
         const state = String(p.state || "open");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/pulls?state=${state}&per_page=15`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/pulls?state=${state}&per_page=15`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const prs = (await res.json()) as Array<{
           number: number;
@@ -579,7 +587,7 @@ export async function executeLot1Extended(
         const head = String(p.head || "").trim();
         const base = String(p.base || "main").trim();
         if (!title || !head) throw new Error("Parâmetros 'title' e 'head' são obrigatórios para abrir PR.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/pulls`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/pulls`, {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ title, head, base, body: p.body || "" }),
@@ -600,7 +608,7 @@ export async function executeLot1Extended(
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
         const pullNumber = p.pull_number || p.number || p.pr;
         if (!pullNumber) throw new Error("Parâmetro 'pull_number' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/pulls/${pullNumber}`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/pulls/${pullNumber}`, {
           headers: { ...headers, Accept: "application/vnd.github.v3.diff" },
         });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
@@ -618,7 +626,7 @@ export async function executeLot1Extended(
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
         const pullNumber = p.pull_number || p.number || p.pr;
         if (!pullNumber) throw new Error("Parâmetro 'pull_number' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/pulls/${pullNumber}/merge`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/pulls/${pullNumber}/merge`, {
           method: "PUT",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -640,7 +648,7 @@ export async function executeLot1Extended(
         const targetRepo = await resolveRepo(String(p.repo || p.full_name || repo || "").trim());
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório no formato 'dono/repo'.");
         const state = String(p.state || "open");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues?state=${state}&per_page=15`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/issues?state=${state}&per_page=15`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const issues = (await res.json()) as Array<{
           number: number;
@@ -667,7 +675,7 @@ export async function executeLot1Extended(
         const title = String(p.title || p.name || "").trim();
         if (!title) throw new Error("Parâmetro 'title' é obrigatório para criar issue.");
         const body = String(p.body || p.description || "");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/issues`, {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ title, body }),
@@ -688,7 +696,7 @@ export async function executeLot1Extended(
         const issueNumber = p.issue_number || p.number || p.id;
         const body = String(p.body || p.content || "").trim();
         if (!issueNumber || !body) throw new Error("Parâmetros 'issue_number' e 'body' são obrigatórios.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues/${issueNumber}/comments`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/issues/${issueNumber}/comments`, {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ body }),
@@ -708,7 +716,7 @@ export async function executeLot1Extended(
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
         const issueNumber = p.issue_number || p.number || p.id;
         if (!issueNumber) throw new Error("Parâmetro 'issue_number' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/issues/${issueNumber}`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/issues/${issueNumber}`, {
           method: "PATCH",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ state: "closed", state_reason: p.reason || "completed" }),
@@ -726,7 +734,7 @@ export async function executeLot1Extended(
       if (action === "commits.list" || action === "list_commits" || action === "commits") {
         const targetRepo = await resolveRepo(String(p.repo || p.full_name || repo || "").trim());
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/commits?per_page=10`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/commits?per_page=10`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const commits = await res.json();
         return {
@@ -741,7 +749,7 @@ export async function executeLot1Extended(
       if (action === "actions.list_workflows" || action === "workflows") {
         const targetRepo = await resolveRepo(String(p.repo || p.full_name || repo || "").trim());
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/actions/workflows`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/actions/workflows`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const data = await res.json();
         const wfs = data.workflows || [];
@@ -760,7 +768,7 @@ export async function executeLot1Extended(
         const workflowId = p.workflow_id || p.workflow;
         const ref = String(p.ref || "main");
         if (!workflowId) throw new Error("Parâmetro 'workflow_id' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/actions/workflows/${workflowId}/dispatches`, {
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/actions/workflows/${workflowId}/dispatches`, {
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({ ref, inputs: p.inputs || {} }),
@@ -778,7 +786,7 @@ export async function executeLot1Extended(
         if (!targetRepo.includes("/")) throw new Error("Parâmetro 'repo' obrigatório.");
         const runId = p.run_id || p.run;
         if (!runId) throw new Error("Parâmetro 'run_id' obrigatório.");
-        const res = await fetch(`https://api.github.com/repos/${targetRepo}/actions/runs/${runId}/jobs`, { headers });
+        const res = await safeFetch(`https://api.github.com/repos/${targetRepo}/actions/runs/${runId}/jobs`, { headers });
         if (!res.ok) throw new Error(await handleHttpError(res, "GitHub"));
         const data = await res.json();
         return {
@@ -798,7 +806,7 @@ export async function executeLot1Extended(
         action === "default" ||
         !action
       ) {
-        const userRes = await fetch("https://api.github.com/user", { headers });
+        const userRes = await safeFetch("https://api.github.com/user", { headers });
         if (!userRes.ok) throw new Error(await handleHttpError(userRes, "GitHub"));
         const user = await userRes.json();
         const scopes = userRes.headers.get("x-oauth-scopes");
@@ -842,16 +850,61 @@ export async function executeLot1Extended(
   // =========================================================================
   if (normId === "gitlab") {
     const gitlabAction =
-      action === "projects.list" ? "list_projects" :
-      action === "projects.get" ? "get_project" :
-      action === "pipelines.list" ? "list_pipelines" :
-      action === "repository.get_raw_file" || action === "get_raw_file" || action === "read_file" ? "get_raw_file" :
-      action === "repository.tree" || action === "tree" ? "tree" :
-      action === "merge_requests.list" || action === "list_merge_requests" ? "list_merge_requests" :
-      action === "issues.list" ? "list_issues" :
-      action === "issues.create" ? "create_issue" :
-      action === "user" || action === "profile" ? "get_user" :
-      rawAction;
+      action === "projects.list" ||
+      action === "projectlist" ||
+      action === "projects_list" ||
+      action === "project_list" ||
+      action === "list_projects" ||
+      action === "listprojects" ||
+      action === "projects" ||
+      action === "repos.list" ||
+      action === "list_repos" ||
+      action === "repos" ||
+      action === "list"
+        ? "list_projects"
+        : action === "projects.get" ||
+          action === "get_project" ||
+          action === "project_details" ||
+          action === "project" ||
+          action === "repos.get" ||
+          action === "get_repo" ||
+          action === "repo"
+        ? "get_project"
+        : action === "pipelines.list" ||
+          action === "list_pipelines" ||
+          action === "pipelines" ||
+          action === "actions.list_runs" ||
+          action === "runs"
+        ? "list_pipelines"
+        : action === "repository.get_raw_file" ||
+          action === "get_raw_file" ||
+          action === "read_file" ||
+          action === "contents.read_file" ||
+          action === "file.read" ||
+          action === "get_file"
+        ? "get_raw_file"
+        : action === "repository.tree" ||
+          action === "tree" ||
+          action === "get_tree" ||
+          action === "list_files" ||
+          action === "files.list" ||
+          action === "contents.get_tree" ||
+          action === "contents.tree"
+        ? "tree"
+        : action === "merge_requests.list" ||
+          action === "list_merge_requests" ||
+          action === "merge_requests" ||
+          action === "pulls.list" ||
+          action === "list_prs" ||
+          action === "prs"
+        ? "list_merge_requests"
+        : action === "issues.list" || action === "list_issues" || action === "issues"
+        ? "list_issues"
+        : action === "issues.create" || action === "create_issue"
+        ? "create_issue"
+        : action === "user" || action === "profile" || action === "get_user" || action === "account"
+        ? "get_user"
+        : rawAction;
     return executeBatch1Connector("gitlab", { ...ctx, action: gitlabAction });
   }
 
