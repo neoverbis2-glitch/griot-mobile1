@@ -44,6 +44,7 @@ export function UserAvatar({
   size?: "sm" | "md" | "lg" | "xl";
   className?: string;
 }) {
+  const [imgError, setImgError] = React.useState(false);
   const initials = getInitials(name, email);
 
   const sizeClasses = {
@@ -53,11 +54,19 @@ export function UserAvatar({
     xl: "size-14 text-[18px] rounded-2xl",
   };
 
-  if (avatarUrl) {
+  // Reseta erro se avatarUrl mudar
+  React.useEffect(() => {
+    setImgError(false);
+  }, [avatarUrl]);
+
+  if (avatarUrl && !imgError) {
     return (
       <img
         src={avatarUrl}
         alt={name || "Avatar"}
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
+        onError={() => setImgError(true)}
         className={`${sizeClasses[size]} object-cover border border-hairline shrink-0 ${className}`}
       />
     );

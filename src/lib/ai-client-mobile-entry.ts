@@ -383,7 +383,8 @@ async function streamGpuModel(params: {
   callbacks?: StreamCallbacks;
   signal?: AbortSignal;
 }): Promise<AIResponse> {
-  const isBase = isBaseModel(params.modelId);
+  const { modelId, messages, systemInstruction, callbacks, signal } = params;
+  const isBase = isBaseModel(modelId);
   const displayName = isBase ? "BASE" : "SHEOL";
   const userApis = getUserSavedApis().filter(
     (a) => a.status === "active" && a.apiKey && a.apiKey.trim().length > 5,
@@ -401,9 +402,9 @@ async function streamGpuModel(params: {
       selectedEngines.map(async (engine) => {
         return streamCoreDirectAI({
           modelId: engine.id,
-          messages: params.messages,
+          messages,
           systemInstruction: `És um nó cognitivo do cluster GRIOT ${displayName} (${engine.label}). Dá o teu raciocínio direto e conclusões essenciais com clareza máxima.`,
-          signal: params.signal,
+          signal,
         });
       }),
     );
@@ -428,9 +429,9 @@ async function streamGpuModel(params: {
       return streamCoreDirectAI({
         modelId: primaryEngine.id,
         messages: [{ role: "user", content: synthesisPrompt }],
-        systemInstruction: params.systemInstruction,
-        callbacks: params.callbacks,
-        signal: params.signal,
+        systemInstruction,
+        callbacks,
+        signal,
       });
     }
   }
@@ -444,7 +445,7 @@ async function streamGpuModel(params: {
     );
 
     const enrichedInstruction = [
-      params.systemInstruction || "",
+      systemInstruction || "",
       `[GRIOT ${displayName} COGNITIVE RUNTIME]`,
       isBase
         ? "Atua como motor central de computação cognitiva do GRIOT, raciocínio de alta precisão e execução estruturada."
@@ -455,10 +456,10 @@ async function streamGpuModel(params: {
 
     return streamCoreDirectAI({
       modelId: singleEngine.id,
-      messages: params.messages,
+      messages,
       systemInstruction: enrichedInstruction,
-      callbacks: params.callbacks,
-      signal: params.signal,
+      callbacks,
+      signal,
     });
   }
 
@@ -468,8 +469,8 @@ async function streamGpuModel(params: {
     ? "Atua como ModelGPU (BASE): motor cognitivo de alto desempenho, coerência lógica e robustez operacional."
     : "Atua como GriotGPU v2 (SHEOL): síntese analítica profunda, arquitetura avançada e rigor técnico.";
 
-  const effectiveSystemInstruction = params.systemInstruction
-    ? `${params.systemInstruction}\n\n[GRIOT_KERNEL: ${displayName}]\n${kernelInstruction}`
+  const effectiveSystemInstruction = systemInstruction
+    ? `${systemInstruction}\n\n[GRIOT_KERNEL: ${displayName}]\n${kernelInstruction}`
     : `[GRIOT_KERNEL: ${displayName}]\n${kernelInstruction}`;
 
   return streamMobileOrchestrator({

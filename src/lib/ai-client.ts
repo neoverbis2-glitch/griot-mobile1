@@ -427,6 +427,17 @@ export function resolveProviderAndModel(modelId: string): {
     }
     return { provider: "gemini", modelName: "gemini-3.6-flash" };
   }
+  if (m === "base" || m === "modelgpu" || m === "modelgpu-base" || m === "sheol" || m === "griotgpu" || m === "griotgpu-v2") {
+    const anyKey = getAnyConfiguredApiKey();
+    if (anyKey) {
+      return {
+        provider: anyKey.provider,
+        modelName: anyKey.modelName || (anyKey.provider === "gemini" ? "gemini-3.6-flash" : "gemini-flash-latest"),
+        specificApiKey: anyKey.apiKey,
+      };
+    }
+    return { provider: "gemini", modelName: "gemini-3.6-flash" };
+  }
   if (m === "modelos" || m === "model-os" || m.includes("modelos")) {
     const anyKey = getAnyConfiguredApiKey();
     if (anyKey) {

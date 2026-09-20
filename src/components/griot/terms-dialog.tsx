@@ -30,7 +30,7 @@ export function TermsDialog({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const [accepted, setAccepted] = useState(false);
+  const [accepted, setAccepted] = useState(true);
   const [activeTab, setActiveTab] = useState<
     "terms" | "privacy" | "cookies" | "refund" | "ai" | "security"
   >("terms");
@@ -52,11 +52,6 @@ export function TermsDialog({
   }, [forceOpen]);
 
   async function handleAccept() {
-    if (!accepted) {
-      toast.error(t("Por favor marca a caixa confirmando que leste e aceitas os termos."));
-      return;
-    }
-
     saveTermsAccepted();
 
     try {
@@ -155,28 +150,26 @@ export function TermsDialog({
 
         {/* Footer */}
         <div className="mt-4 pt-3 border-t border-white/[0.06] shrink-0 space-y-3">
-          {!forceOpen && (
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
-                className="size-4 rounded border-white/20 bg-white/[0.06] text-white accent-white"
-              />
-              <span className="text-[13px] text-white/90 font-medium">
-                {t("Li e aceito os Termos e Condições e Políticas do GRIOT Mobile")}
-              </span>
-            </label>
-          )}
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={accepted}
+              onChange={(e) => setAccepted(e.target.checked)}
+              className="size-4 rounded border-white/20 bg-white/[0.06] text-white accent-white"
+            />
+            <span className="text-[13px] text-white/90 font-medium">
+              {t("Li e aceito os Termos e Condições e Políticas do GRIOT Mobile")}
+            </span>
+          </label>
 
           <button
             type="button"
-            onClick={forceOpen ? onClose : () => void handleAccept()}
-            disabled={!forceOpen && !accepted}
+            onClick={allowDismiss ? onClose : () => void handleAccept()}
+            disabled={!allowDismiss && !accepted}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-[14.5px] font-semibold text-black transition-transform active:scale-[0.98] disabled:opacity-30"
           >
             <Check className="size-4" />
-            {forceOpen ? t("Fechar") : t("Aceitar e Continuar")}
+            {allowDismiss ? t("Fechar") : t("Aceitar e Continuar")}
           </button>
         </div>
       </div>
