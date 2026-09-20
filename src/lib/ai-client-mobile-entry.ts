@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { GRIOT_SUPABASE_ANON_KEY, GRIOT_SUPABASE_URL } from "@/lib/griot-api";
+import { safeFetch } from "@/lib/connector-http";
 import type { ChatMessage, StreamCallbacks, AIResponse } from "./ai-client";
 import {
   GEMINI_TOOL_DECLARATIONS,
@@ -134,7 +135,7 @@ async function streamMobileQuickBackend(params: {
   });
 
   try {
-    const response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-quick/ask`, {
+    const response = await safeFetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-quick/ask`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -143,6 +144,7 @@ async function streamMobileQuickBackend(params: {
       },
       body: JSON.stringify(body),
       signal: safeSignal,
+      timeoutMs: 120000,
     });
 
     const rawText = await response.text();
@@ -283,7 +285,7 @@ async function streamMobileOrchestrator(params: {
   let response: Response;
   const startedAt = Date.now();
   try {
-    response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator-mobile`, {
+    response = await safeFetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator-mobile`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -292,6 +294,7 @@ async function streamMobileOrchestrator(params: {
       },
       body: JSON.stringify(body),
       signal: safeSignal,
+      timeoutMs: 120000,
     });
 
     console.log("[GRIOT_DEBUG] MOBILE_CANONICAL_AI_RESPONSE", {

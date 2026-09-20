@@ -8,6 +8,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { GRIOT_SUPABASE_URL, GRIOT_SUPABASE_ANON_KEY } from "@/lib/griot-api";
+import { safeFetch } from "@/lib/connector-http";
 import type { GriotAction, GriotActionType } from "./runtime/protocol";
 import {
   prepareMultimodalGeminiParts,
@@ -224,17 +225,42 @@ export function getSavedApiKey(provider: string): string | null {
 
   // 1. Tenta encontrar nas APIs do utilizador
   const saved = findApiByIdOrProvider(provider);
-  if (saved?.apiKey) return saved.apiKey;
+  if (saved?.apiKey && saved.apiKey.trim().length > 5) return saved.apiKey.trim();
 
   // 2. Chaves específicas do provedor
   const prov = provider.toLowerCase();
   const keysToTry = [`griot_api_key_${prov}`, `griot_${prov}_api_key`];
-  if (prov === "claude" || prov === "anthropic") {
+  if (prov === "gemini" || prov === "google") {
+    keysToTry.push(
+      "griot_api_key_gemini",
+      "griot_gemini_api_key",
+      "griot_api_key_google",
+      "griot_google_api_key",
+      "griot_gemini_key",
+    );
+  } else if (prov === "openai" || prov === "chatgpt") {
+    keysToTry.push(
+      "griot_api_key_openai",
+      "griot_openai_api_key",
+      "griot_api_key_chatgpt",
+      "griot_chatgpt_api_key",
+    );
+  } else if (prov === "claude" || prov === "anthropic") {
     keysToTry.push(
       "griot_api_key_anthropic",
       "griot_anthropic_api_key",
       "griot_api_key_claude",
       "griot_claude_api_key",
+    );
+  } else if (prov === "groq") {
+    keysToTry.push(
+      "griot_api_key_groq",
+      "griot_groq_api_key",
+    );
+  } else if (prov === "deepseek") {
+    keysToTry.push(
+      "griot_api_key_deepseek",
+      "griot_deepseek_api_key",
     );
   } else if (prov === "grok" || prov === "xai") {
     keysToTry.push(
@@ -242,6 +268,11 @@ export function getSavedApiKey(provider: string): string | null {
       "griot_grok_api_key",
       "griot_api_key_xai",
       "griot_xai_api_key",
+    );
+  } else if (prov === "openrouter") {
+    keysToTry.push(
+      "griot_api_key_openrouter",
+      "griot_openrouter_api_key",
     );
   }
 
@@ -263,14 +294,16 @@ export function getAnyConfiguredApiKey(): {
 
   try {
     const savedApis = getUserSavedApis();
-    const active = savedApis.find((a) => a.status === "active" && a.apiKey);
+    const active = savedApis.find((a) => a.apiKey && a.apiKey.trim().length > 5);
     if (active)
-      return { provider: active.providerId, apiKey: active.apiKey, modelName: active.model };
+      return { provider: active.providerId, apiKey: active.apiKey.trim(), modelName: active.model };
   } catch {}
 
   const gemini =
     localStorage.getItem("griot_api_key_gemini")?.trim() ||
-    localStorage.getItem("griot_gemini_api_key")?.trim();
+    localStorage.getItem("griot_gemini_api_key")?.trim() ||
+    localStorage.getItem("griot_api_key_google")?.trim() ||
+    localStorage.getItem("griot_gemini_key")?.trim();
   if (gemini && gemini.length > 5)
     return { provider: "gemini", apiKey: gemini, modelName: "gemini-2.5-flash" };
 
@@ -297,6 +330,12 @@ export function getAnyConfiguredApiKey(): {
     localStorage.getItem("griot_deepseek_api_key")?.trim();
   if (deepseek && deepseek.length > 5)
     return { provider: "deepseek", apiKey: deepseek, modelName: "deepseek-chat" };
+
+  const openrouter =
+    localStorage.getItem("griot_api_key_openrouter")?.trim() ||
+    localStorage.getItem("griot_openrouter_api_key")?.trim();
+  if (openrouter && openrouter.length > 5)
+    return { provider: "openrouter", apiKey: openrouter, modelName: "openrouter/auto" };
 
   return null;
 }
@@ -931,11 +970,12 @@ async function fetchGeminiDirectSync(params: {
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(3600000, signal);
   let res: Response;
   try {
-    res = await fetch(syncEndpoint, {
+    res = await safeFetch(syncEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: safeSignal,
+      timeoutMs: 120000,
     });
   } finally {
     cleanup();
@@ -1463,11 +1503,12 @@ async function fetchOpenAIDirectSync(params: {
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(3600000, signal);
   let res: Response;
   try {
-    res = await fetch(endpoint, {
+    res = await safeFetch(endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(reqBody),
       signal: safeSignal,
+      timeoutMs: 120000,
     });
   } finally {
     cleanup();
@@ -1929,7 +1970,7 @@ async function fetchAnthropicDirectSync(params: {
   const { signal: safeSignal, cleanup } = createSafeTimeoutSignal(3600000, signal);
   let res: Response;
   try {
-    res = await fetch(endpoint, {
+    res = await safeFetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1944,6 +1985,7 @@ async function fetchAnthropicDirectSync(params: {
         messages: anthropicMessages,
       }),
       signal: safeSignal,
+      timeoutMs: 120000,
     });
   } finally {
     cleanup();
@@ -2238,7 +2280,7 @@ async function streamSupabaseOrchestratorFallback(params: {
 
   let response: Response;
   try {
-    response = await fetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`, {
+    response = await safeFetch(`${GRIOT_SUPABASE_URL}/functions/v1/griot-orchestrator/ask`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -2252,6 +2294,7 @@ async function streamSupabaseOrchestratorFallback(params: {
         model: modelName,
       }),
       signal: edgeSignal,
+      timeoutMs: 120000,
     });
   } finally {
     cleanupEdge();

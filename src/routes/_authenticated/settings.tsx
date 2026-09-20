@@ -23,6 +23,7 @@ import {
 } from "@/lib/griot-api";
 import { saveUserApi } from "@/lib/user-apis";
 import { getSavedApiKey } from "@/lib/ai-client";
+import { safeFetch } from "@/lib/connector-http";
 import { useI18n, useT, labelFromLocale, localeFromLabel } from "@/lib/i18n";
 import { toast } from "sonner";
 import {
@@ -195,8 +196,9 @@ function SettingsPage() {
     try {
       // 1. Validação direta contra o endpoint oficial do Google Gemini
       try {
-        const testRes = await fetch(
+        const testRes = await safeFetch(
           `https://generativelanguage.googleapis.com/v1beta/models?key=${secret}`,
+          { timeoutMs: 15000 },
         );
         if (!testRes.ok) {
           const errBody = await testRes.json().catch(() => null);
@@ -972,8 +974,8 @@ function SettingsPage() {
       </Section>
 
       <Section title={t("Advanced")} note={t("Só se precisares")} Icon={Terminal}>
-        <InfoRow label={t("Versão da app")} value="1.0.68" />
-        <InfoRow label={t("Build")} value="Build 68 (Produção)" />
+        <InfoRow label={t("Versão da app")} value="1.0.69" />
+        <InfoRow label={t("Build")} value="Build 69 (Produção)" />
         <InfoRow label={t("Região / backend")} value="eu-central-1 (Supabase)" />
         <ActionRow label={t("Logs")} onClick={() => void navigate({ to: "/control" })} />
         <ActionRow

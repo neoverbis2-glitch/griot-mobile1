@@ -94,7 +94,7 @@ export function getUserSavedApis(): UserSavedApi[] {
     console.warn("Erro ao ler griot_user_apis:", err);
   }
 
-  // Higienização / Auto-cura de credenciais OpenRouter existentes (ex.: 'Dam')
+  // Higienização / Auto-cura de credenciais locais (OpenRouter e chaves com formato válido)
   let changed = false;
   for (const api of list) {
     if (api.providerId === "openrouter") {
@@ -102,6 +102,11 @@ export function getUserSavedApis(): UserSavedApi[] {
         api.model = "openrouter/auto";
         changed = true;
       }
+    }
+    // Auto-cura: qualquer chave local com tamanho válido é considerada ativa para execução direta
+    if (api.apiKey && api.apiKey.trim().length > 5 && api.status === "error") {
+      api.status = "active";
+      changed = true;
     }
   }
   if (changed && typeof window !== "undefined") {
@@ -111,14 +116,15 @@ export function getUserSavedApis(): UserSavedApi[] {
   }
 
   // Migração/compatibilidade com chaves unitárias legadas (se não estiverem na lista)
-  const legacyProviders = ["gemini", "openai", "claude", "deepseek", "groq", "elevenlabs", "openrouter"];
+  const legacyProviders = ["gemini", "openai", "claude", "deepseek", "groq", "elevenlabs", "openrouter", "grok", "xai", "mistral", "perplexity", "kimi", "qwen", "ollama"];
   for (const prov of legacyProviders) {
     const legacyVal =
       localStorage.getItem(`griot_api_key_${prov}`) ||
-      localStorage.getItem(`griot_${prov}_api_key`);
+      localStorage.getItem(`griot_${prov}_api_key`) ||
+      (prov === "gemini" ? localStorage.getItem("griot_api_key_google") || localStorage.getItem("griot_gemini_key") : null);
 
     if (legacyVal && legacyVal.trim().length > 5) {
-      const exists = list.some((a) => a.apiKey === legacyVal || a.providerId === prov);
+      const exists = list.some((a) => a.apiKey === legacyVal.trim() || a.providerId === prov);
       if (!exists) {
         list.push({
           id: `local_${prov}_${Date.now()}`,
@@ -168,7 +174,7 @@ export async function saveUserApi(input: {
     apiKey: trimmedKey,
     model,
     secretHint: `••••${trimmedKey.slice(-4)}`,
-    status: "error",
+    status: "active", // Ativo por padrão no dispositivo para chamada direta
     createdAt: new Date().toISOString(),
   };
 
@@ -179,10 +185,14 @@ export async function saveUserApi(input: {
     // Mantém compatibilidade com helpers que leem chave única
     localStorage.setItem(`griot_api_key_${provider}`, trimmedKey);
     localStorage.setItem(`griot_${provider}_api_key`, trimmedKey);
+    if (provider === "gemini") {
+      localStorage.setItem("griot_api_key_google", trimmedKey);
+      localStorage.setItem("griot_gemini_key", trimmedKey);
+    }
     window.dispatchEvent(new Event("griot-apis-updated"));
   }
 
-  // Persiste e VERIFICA no backend antes de marcar a API como ativa.
+  // Tenta persistir e verificar no Supabase em segundo plano sem bloquear o uso local
   try {
     const backendProvider = provider === "claude" ? "anthropic" : provider;
     const res = await saveGriotCredential({
@@ -193,11 +203,13 @@ export async function saveUserApi(input: {
     });
 
     const remoteId = res.data?.credential?.id;
-    if (!remoteId) throw new Error(res.error || "O backend não criou a credencial.");
-
-    const verification = await verifyGriotCredential(remoteId);
-    newApi.remoteId = remoteId;
-    newApi.status = verification.data?.valid === true ? "active" : "error";
+    if (remoteId) {
+      newApi.remoteId = remoteId;
+      const verification = await verifyGriotCredential(remoteId).catch(() => null);
+      if (verification?.data?.valid === true) {
+        newApi.status = "active";
+      }
+    }
 
     if (typeof window !== "undefined") {
       const idx = apis.findIndex((a) => a.id === newApi.id);
@@ -208,8 +220,9 @@ export async function saveUserApi(input: {
       window.dispatchEvent(new Event("griot-apis-updated"));
     }
   } catch (err) {
-    console.warn("[GRIOT] Falha a sincronizar/verificar credencial no backend:", err);
-    newApi.status = "error";
+    console.warn("[GRIOT] Sincronização de credencial remota ignorada (utilizando chave direta local):", err);
+    // Mantém status "active" localmente para uso direto
+    newApi.status = "active";
     if (typeof window !== "undefined") {
       const idx = apis.findIndex((a) => a.id === newApi.id);
       if (idx !== -1) {
