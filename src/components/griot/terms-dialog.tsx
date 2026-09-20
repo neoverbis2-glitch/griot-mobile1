@@ -21,9 +21,11 @@ export function saveTermsAccepted() {
 
 export function TermsDialog({
   forceOpen = false,
+  allowDismiss = false,
   onClose,
 }: {
   forceOpen?: boolean;
+  allowDismiss?: boolean;
   onClose?: () => void;
 }) {
   const t = useT();
@@ -38,10 +40,15 @@ export function TermsDialog({
       setOpen(true);
       return;
     }
-    const isAccepted = checkTermsAccepted();
-    if (!isAccepted) {
-      setOpen(true);
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/auth")) {
+      return;
     }
+    // Primeiro vem o Login; só exibe termos se já houver sessão autenticada real
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user && !checkTermsAccepted()) {
+        setOpen(true);
+      }
+    });
   }, [forceOpen]);
 
   async function handleAccept() {
@@ -102,7 +109,7 @@ export function TermsDialog({
               </p>
             </div>
           </div>
-          {forceOpen && onClose && (
+          {forceOpen && allowDismiss && onClose && (
             <button
               type="button"
               onClick={onClose}

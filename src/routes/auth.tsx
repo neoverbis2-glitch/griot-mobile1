@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { GriotMark } from "@/components/griot/logo";
 import { useT } from "@/lib/i18n";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Mail, Lock, User as UserIcon, Sparkles } from "lucide-react";
+import { TermsDialog, checkTermsAccepted } from "@/components/griot/terms-dialog";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -29,6 +30,20 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+
+  // Se o utilizador já tiver sessão válida no dispositivo, verifica os termos antes de avançar
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session?.user) {
+        if (!checkTermsAccepted()) {
+          setShowTerms(true);
+        } else {
+          void navigate({ to: "/home", replace: true });
+        }
+      }
+    });
+  }, [navigate]);
 
   async function handleAuth() {
     if (!email.trim()) {
@@ -90,7 +105,11 @@ function AuthPage() {
             });
           }
           toast.success(t("Conta criada com sucesso!"));
-          void navigate({ to: "/home" });
+          if (!checkTermsAccepted()) {
+            setShowTerms(true);
+          } else {
+            void navigate({ to: "/home" });
+          }
         } else {
           toast.info(t("Verifica o teu email para confirmar a conta."));
         }
@@ -123,7 +142,11 @@ function AuthPage() {
           }
         }
         toast.success(t("Sessão iniciada!"));
-        void navigate({ to: "/home" });
+        if (!checkTermsAccepted()) {
+          setShowTerms(true);
+        } else {
+          void navigate({ to: "/home" });
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -131,10 +154,6 @@ function AuthPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  function continueAsGuest() {
-    void navigate({ to: "/home" });
   }
 
   return (
@@ -233,13 +252,6 @@ function AuthPage() {
           {t("Entrar com o Google")}
         </button>
 
-        <button
-          onClick={continueAsGuest}
-          className="mt-2.5 w-full rounded-2xl border border-hairline py-3.5 text-[15.5px] font-medium transition-transform duration-200 active:scale-[0.98]"
-        >
-          {t("Continuar em modo local")}
-        </button>
-
         <div className="mt-6 flex flex-col gap-2 text-center text-[13.5px] text-muted-foreground">
           {mode === "signin" ? (
             <>
@@ -270,6 +282,17 @@ function AuthPage() {
           )}
         </div>
       </div>
+
+      {showTerms && (
+        <TermsDialog
+          forceOpen
+          allowDismiss={false}
+          onClose={() => {
+            setShowTerms(false);
+            void navigate({ to: "/home" });
+          }}
+        />
+      )}
     </div>
   );
 }

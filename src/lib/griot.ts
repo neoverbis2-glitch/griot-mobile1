@@ -8,28 +8,52 @@ export type ModelOption = {
   vendor?: string;
 };
 
+export const BASE_MODEL_ID = "base";
+export const SHEOL_MODEL_ID = "sheol";
 export const MODEL_OS_ID = "modelos";
+
+export function isBaseModel(id?: string): boolean {
+  if (!id) return false;
+  const lower = id.toLowerCase();
+  return (
+    lower === "base" ||
+    lower === "modelgpu" ||
+    lower === "modelgpu-base" ||
+    lower.includes("modelgpu")
+  );
+}
+
+export function isSheolModel(id?: string): boolean {
+  if (!id) return false;
+  const lower = id.toLowerCase();
+  return (
+    lower === "sheol" ||
+    lower === "griotgpu" ||
+    lower === "griotgpu-v2" ||
+    lower.includes("griotgpu")
+  );
+}
+
+export function isGpuModel(id?: string): boolean {
+  return isBaseModel(id) || isSheolModel(id);
+}
 
 // Não há modelos de exemplo hardcoded — apenas as APIs reais adicionadas pelo utilizador
 export const BASE_CHAT_MODELS: ModelOption[] = [];
 export const QUICK_CHAT_MODELS: ModelOption[] = [];
 
-// O GRIOT já não depende do ModelGPU RAL / Observer nativo — o modelo por defeito
-// passa a ser a primeira API real configurada pelo utilizador (ou vazio, se nenhuma
-// estiver configurada ainda, para forçar o ecrã de "adiciona a tua chave de API").
+// BASE (ModelGPU) e SHEOL (GriotGPU v2) estão sempre no topo da seleção
 export function getDefaultModel(): string {
-  const userApis = getUserSavedApis();
-  return userApis[0]?.id || "";
+  return BASE_MODEL_ID;
 }
 
 export const DEFAULT_MODEL = getDefaultModel();
 
-// Mantida por compatibilidade com a lógica de logo/etiqueta na UI (ex.: chat-surface.tsx),
-// que ainda distingue visualmente o antigo id "modelos" de outros. Já não é oferecida
-// como opção selecionável em getAvailableModels() nem ativa qualquer orquestração.
+// Mantida por compatibilidade com a lógica de logo/etiqueta na UI (ex.: chat-surface.tsx)
 export function isModelOS(id?: string): boolean {
   if (!id) return false;
   return (
+    isGpuModel(id) ||
     id === "modelos" ||
     id === "model-os" ||
     id === "ModelOS" ||
@@ -38,7 +62,20 @@ export function isModelOS(id?: string): boolean {
 }
 
 export function getAvailableModels(_prefs?: Record<string, unknown>): ModelOption[] {
-  const options: ModelOption[] = [];
+  const options: ModelOption[] = [
+    {
+      id: BASE_MODEL_ID,
+      label: "BASE",
+      hint: "ModelGPU · Cluster Cognitivo (Backend)",
+      vendor: "base",
+    },
+    {
+      id: SHEOL_MODEL_ID,
+      label: "SHEOL",
+      hint: "GriotGPU v2 · Síntese Profunda (Backend)",
+      vendor: "sheol",
+    },
+  ];
 
   const userApis = getUserSavedApis();
   for (const api of userApis) {
@@ -54,7 +91,9 @@ export function getAvailableModels(_prefs?: Record<string, unknown>): ModelOptio
 }
 
 export function modelLabel(id: string) {
-  if (!id) return "Selecionar API";
+  if (!id) return "BASE";
+  if (isBaseModel(id)) return "BASE";
+  if (isSheolModel(id)) return "SHEOL";
   if (isModelOS(id)) return "ModelOS";
 
   const userApis = getUserSavedApis();

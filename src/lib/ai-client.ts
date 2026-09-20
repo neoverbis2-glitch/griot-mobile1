@@ -391,6 +391,42 @@ export function resolveProviderAndModel(modelId: string): {
   }
 
   const m = modelId.toLowerCase();
+  if (
+    m === "base" ||
+    m === "modelgpu" ||
+    m === "modelgpu-base" ||
+    m.includes("modelgpu")
+  ) {
+    const anyKey = getAnyConfiguredApiKey();
+    if (anyKey) {
+      return {
+        provider: anyKey.provider,
+        modelName:
+          anyKey.modelName ||
+          (anyKey.provider === "gemini" ? "gemini-flash-latest" : "gpt-4o"),
+        specificApiKey: anyKey.apiKey,
+      };
+    }
+    return { provider: "gemini", modelName: "gemini-3.6-flash" };
+  }
+  if (
+    m === "sheol" ||
+    m === "griotgpu" ||
+    m === "griotgpu-v2" ||
+    m.includes("griotgpu")
+  ) {
+    const anyKey = getAnyConfiguredApiKey();
+    if (anyKey) {
+      return {
+        provider: anyKey.provider,
+        modelName:
+          anyKey.modelName ||
+          (anyKey.provider === "gemini" ? "gemini-flash-latest" : "gpt-4o"),
+        specificApiKey: anyKey.apiKey,
+      };
+    }
+    return { provider: "gemini", modelName: "gemini-3.6-flash" };
+  }
   if (m === "modelos" || m === "model-os" || m.includes("modelos")) {
     const anyKey = getAnyConfiguredApiKey();
     if (anyKey) {

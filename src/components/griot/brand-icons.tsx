@@ -1952,7 +1952,16 @@ export function ElevenLabsAiLogo({ className = "size-5", ...props }: IconProps) 
 export function getAiLogo(providerId?: string) {
   if (!providerId) return GriotAiLogo;
   const p = providerId.toLowerCase();
-  if (p.includes("modelos") || p.includes("griot")) return GriotAiLogo;
+  if (
+    p === "base" ||
+    p === "sheol" ||
+    p.includes("modelgpu") ||
+    p.includes("griotgpu") ||
+    p.includes("modelos") ||
+    p.includes("griot")
+  ) {
+    return GriotAiLogo;
+  }
   if (p.includes("openrouter")) return OpenRouterAiLogo;
   if (p.includes("elevenlabs") || p.includes("eleven")) return ElevenLabsAiLogo;
   if (p.includes("gemini") || p.includes("google")) return GeminiAiLogo;
@@ -1974,6 +1983,8 @@ export function getAiLogo(providerId?: string) {
 export function getModelDisplayName(modelId?: string): string {
   if (!modelId) return "GRIOT AI";
   const m = modelId.toLowerCase();
+  if (m === "base" || m === "modelgpu" || m.includes("modelgpu")) return "BASE";
+  if (m === "sheol" || m === "griotgpu" || m.includes("griotgpu")) return "SHEOL";
   if (m.includes("gpt-4o-mini")) return "GPT-4o Mini";
   if (m.includes("gpt-4o")) return "GPT-4o";
   if (m.includes("gpt-4-turbo")) return "GPT-4 Turbo";

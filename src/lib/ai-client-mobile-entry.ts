@@ -15,6 +15,8 @@ import {
   sanitizeAnthropicMessagesMultimodal,
   streamDirectAI as streamCoreDirectAI,
 } from "./ai-client";
+import { getUserSavedApis } from "@/lib/user-apis";
+import { isBaseModel, isSheolModel, isGpuModel } from "@/lib/griot";
 
 export type { ChatMessage, StreamCallbacks, AIResponse };
 export {
@@ -368,6 +370,109 @@ async function streamMobileOrchestrator(params: {
   }
 }
 
+/**
+ * Motor cognitivo para os modelos de topo BASE (ModelGPU) e SHEOL (GriotGPU v2)
+ * - Com > 3 modelos conectados: ativa modo de deliberação / síntese do cluster multi-modelo
+ * - Com 1 modelo conectado: "ele vai tipo sabe? fazer aquilo" (executa no modelo ativo com diretrizes do núcleo virtual)
+ * - Com 0 modelos locais: conecta ao backend Supabase Edge Function (griot-orchestrator-mobile)
+ */
+async function streamGpuModel(params: {
+  modelId: string;
+  messages: ChatMessage[];
+  systemInstruction?: string;
+  callbacks?: StreamCallbacks;
+  signal?: AbortSignal;
+}): Promise<AIResponse> {
+  const isBase = isBaseModel(params.modelId);
+  const displayName = isBase ? "BASE" : "SHEOL";
+  const userApis = getUserSavedApis().filter(
+    (a) => a.status === "active" && a.apiKey && a.apiKey.trim().length > 5,
+  );
+
+  // CASO 1: MAIS DE 3 MODELOS CONECTADOS (>= 3 modelos)
+  // Ativa o consenso e deliberação cognitiva do cluster ModelGPU / GriotGPU v2
+  if (userApis.length >= 3) {
+    callbacks?.onReasoning?.(
+      `\n[GRIOT ${displayName} · CLUSTER ATIVO (${userApis.length} NÚCLEOS CONECTADOS)]\nA consultar nós cognitivos em paralelo...\n`,
+    );
+
+    const selectedEngines = userApis.slice(0, 3);
+    const subQueries = await Promise.allSettled(
+      selectedEngines.map(async (engine) => {
+        return streamCoreDirectAI({
+          modelId: engine.id,
+          messages: params.messages,
+          systemInstruction: `És um nó cognitivo do cluster GRIOT ${displayName} (${engine.label}). Dá o teu raciocínio direto e conclusões essenciais com clareza máxima.`,
+          signal: params.signal,
+        });
+      }),
+    );
+
+    const successfulResults = subQueries
+      .filter((r): r is PromiseFulfilledResult<AIResponse> => r.status === "fulfilled" && !!r.value.text)
+      .map((r) => r.value);
+
+    if (successfulResults.length >= 2) {
+      callbacks?.onReasoning?.(
+        `\n[GRIOT ${displayName} · SÍNTESE DO CLUSTER]\n${successfulResults.length} nós responderam. A consolidar síntese final...\n`,
+      );
+
+      const synthesisPrompt =
+        `[GRIOT ${displayName} · SÍNTESE DO CLUSTER]\nForam consultados ${successfulResults.length} núcleos com sucesso:\n\n` +
+        successfulResults
+          .map((res, i) => `=== NÚCLEO ${i + 1} (${selectedEngines[i]?.label || "Motor"}) ===\n${res.text}`)
+          .join("\n\n") +
+        `\n\nCom base nas perspetivas acima, sintetiza a resposta final definitiva, robusta e diretamente acionável para o utilizador.`;
+
+      const primaryEngine = userApis[0];
+      return streamCoreDirectAI({
+        modelId: primaryEngine.id,
+        messages: [{ role: "user", content: synthesisPrompt }],
+        systemInstruction: params.systemInstruction,
+        callbacks: params.callbacks,
+        signal: params.signal,
+      });
+    }
+  }
+
+  // CASO 2: APENAS 1 MODELO CONECTADO (ou < 3 modelos)
+  // "mas calma, se um só estiver conectado, ele vai tipo sabe? fazer aquilo"
+  if (userApis.length >= 1) {
+    const singleEngine = userApis[0];
+    callbacks?.onReasoning?.(
+      `\n[GRIOT ${displayName} · MODO ADAPTATIVO (NÚCLEO: ${singleEngine.label})]\n`,
+    );
+
+    const enrichedInstruction = [
+      params.systemInstruction || "",
+      `[GRIOT ${displayName} COGNITIVE RUNTIME]`,
+      isBase
+        ? "Atua como motor central de computação cognitiva do GRIOT, raciocínio de alta precisão e execução estruturada."
+        : "Atua como GriotGPU v2: síntese analítica profunda, arquitetura avançada e rigor técnico.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    return streamCoreDirectAI({
+      modelId: singleEngine.id,
+      messages: params.messages,
+      systemInstruction: enrichedInstruction,
+      callbacks: params.callbacks,
+      signal: params.signal,
+    });
+  }
+
+  // CASO 3: NENHUMA API LOCAL CONFIGURADA
+  // Conecta ao backend real (griot-orchestrator-mobile) usando o token Supabase do utilizador
+  callbacks?.onReasoning?.(
+    `\n[GRIOT ${displayName} · CONEXÃO BACKEND ORQUESTRADOR]\n`,
+  );
+  return streamMobileOrchestrator({
+    ...params,
+    modelId: isBase ? "modelgpu-base" : "griotgpu-v2",
+  });
+}
+
 export async function streamDirectAI(params: {
   modelId: string;
   messages: ChatMessage[];
@@ -376,6 +481,11 @@ export async function streamDirectAI(params: {
   signal?: AbortSignal;
   executionMode?: "quick" | "orchestrated";
 }): Promise<AIResponse> {
+  // Se for o modelo BASE (ModelGPU) ou SHEOL (GriotGPU v2)
+  if (isGpuModel(params.modelId)) {
+    return streamGpuModel(params);
+  }
+
   const resolved = resolveProviderAndModel(params.modelId);
   const directKey =
     resolved.specificApiKey || getSavedApiKey(resolved.provider) || getAnyConfiguredApiKey();
