@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as OauthCallbackRouteImport } from './routes/oauth-callback'
 import { Route as AuthenticatedCaptureRouteImport } from './routes/_authenticated/capture'
 import { Route as AuthenticatedChatRouteImport } from './routes/_authenticated/chat'
 import { Route as AuthenticatedControlRouteImport } from './routes/_authenticated/control'
@@ -39,6 +40,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthCallbackRoute = OauthCallbackRouteImport.update({
+  id: '/oauth-callback',
+  path: '/oauth-callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedCaptureRoute = AuthenticatedCaptureRouteImport.update({
@@ -118,6 +124,7 @@ const ApiRuntimeExecuteRoute = ApiRuntimeExecuteRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/oauth-callback': typeof OauthCallbackRoute
   '/capture': typeof AuthenticatedCaptureRoute
   '/chat': typeof AuthenticatedChatRoute
   '/control': typeof AuthenticatedControlRoute
@@ -136,6 +143,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/oauth-callback': typeof OauthCallbackRoute
   '/capture': typeof AuthenticatedCaptureRoute
   '/chat': typeof AuthenticatedChatRoute
   '/control': typeof AuthenticatedControlRoute
@@ -156,6 +164,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/oauth-callback': typeof OauthCallbackRoute
   '/_authenticated/capture': typeof AuthenticatedCaptureRoute
   '/_authenticated/chat': typeof AuthenticatedChatRoute
   '/_authenticated/control': typeof AuthenticatedControlRoute
@@ -176,6 +185,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/oauth-callback'
     | '/capture'
     | '/chat'
     | '/control'
@@ -194,6 +204,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/oauth-callback'
     | '/capture'
     | '/chat'
     | '/control'
@@ -213,6 +224,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/oauth-callback'
     | '/_authenticated/capture'
     | '/_authenticated/chat'
     | '/_authenticated/control'
@@ -233,6 +245,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  OauthCallbackRoute: typeof OauthCallbackRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiPluginRoute: typeof ApiPluginRoute
   ApiSttRoute: typeof ApiSttRoute
@@ -262,6 +275,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth-callback': {
+      id: '/oauth-callback'
+      path: '/oauth-callback'
+      fullPath: '/oauth-callback'
+      preLoaderRoute: typeof OauthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/capture': {
@@ -394,6 +414,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  OauthCallbackRoute: OauthCallbackRoute,
   ApiChatRoute: ApiChatRoute,
   ApiPluginRoute: ApiPluginRoute,
   ApiSttRoute: ApiSttRoute,

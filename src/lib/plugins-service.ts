@@ -17,6 +17,10 @@ export interface PluginDefinition {
   authType: "api_key" | "token" | "oauth" | "webhook";
   placeholder: string;
   docsUrl: string;
+  supportsOAuth?: boolean;
+  oauthProvider?: string;
+  oauthScopes?: string[];
+  advancedCapabilities?: string[];
 }
 
 export interface PluginCredential {
@@ -30,6 +34,10 @@ export interface PluginCredential {
   isPrimary: boolean;
   status: "active" | "revoked" | "pending";
   remoteCredentialId?: string;
+  authMethod?: "oauth" | "api_key" | "token";
+  oauthScopes?: string[];
+  avatarUrl?: string;
+  username?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,6 +69,10 @@ export interface ConnectedPluginData {
   verifiedAt?: string;
   validationStatus?: "verified" | "unverified" | "error";
   validationMessage?: string;
+  authMethod?: "oauth" | "api_key" | "token";
+  oauthScopes?: string[];
+  avatarUrl?: string;
+  username?: string;
 }
 
 const STORAGE_KEY = "griot_connected_plugins";
@@ -79,6 +91,15 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "ghp_...",
     docsUrl: "https://github.com/settings/tokens",
+    supportsOAuth: true,
+    oauthProvider: "github",
+    oauthScopes: ["repo", "read:user", "user:email", "workflow", "read:org", "gist"],
+    advancedCapabilities: [
+      "Commit e escrita direta de ficheiros e branches",
+      "Criação e aprovação de Pull Requests",
+      "Execução de workflows do GitHub Actions",
+      "Acesso seguro a repositórios privados da organização",
+    ],
   },
   {
     id: "gitlab",
@@ -90,6 +111,13 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "glpat-...",
     docsUrl: "https://gitlab.com/-/profile/personal_access_tokens",
+    supportsOAuth: true,
+    oauthProvider: "gitlab",
+    oauthScopes: ["api", "read_user", "read_repository", "write_repository"],
+    advancedCapabilities: [
+      "Gestão de Merge Requests e pipelines CI/CD",
+      "Push de commits em branches e repositórios",
+    ],
   },
   {
     id: "vercel",
@@ -101,6 +129,15 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "vercel_token_...",
     docsUrl: "https://vercel.com/account/tokens",
+    supportsOAuth: true,
+    oauthProvider: "vercel",
+    oauthScopes: ["deployments", "projects", "domains", "env"],
+    advancedCapabilities: [
+      "Deployments instantâneos de projetos e pré-visualizações",
+      "Gestão de variáveis de ambiente e segredos de produção",
+      "Configuração de domínios personalizados e SSL",
+      "Inspeção de logs de build e status de runtime",
+    ],
   },
   {
     id: "supabase",
@@ -112,6 +149,15 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "sbp_... ou service_role token",
     docsUrl: "https://supabase.com/dashboard/account/tokens",
+    supportsOAuth: true,
+    oauthProvider: "supabase",
+    oauthScopes: ["all"],
+    advancedCapabilities: [
+      "Execução direta de queries SQL PostgreSQL",
+      "Autodeteção de esquemas e tabelas de dados",
+      "Gestão de Storage e Edge Functions",
+      "Sincronização de projetos ativos da organização",
+    ],
   },
   {
     id: "firebase",
@@ -123,6 +169,18 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "AIza... ou Bearer token (Account ID = project-id)",
     docsUrl: "https://console.firebase.google.com",
+    supportsOAuth: true,
+    oauthProvider: "google",
+    oauthScopes: [
+      "https://www.googleapis.com/auth/cloud-platform",
+      "https://www.googleapis.com/auth/datastore",
+    ],
+    advancedCapabilities: [
+      "Acesso e queries diretas ao Cloud Firestore",
+      "Autenticação e regras de segurança de utilizadores",
+      "Sincronização em tempo real de coleções e documentos",
+      "Acesso aos serviços de Cloud Storage e Hosting",
+    ],
   },
 
   // ==========================================
@@ -138,6 +196,13 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "Bot Token ou Webhook URL...",
     docsUrl: "https://discord.com/developers/docs",
+    supportsOAuth: true,
+    oauthProvider: "discord",
+    oauthScopes: ["identify", "email", "guilds", "bot", "messages.read"],
+    advancedCapabilities: [
+      "Envio de alertas e relatórios em canais do servidor",
+      "Interação com canais de texto e threads",
+    ],
   },
   {
     id: "slack",
@@ -149,6 +214,13 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "webhook",
     placeholder: "xoxb-... ou Webhook URL https://hooks.slack.com/...",
     docsUrl: "https://api.slack.com/apps",
+    supportsOAuth: true,
+    oauthProvider: "slack",
+    oauthScopes: ["channels:read", "chat:write", "chat:write.public", "users:read"],
+    advancedCapabilities: [
+      "Notificações interativas em canais de equipa",
+      "Alertas automáticos de status de deploys e erros",
+    ],
   },
   {
     id: "telegram",
@@ -160,6 +232,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "Bot Token (123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11)...",
     docsUrl: "https://core.telegram.org/bots/api",
+    advancedCapabilities: [
+      "Envio de alertas, relatórios e notificações em canais e grupos",
+      "Upload e envio de ficheiros, documentos e imagens",
+      "Interação com utilizadores e processamento de comandos de bots",
+    ],
   },
   {
     id: "twilio",
@@ -171,6 +248,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "Auth Token (Account SID no campo de Conta)...",
     docsUrl: "https://www.twilio.com/console",
+    advancedCapabilities: [
+      "Envio de SMS global para telemóveis em mais de 180 países",
+      "Mensagens interativas via WhatsApp Business API",
+      "Verificação de números e envio de códigos OTP/2FA",
+    ],
   },
   {
     id: "resend",
@@ -182,6 +264,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "re_...",
     docsUrl: "https://resend.com/api-keys",
+    advancedCapabilities: [
+      "Envio de emails transacionais com templates HTML modernos",
+      "Anexação de relatórios, faturas e ficheiros gerados",
+      "Verificação de status de entrega e reputação de domínios",
+    ],
   },
 
   // ==========================================
@@ -197,6 +284,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "neon_api_key_... ou postgres://...",
     docsUrl: "https://console.neon.tech/app/settings/api-keys",
+    advancedCapabilities: [
+      "Execução de queries SQL completas (SELECT, INSERT, UPDATE, DDL)",
+      "Branching instantâneo de bases de dados para desenvolvimento",
+      "Inspeção de tabelas, índices e esquemas relacionais",
+    ],
   },
   {
     id: "redis",
@@ -208,6 +300,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "UPSTASH_REDIS_REST_TOKEN ou redis://...",
     docsUrl: "https://console.upstash.com",
+    advancedCapabilities: [
+      "Comandos Redis de alta velocidade via REST (GET, SET, DEL, EXPIRE)",
+      "Caching distribuído de contexto e sessões de agentes",
+      "Filas de tarefas e pub/sub de baixa latência",
+    ],
   },
   {
     id: "mongodb",
@@ -219,6 +316,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "Chave pública/privada Atlas ou URI...",
     docsUrl: "https://cloud.mongodb.com",
+    advancedCapabilities: [
+      "Consultas NoSQL em coleções MongoDB Atlas",
+      "Inserção, atualização e agregação de documentos BSON/JSON",
+      "Gestão de índices e pipelines de agregação",
+    ],
   },
   {
     id: "airtable",
@@ -230,6 +332,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "pat...",
     docsUrl: "https://airtable.com/create/tokens",
+    supportsOAuth: true,
+    oauthProvider: "airtable",
+    oauthScopes: ["data.records:read", "data.records:write", "schema.bases:read"],
+    advancedCapabilities: [
+      "Leitura e escrita de registos tabulares em tempo real",
+      "Criação de novos campos e inspeção de esquemas de bases",
+      "Filtragem e ordenação avançada com visualizações Airtable",
+    ],
   },
   {
     id: "pinecone",
@@ -241,6 +351,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "pcsk_... (Host no campo de Endpoint)...",
     docsUrl: "https://app.pinecone.io",
+    advancedCapabilities: [
+      "Upsert de vetores e metadados para RAG semântico",
+      "Pesquisa por similaridade de cosseno e produto escalar",
+      "Filtragem contextual sobre vetores de embeddings",
+    ],
   },
 
   // ==========================================
@@ -256,6 +371,13 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "secret_...",
     docsUrl: "https://www.notion.so/my-integrations",
+    supportsOAuth: true,
+    oauthProvider: "notion",
+    oauthScopes: ["read_content", "update_content", "insert_content"],
+    advancedCapabilities: [
+      "Criação e atualização de páginas e blocos Notion",
+      "Consultas avançadas em bases de dados relacionais",
+    ],
   },
   {
     id: "google_drive",
@@ -267,6 +389,18 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "OAuth Access Token / Service Account...",
     docsUrl: "https://console.cloud.google.com",
+    supportsOAuth: true,
+    oauthProvider: "google",
+    oauthScopes: [
+      "https://www.googleapis.com/auth/drive",
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/userinfo.email",
+    ],
+    advancedCapabilities: [
+      "Pesquisa profunda em pastas e ficheiros do Google Drive",
+      "Criação de novos ficheiros e leitura de conteúdo",
+      "Integração bidirecional com Google Workspace",
+    ],
   },
   {
     id: "trello",
@@ -278,6 +412,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "Trello API Key + Token...",
     docsUrl: "https://trello.com/power-ups/admin",
+    supportsOAuth: true,
+    oauthProvider: "trello",
+    oauthScopes: ["read", "write", "account"],
+    advancedCapabilities: [
+      "Criação e movimentação de cartões em quadros Kanban",
+      "Gestão de listas de tarefas, checklists e prazos de entrega",
+      "Comentários e atribuição automática de membros de equipa",
+    ],
   },
   {
     id: "jira",
@@ -289,6 +431,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "API Token Jira (Domínio/Conta no campo de Conta)...",
     docsUrl: "https://id.atlassian.com/manage-profile/security/api-tokens",
+    supportsOAuth: true,
+    oauthProvider: "jira",
+    oauthScopes: ["read:jira-work", "write:jira-work", "read:jira-user"],
+    advancedCapabilities: [
+      "Consultas JQL avançadas para filtragem de tarefas e bugs",
+      "Criação, transição de status e fecho de issues ágeis",
+      "Atribuição de responsáveis e acompanhamento de sprints",
+    ],
   },
   {
     id: "linear",
@@ -300,6 +450,13 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "lin_api_...",
     docsUrl: "https://linear.app/settings/api",
+    supportsOAuth: true,
+    oauthProvider: "linear",
+    oauthScopes: ["read", "write", "issues:create"],
+    advancedCapabilities: [
+      "Abertura automática de bugs e tarefas de desenvolvimento",
+      "Sincronização de ciclos, roadmaps e status de issues",
+    ],
   },
 
   // ==========================================
@@ -315,6 +472,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "AWS Secret Key (Access Key ID no campo de Conta)...",
     docsUrl: "https://aws.amazon.com/console",
+    advancedCapabilities: [
+      "Listagem e gestão de ficheiros e permissões em buckets S3",
+      "Invocação e monitorização de funções serverless AWS Lambda",
+      "Consulta de métricas e alarmes no Amazon CloudWatch",
+    ],
   },
   {
     id: "cloudflare",
@@ -326,6 +488,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "Bearer token de API...",
     docsUrl: "https://dash.cloudflare.com/profile/api-tokens",
+    supportsOAuth: true,
+    oauthProvider: "cloudflare",
+    oauthScopes: ["Account:Read", "Workers:Write", "Zone:Read", "DNS:Edit"],
+    advancedCapabilities: [
+      "Gestão de registos DNS e roteamento global de domínios",
+      "Deploy e execução de scripts serverless Cloudflare Workers",
+      "Purge instantâneo de cache de CDN e proteção DDoS",
+    ],
   },
   {
     id: "digitalocean",
@@ -337,6 +507,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "dop_v1_...",
     docsUrl: "https://cloud.digitalocean.com/account/api/tokens",
+    supportsOAuth: true,
+    oauthProvider: "digitalocean",
+    oauthScopes: ["read", "write"],
+    advancedCapabilities: [
+      "Gestão e reinicialização de instâncias e Droplets VPS",
+      "Deploy e escalonamento na DigitalOcean App Platform",
+      "Inspeção de recursos de rede, load balancers e volumes",
+    ],
   },
   {
     id: "huggingface",
@@ -348,6 +526,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "hf_...",
     docsUrl: "https://huggingface.co/settings/tokens",
+    supportsOAuth: true,
+    oauthProvider: "huggingface",
+    oauthScopes: ["read", "write", "inference-api"],
+    advancedCapabilities: [
+      "Inferência direta em milhares de modelos open-source",
+      "Pesquisa de modelos de NLP, visão computacional e áudio",
+      "Inspeção de metadados de datasets e repositórios Spaces",
+    ],
   },
   {
     id: "dockerhub",
@@ -359,6 +545,11 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "dckr_pat_...",
     docsUrl: "https://hub.docker.com/settings/security",
+    advancedCapabilities: [
+      "Inspeção de repositórios de imagens e tags Docker públicas e privadas",
+      "Acompanhamento de builds automáticos e webhooks de container",
+      "Verificação de vulnerabilidades de segurança e camadas de imagem",
+    ],
   },
 
   // ==========================================
@@ -374,6 +565,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "rk_live_... ou sk_test_...",
     docsUrl: "https://dashboard.stripe.com/apikeys",
+    supportsOAuth: true,
+    oauthProvider: "stripe",
+    oauthScopes: ["read_write"],
+    advancedCapabilities: [
+      "Consulta de saldo real, pagamentos e cobranças recentes",
+      "Criação de clientes e sessões de Stripe Checkout",
+      "Gestão de planos, faturas e subscrições recorrentes",
+    ],
   },
   {
     id: "shopify",
@@ -385,6 +584,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "shpat_... (Subdomínio da loja no campo de Conta)...",
     docsUrl: "https://help.shopify.com/manual/apps/custom-apps",
+    supportsOAuth: true,
+    oauthProvider: "shopify",
+    oauthScopes: ["read_products", "write_products", "read_orders"],
+    advancedCapabilities: [
+      "Consulta e atualização de inventário de produtos e variantes",
+      "Processamento e inspeção de encomendas de clientes",
+      "Criação de novos produtos e gestão de coleções da loja",
+    ],
   },
   {
     id: "google_analytics",
@@ -396,6 +603,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "ID de medição (G-...) ou API Secret...",
     docsUrl: "https://analytics.google.com",
+    supportsOAuth: true,
+    oauthProvider: "google",
+    oauthScopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+    advancedCapabilities: [
+      "Relatórios de tráfego, sessões ativas e páginas mais visitadas",
+      "Taxas de conversão e eventos personalizados em tempo real",
+      "Comparativos temporais e métricas de retenção de utilizadores",
+    ],
   },
   {
     id: "posthog",
@@ -407,6 +622,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "api_key",
     placeholder: "phx_... ou chave de projeto...",
     docsUrl: "https://app.posthog.com/project/settings",
+    supportsOAuth: true,
+    oauthProvider: "posthog",
+    oauthScopes: ["user:read", "project:read"],
+    advancedCapabilities: [
+      "Captura e inspeção de eventos de telemetria de produto",
+      "Consulta e ativação/desativação de Feature Flags",
+      "Análise de funis de conversão e comportamento de utilizadores",
+    ],
   },
   {
     id: "sentry",
@@ -419,6 +642,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "sntrys_...",
     docsUrl: "https://sentry.io/settings/account/api/auth-tokens/",
+    supportsOAuth: true,
+    oauthProvider: "sentry",
+    oauthScopes: ["project:read", "project:write", "event:read", "org:read"],
+    advancedCapabilities: [
+      "Rastreio em tempo real de exceções e erros de produção",
+      "Inspeção de stacktraces detalhados e contexto de utilizadores",
+      "Resolução e atribuição automática de issues aos devs",
+    ],
   },
 
   // Conectores Adicionais / Compatibilidade
@@ -432,6 +663,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "Google Sheets API Token...",
     docsUrl: "https://developers.google.com/sheets/api",
+    supportsOAuth: true,
+    oauthProvider: "google",
+    oauthScopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    advancedCapabilities: [
+      "Leitura e inserção de linhas em tabelas de cálculo em tempo real",
+      "Geração automática de relatórios formatados em Google Sheets",
+      "Cálculo de fórmulas e sincronização de dados tabulares",
+    ],
   },
   {
     id: "figma",
@@ -443,6 +682,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "figd_...",
     docsUrl: "https://www.figma.com/developers/api#access-tokens",
+    supportsOAuth: true,
+    oauthProvider: "figma",
+    oauthScopes: ["files:read", "file_comments:write"],
+    advancedCapabilities: [
+      "Inspeção de ficheiros de design e árvores de componentes",
+      "Extração de tokens visuais (cores, tipografia, espaçamentos)",
+      "Exportação de assets em PNG/SVG para projetos dos agentes",
+    ],
   },
   {
     id: "canva",
@@ -454,6 +701,14 @@ export const PLUGINS_LIST: PluginDefinition[] = [
     authType: "token",
     placeholder: "Canva Connect API Key...",
     docsUrl: "https://www.canva.com/developers/",
+    supportsOAuth: true,
+    oauthProvider: "canva",
+    oauthScopes: ["asset:read", "asset:write", "design:content:read"],
+    advancedCapabilities: [
+      "Exportação de designs e artes em alta resolução",
+      "Gestão de assets visuais, logótipos e imagens da marca",
+      "Geração de artes promocionais a partir de templates",
+    ],
   },
 ];
 
@@ -533,7 +788,7 @@ export function resolveActivePluginCredentials(pluginId: string): {
     map[norm] ||
     map[pluginId] ||
     Object.values(map).find(
-      (p) => p.id === norm || p.id.toLowerCase() === norm || p.id === pluginId
+      (p) => p.id === norm || p.id.toLowerCase() === norm || p.id === pluginId,
     );
 
   if (!plugin || !plugin.connected) {
@@ -543,25 +798,14 @@ export function resolveActivePluginCredentials(pluginId: string): {
   const creds = normalizePluginCredentials(plugin);
   const primary = creds.find((c) => c.isPrimary) || creds[0];
 
-  const apiKey =
-    primary?.apiKey?.trim() ||
-    plugin.apiKey?.trim() ||
-    "";
+  const apiKey = primary?.apiKey?.trim() || plugin.apiKey?.trim() || "";
 
-  const accountName =
-    primary?.accountName?.trim() ||
-    plugin.accountName?.trim() ||
-    undefined;
+  const accountName = primary?.accountName?.trim() || plugin.accountName?.trim() || undefined;
 
-  const projectRef =
-    primary?.projectRef?.trim() ||
-    plugin.projectRef?.trim() ||
-    accountName;
+  const projectRef = primary?.projectRef?.trim() || plugin.projectRef?.trim() || accountName;
 
   const customEndpoint =
-    primary?.customEndpoint?.trim() ||
-    plugin.customEndpoint?.trim() ||
-    undefined;
+    primary?.customEndpoint?.trim() || plugin.customEndpoint?.trim() || undefined;
 
   return {
     apiKey,
@@ -586,6 +830,10 @@ export async function connectPluginUnified(
     validationStatus?: "verified" | "unverified" | "error";
     validationMessage?: string;
     isPrimary?: boolean;
+    authMethod?: "oauth" | "api_key" | "token";
+    oauthScopes?: string[];
+    avatarUrl?: string;
+    username?: string;
   },
 ): Promise<{ remoteId?: string; status: "active" | "pending" | "error"; error?: string }> {
   if (typeof window === "undefined") {
@@ -615,13 +863,19 @@ export async function connectPluginUnified(
   const newCred: PluginCredential = {
     id: newCredentialId,
     label,
-    accountName: data?.accountName?.trim() || undefined,
+    accountName: data?.accountName?.trim() || data?.username?.trim() || undefined,
     secretHint: hint,
     apiKey: trimmed,
     customEndpoint: data?.customEndpoint?.trim() || undefined,
     projectRef: data?.projectRef?.trim() || undefined,
     isPrimary,
     status: "active",
+    authMethod:
+      data?.authMethod ||
+      (trimmed.startsWith("ghp_") || trimmed.startsWith("glpat-") ? "token" : "api_key"),
+    oauthScopes: data?.oauthScopes,
+    avatarUrl: data?.avatarUrl,
+    username: data?.username || data?.accountName,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -646,6 +900,10 @@ export async function connectPluginUnified(
     validationStatus: data?.validationStatus || "verified",
     validationMessage: data?.validationMessage,
     secretHint: primaryCred?.secretHint || hint,
+    authMethod: data?.authMethod || primaryCred?.authMethod,
+    oauthScopes: data?.oauthScopes || primaryCred?.oauthScopes,
+    avatarUrl: data?.avatarUrl || primaryCred?.avatarUrl,
+    username: data?.username || primaryCred?.username,
   };
 
   try {
@@ -1139,6 +1397,50 @@ Nenhum conector externo está autenticado no momento. Se o utilizador solicitar 
       prompt += `• 🚨 **SENTRY**: CONECTADO E VALIDADO!\n`;
       prompt += `  - Chamada Semântica: <connector_action connector="sentry" action="sentry.issues.list" params='{"project":"..."}' />\n`;
       prompt += `  - Ações suportadas: sentry.issues.list, sentry.issues.get_stacktrace, sentry.issues.resolve\n\n`;
+    } else if (cp.id === "slack") {
+      prompt += `• 💬 **SLACK**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="slack" action="messages.send" params='{"channel":"#geral","text":"Mensagem via GRIOT"}' />\n`;
+      prompt += `  - Ações suportadas: messages.send, chat.postMessage, channels.list, users.list, team.info\n\n`;
+    } else if (cp.id === "trello") {
+      prompt += `• 📋 **TRELLO**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="trello" action="boards.list" params='{}' />\n`;
+      prompt += `  - Ações suportadas: boards.list, cards.create, cards.get, lists.get, members.me\n\n`;
+    } else if (cp.id === "jira") {
+      prompt += `• 🎯 **JIRA SOFTWARE**: CONECTADO E VALIDADO! (Domínio: ${cp.accountName || "configurado"})\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="jira" action="issues.search_jql" params='{"jql":"order by created DESC","limit":10}' />\n`;
+      prompt += `  - Ações suportadas: issues.search_jql, issues.get, issues.create, issues.transition, projects.list\n\n`;
+    } else if (cp.id === "linear") {
+      prompt += `• 📐 **LINEAR**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="linear" action="issues.list" params='{"limit":10}' />\n`;
+      prompt += `  - Ações suportadas: issues.list, issues.create, viewer.get, teams.list\n\n`;
+    } else if (cp.id === "google_drive") {
+      prompt += `• 📁 **GOOGLE DRIVE**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="google_drive" action="files.list" params='{"pageSize":10}' />\n`;
+      prompt += `  - Ações suportadas: files.list, files.get, files.create, files.delete\n\n`;
+    } else if (cp.id === "google_sheets") {
+      prompt += `• 📊 **GOOGLE SHEETS**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="google_sheets" action="values.get" params='{"spreadsheetId":"...","range":"A1:E20"}' />\n`;
+      prompt += `  - Ações suportadas: values.get, values.append, values.update, spreadsheets.get\n\n`;
+    } else if (cp.id === "dockerhub") {
+      prompt += `• 🐳 **DOCKER HUB**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="dockerhub" action="repositories.list" params='{}' />\n`;
+      prompt += `  - Ações suportadas: repositories.list, repositories.get, tags.list, user.profile\n\n`;
+    } else if (cp.id === "huggingface") {
+      prompt += `• 🤗 **HUGGING FACE**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="huggingface" action="models.search" params='{"search":"llama"}' />\n`;
+      prompt += `  - Ações suportadas: models.search, models.get, inference.run, datasets.search\n\n`;
+    } else if (cp.id === "google_analytics") {
+      prompt += `• 📈 **GOOGLE ANALYTICS (GA4)**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="google_analytics" action="reports.run" params='{"propertyId":"...","metrics":["activeUsers"]}' />\n`;
+      prompt += `  - Ações suportadas: reports.run, reports.realtime, properties.list\n\n`;
+    } else if (cp.id === "figma") {
+      prompt += `• 🎨 **FIGMA**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="figma" action="files.get" params='{"fileKey":"..."}' />\n`;
+      prompt += `  - Ações suportadas: files.get, files.nodes, comments.list, comments.post, me\n\n`;
+    } else if (cp.id === "canva") {
+      prompt += `• 🖌️ **CANVA**: CONECTADO E VALIDADO!\n`;
+      prompt += `  - Chamada Semântica: <connector_action connector="canva" action="designs.list" params='{"limit":8}' />\n`;
+      prompt += `  - Ações suportadas: designs.list, designs.get, designs.create, users.me\n\n`;
     } else {
       prompt += `• 🔌 **${name}**: CONECTADO E VALIDADO! (Identificador: ${cp.accountName || "padrão"})\n`;
       prompt += `  - Chamada Semântica: <connector_action connector="${cp.id}" action="default" params='{}' />\n\n`;

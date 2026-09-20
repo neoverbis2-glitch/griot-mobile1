@@ -16,6 +16,9 @@ import {
   Loader2,
   Star,
   Plus,
+  Zap,
+  UserCheck,
+  Lock,
 } from "lucide-react";
 import {
   PLUGINS_LIST,
@@ -31,6 +34,11 @@ import {
   type PluginCredential,
 } from "@/lib/plugins-service";
 import { validatePluginCredentials } from "@/lib/plugin-validators";
+import {
+  startPluginOAuthFlow,
+  detectActiveUserSessionProvider,
+  getPluginOAuthSpec,
+} from "@/lib/plugin-oauth";
 import * as BrandIcons from "@/components/griot/brand-icons";
 import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 import { toast } from "sonner";
@@ -56,6 +64,16 @@ export function PluginsView({ onBack }: PluginsViewProps) {
   const [showAddAccountForm, setShowAddAccountForm] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [authTab, setAuthTab] = useState<"oauth" | "manual">("oauth");
+  const [isAuthorizingOAuth, setIsAuthorizingOAuth] = useState(false);
+  const [detectedSession, setDetectedSession] = useState<{
+    hasMatchingSession: boolean;
+    providerName: string;
+    userEmail?: string;
+    userName?: string;
+    avatarUrl?: string;
+    providerToken?: string;
+  } | null>(null);
 
   const refreshConnections = () => {
     setConnectedMap(getConnectedPlugins());
@@ -87,7 +105,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     });
   }, [selectedCategory, search]);
 
-  const handleOpenConfig = (plugin: PluginDefinition) => {
+  const handleOpenConfig = async (plugin: PluginDefinition) => {
     const creds = getPluginCredentials(plugin.id);
     const hasCreds = creds.length > 0;
     setInputKey("");
@@ -98,7 +116,82 @@ export function PluginsView({ onBack }: PluginsViewProps) {
     setShowAddAccountForm(!hasCreds);
     setValidationError(null);
     setIsValidating(false);
+    setIsAuthorizingOAuth(false);
+    setAuthTab(plugin.supportsOAuth ? "oauth" : "manual");
     setConfiguringPlugin(plugin);
+
+    if (plugin.supportsOAuth) {
+      const session = await detectActiveUserSessionProvider(plugin.id);
+      setDetectedSession(session);
+    } else {
+      setDetectedSession(null);
+    }
+  };
+
+  const handleStartOAuth = async () => {
+    if (!configuringPlugin) return;
+    setIsAuthorizingOAuth(true);
+    setValidationError(null);
+
+    await startPluginOAuthFlow(configuringPlugin.id, {
+      onSuccess: (result) => {
+        setIsAuthorizingOAuth(false);
+        toast.success(
+          t(
+            `⚡ Conectado à conta ${result.username ? `@${result.username}` : configuringPlugin.name} via OAuth com sucesso!`,
+          ),
+        );
+        refreshConnections();
+        setShowAddAccountForm(false);
+      },
+      onError: (errMsg) => {
+        setIsAuthorizingOAuth(false);
+        setValidationError(errMsg);
+        toast.error(errMsg);
+      },
+    });
+  };
+
+  const handleConnectWithActiveSession = async () => {
+    if (!configuringPlugin || !detectedSession?.providerToken) return;
+    setIsAuthorizingOAuth(true);
+    setValidationError(null);
+
+    try {
+      const token = detectedSession.providerToken;
+      const validation = await validatePluginCredentials(configuringPlugin.id, { apiKey: token });
+      if (!validation.valid) {
+        setValidationError(validation.message || "A API recusou o token da sessão ativa.");
+        toast.error(validation.message || "A API recusou o token da sessão ativa.");
+        setIsAuthorizingOAuth(false);
+        return;
+      }
+
+      const username = detectedSession.userName || validation.details?.username;
+      await connectPluginUnified(configuringPlugin.id, {
+        apiKey: token,
+        accountName: username || detectedSession.userEmail,
+        label: username
+          ? `${configuringPlugin.name} (@${username})`
+          : `${configuringPlugin.name} (Sessão GRIOT)`,
+        verifiedAt: new Date().toISOString(),
+        validationStatus: "verified",
+        validationMessage: `⚡ Conexão Avançada Ativa vinculada à tua sessão do GRIOT.`,
+        isPrimary: true,
+        authMethod: "oauth",
+        username,
+        avatarUrl: detectedSession.avatarUrl,
+        projects: validation.details?.projects,
+      });
+
+      toast.success(t(`⚡ Plugin conectado com sucesso à tua conta @${username || ""}!`));
+      refreshConnections();
+      setShowAddAccountForm(false);
+      setIsAuthorizingOAuth(false);
+    } catch (err: any) {
+      setIsAuthorizingOAuth(false);
+      setValidationError(err.message || "Erro ao conectar com a sessão ativa.");
+    }
   };
 
   const handleSetPrimary = (credId: string) => {
@@ -352,17 +445,32 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                         <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-emerald-600 dark:text-emerald-400 font-medium">
                           <ShieldCheck className="size-3.5" />
                           <span>{t("Ligado e Validado")}</span>
-                          {connData?.secretHint && (
+                          {connData?.authMethod === "oauth" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 px-2 py-0.2 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                              <Zap className="size-2.5 fill-current text-amber-500" />
+                              {t("Avançado (OAuth)")}
+                            </span>
+                          )}
+                          {connData?.secretHint && connData?.authMethod !== "oauth" && (
                             <span className="text-muted-foreground/70 font-mono text-[11px]">
                               ({connData.secretHint})
                             </span>
                           )}
                         </div>
-                        {(connData?.projectRef || connData?.accountName) && (
-                          <div className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
+                        {(connData?.username || connData?.accountName || connData?.projectRef) && (
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 font-mono">
+                            {connData?.avatarUrl && (
+                              <img
+                                src={connData.avatarUrl}
+                                alt=""
+                                className="size-3.5 rounded-full object-cover"
+                              />
+                            )}
                             <span className="opacity-70">Conta / Ref:</span>
                             <span className="font-semibold text-foreground/90">
-                              {connData.accountName || connData.projectRef}
+                              {connData.username
+                                ? `@${connData.username}`
+                                : connData.accountName || connData.projectRef}
                             </span>
                           </div>
                         )}
@@ -379,6 +487,13 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                                 connData.validationMessage}
                             </div>
                           )}
+                      </div>
+                    )}
+
+                    {!isConn && plugin.supportsOAuth && (
+                      <div className="mt-2 flex items-center gap-1 text-[11px] font-medium text-primary">
+                        <Zap className="size-3 text-amber-500 fill-amber-500" />
+                        <span>{t("Suporta Login com Conta (1-Clique)")}</span>
                       </div>
                     )}
                   </div>
@@ -473,176 +588,351 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                 </div>
               )}
 
-              {/* Lista de Contas Conectadas */}
-              {(() => {
-                const creds = getPluginCredentials(configuringPlugin.id);
-                if (creds.length === 0) return null;
-                return (
-                  <div className="space-y-2 rounded-2xl border border-hairline bg-surface/60 p-3">
-                    <div className="flex items-center justify-between pb-1 border-b border-hairline/60">
-                      <span className="text-[11.5px] font-semibold text-foreground uppercase tracking-wider">
-                        {t("Contas Conectadas")} ({creds.length})
-                      </span>
-                      {!showAddAccountForm && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setInputKey("");
-                            setInputLabel("");
-                            setInputAccount("");
-                            setInputIsPrimary(false);
-                            setShowAddAccountForm(true);
-                          }}
-                          className="flex items-center gap-1 text-[11.5px] font-medium text-primary hover:underline"
-                        >
-                          <Plus className="size-3" />
-                          <span>{t("Nova conta")}</span>
-                        </button>
-                      )}
-                    </div>
+              {/* Tabs de Seleção de Autenticação se o plugin suportar OAuth */}
+              {configuringPlugin.supportsOAuth && (
+                <div className="flex rounded-2xl bg-surface/90 p-1 border border-hairline">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthTab("oauth");
+                      setValidationError(null);
+                    }}
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-[12px] font-semibold transition-all ${
+                      authTab === "oauth"
+                        ? "bg-background text-foreground shadow-xs border border-hairline"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <span>{t("Login com a Conta")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthTab("manual");
+                      setValidationError(null);
+                    }}
+                    className={`flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-[12px] font-semibold transition-all ${
+                      authTab === "manual"
+                        ? "bg-background text-foreground shadow-xs border border-hairline"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Key className="size-3.5" />
+                    <span>{t("Chave Manual / Token")}</span>
+                  </button>
+                </div>
+              )}
 
-                    <div className="space-y-1.5 pt-1">
-                      {creds.map((c) => (
-                        <div
-                          key={c.id}
-                          className="flex items-center justify-between gap-2 rounded-xl border border-hairline/60 bg-background/80 p-2.5 text-[12.5px]"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-medium text-foreground truncate">
-                                {c.label}
-                              </span>
-                              {c.isPrimary && (
-                                <span className="flex items-center gap-0.5 rounded-full bg-amber-500/15 border border-amber-500/20 px-1.5 py-0.2 text-[10px] font-semibold text-amber-500">
-                                  <Star className="size-2.5 fill-current" />
-                                  {t("Principal")}
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[11px] font-mono text-muted-foreground">
-                              {c.secretHint}
+              {/* PAINEL OAUTH: Autenticação com Login / 1-Clique na Conta */}
+              {configuringPlugin.supportsOAuth && authTab === "oauth" && (
+                <div className="space-y-3.5 animate-fade-in">
+                  {/* Se detetar sessão ativa do utilizador nesta plataforma */}
+                  {detectedSession?.hasMatchingSession && (
+                    <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 space-y-2.5">
+                      <div className="flex items-center gap-2.5">
+                        {detectedSession.avatarUrl ? (
+                          <img
+                            src={detectedSession.avatarUrl}
+                            alt=""
+                            className="size-9 rounded-full ring-1 ring-amber-500/40 object-cover"
+                          />
+                        ) : (
+                          <div className="size-9 rounded-full bg-amber-500/20 grid place-items-center text-amber-600 dark:text-amber-400 font-bold text-sm">
+                            {detectedSession.userName?.charAt(0)?.toUpperCase() || "U"}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[13px] font-bold text-foreground truncate">
+                              @{detectedSession.userName || "utilizador"}
+                            </span>
+                            <span className="rounded bg-amber-500/20 px-1 py-0.2 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                              {t("Sessão Ativa")}
                             </span>
                           </div>
+                          <p className="text-[11.5px] text-muted-foreground truncate">
+                            {detectedSession.userEmail}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-[11.5px] text-muted-foreground leading-snug">
+                        {t(
+                          "Estás autenticado no GRIOT com esta conta. Podes conectá-la diretamente para autorização instantânea.",
+                        )}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleConnectWithActiveSession}
+                        disabled={isAuthorizingOAuth}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.99] text-white py-2.5 text-[12.5px] font-semibold shadow-xs transition-transform disabled:opacity-50"
+                      >
+                        {isAuthorizingOAuth && (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        )}
+                        <span>{t("Conectar com a Conta Ativa")}</span>
+                      </button>
+                    </div>
+                  )}
 
-                          <div className="flex items-center gap-1 shrink-0">
-                            {!c.isPrimary && (
-                              <button
-                                type="button"
-                                onClick={() => handleSetPrimary(c.id)}
-                                title={t("Definir como Principal")}
-                                className="rounded-lg border border-hairline px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground active:scale-95"
-                              >
-                                {t("Tornar Principal")}
-                              </button>
-                            )}
+                  {/* Card Principal de Autorização OAuth */}
+                  <div className="rounded-2xl border border-hairline bg-surface/60 p-4 space-y-3.5">
+                    <div className="flex items-start gap-3">
+                      <div className="grid size-11 shrink-0 place-items-center rounded-xl border border-hairline bg-background shadow-xs">
+                        {renderLogo(configuringPlugin.logoName, "size-6")}
+                      </div>
+                      <div>
+                        <h4 className="text-[14px] font-semibold text-foreground">
+                          {t(`Conectar Conta ${configuringPlugin.name}`)}
+                        </h4>
+                        <p className="text-[12px] text-muted-foreground leading-relaxed">
+                          {t(
+                            "Autoriza o GRIOT com 1-clique diretamente na tua conta. Sem copiar ou gerir chaves manuais.",
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleStartOAuth}
+                      disabled={isAuthorizingOAuth}
+                      className="w-full flex items-center justify-center gap-2.5 rounded-2xl bg-primary text-primary-foreground hover:opacity-90 active:scale-[0.99] py-3 text-[13.5px] font-semibold shadow-xs transition-all disabled:opacity-50"
+                    >
+                      {isAuthorizingOAuth ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" />
+                          <span>{t("A abrir autorização na janela segura...")}</span>
+                        </>
+                      ) : (
+                        <span>{t(`Entrar e Autorizar com ${configuringPlugin.name}`)}</span>
+                      )}
+                    </button>
+
+                    {/* Lista de Capacidades Avançadas */}
+                    <div className="space-y-2 pt-2 border-t border-hairline/60">
+                      <span className="text-[11px] font-semibold text-foreground uppercase tracking-wider">
+                        {t("O que o GRIOT pode fazer com esta conexão:")}
+                      </span>
+                      <div className="space-y-1.5 text-[12px] text-muted-foreground">
+                        {(
+                          configuringPlugin.advancedCapabilities || [
+                            "Acesso avançado seguro e direto via OAuth 2.0",
+                            "Operações de leitura e escrita autorizadas",
+                            "Sincronização bidirecional em tempo real com os agentes",
+                            "Sem expiração manual de chaves",
+                          ]
+                        ).map((cap, idx) => (
+                          <div key={idx} className="flex items-start gap-2">
+                            <Check className="size-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                            <span className="leading-snug">{cap}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Preset Link para GitHub */}
+                    {configuringPlugin.id === "github" && (
+                      <div className="pt-2 border-t border-hairline/60 flex items-center justify-between text-[11.5px]">
+                        <span className="text-muted-foreground">
+                          {t("Ou prefere criar um Personal Token?")}
+                        </span>
+                        <a
+                          href="https://github.com/settings/tokens/new?description=GRIOT%20Mobile%20Advanced%20OAuth&scopes=repo,workflow,read:org,read:user,user:email,gist"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-primary hover:underline flex items-center gap-1"
+                        >
+                          <span>{t("Token c/ Escopos Prontos")}</span>
+                          <ExternalLink className="size-3" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* PAINEL MANUAL / GESTÃO DE CONTAS */}
+              {(!configuringPlugin.supportsOAuth || authTab === "manual") && (
+                <>
+                  {/* Lista de Contas Conectadas */}
+                  {(() => {
+                    const creds = getPluginCredentials(configuringPlugin.id);
+                    if (creds.length === 0) return null;
+                    return (
+                      <div className="space-y-2 rounded-2xl border border-hairline bg-surface/60 p-3">
+                        <div className="flex items-center justify-between pb-1 border-b border-hairline/60">
+                          <span className="text-[11.5px] font-semibold text-foreground uppercase tracking-wider">
+                            {t("Contas Conectadas")} ({creds.length})
+                          </span>
+                          {!showAddAccountForm && (
                             <button
                               type="button"
-                              onClick={() => handleRemoveCredential(c.id)}
-                              title={t("Remover")}
-                              className="rounded-lg p-1 text-muted-foreground hover:text-destructive active:scale-95"
+                              onClick={() => {
+                                setInputKey("");
+                                setInputLabel("");
+                                setInputAccount("");
+                                setInputIsPrimary(false);
+                                setShowAddAccountForm(true);
+                              }}
+                              className="flex items-center gap-1 text-[11.5px] font-medium text-primary hover:underline"
                             >
-                              <Trash2 className="size-3.5" />
+                              <Plus className="size-3" />
+                              <span>{t("Nova conta")}</span>
                             </button>
-                          </div>
+                          )}
                         </div>
-                      ))}
+
+                        <div className="space-y-1.5 pt-1">
+                          {creds.map((c) => (
+                            <div
+                              key={c.id}
+                              className="flex items-center justify-between gap-2 rounded-xl border border-hairline/60 bg-background/80 p-2.5 text-[12.5px]"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-medium text-foreground truncate">
+                                    {c.label}
+                                  </span>
+                                  {c.isPrimary && (
+                                    <span className="flex items-center gap-0.5 rounded-full bg-amber-500/15 border border-amber-500/20 px-1.5 py-0.2 text-[10px] font-semibold text-amber-500">
+                                      <Star className="size-2.5 fill-current" />
+                                      {t("Principal")}
+                                    </span>
+                                  )}
+                                  {c.authMethod === "oauth" && (
+                                    <span className="flex items-center gap-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/20 px-1.5 py-0.2 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                      <Zap className="size-2.5 fill-current" />
+                                      OAuth
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[11px] font-mono text-muted-foreground">
+                                  {c.username ? `@${c.username}` : c.secretHint}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {!c.isPrimary && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSetPrimary(c.id)}
+                                    title={t("Definir como Principal")}
+                                    className="rounded-lg border border-hairline px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground active:scale-95"
+                                  >
+                                    {t("Tornar Principal")}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveCredential(c.id)}
+                                  title={t("Remover")}
+                                  className="rounded-lg p-1 text-muted-foreground hover:text-destructive active:scale-95"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Formulário de Adição de Conta Manual */}
+                  {showAddAccountForm && (
+                    <div className="space-y-3 pt-1 animate-fade-in">
+                      <div>
+                        <label className="block text-[12px] font-medium text-foreground mb-1.5">
+                          {t("Nome / Etiqueta da Conta (ex: Pessoal, Equipa Dev, Empresa)")}
+                        </label>
+                        <input
+                          type="text"
+                          value={inputLabel}
+                          onChange={(e) => setInputLabel(e.target.value)}
+                          placeholder={t("Ex.: Pedro Dev ou Empresa Neoverbis")}
+                          className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[12px] font-medium text-foreground mb-1.5">
+                          {configuringPlugin.id === "supabase"
+                            ? t("Personal Access Token (sbp_...) ou Chave JWT")
+                            : configuringPlugin.authType === "webhook"
+                              ? t("Webhook URL")
+                              : t("Chave de API / Token de Acesso")}
+                        </label>
+                        <input
+                          type="password"
+                          value={inputKey}
+                          onChange={(e) => {
+                            setInputKey(e.target.value);
+                            if (validationError) setValidationError(null);
+                          }}
+                          placeholder={
+                            configuringPlugin.id === "supabase"
+                              ? "sbp_xxxxxxxxxxxx (Recomendado) ou eyJhbGciOi..."
+                              : configuringPlugin.placeholder
+                          }
+                          className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground font-mono"
+                        />
+                        {configuringPlugin.id === "supabase" && (
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            {t(
+                              "Dica: Usa o Personal Access Token (sbp_...) para permissão total de criação de tabelas e queries SQL PostgreSQL diretas.",
+                            )}
+                          </p>
+                        )}
+                        {configuringPlugin.id === "github" && (
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            {t(
+                              "Dica: Gera um Personal Access Token com o escopo 'repo' marcado em github.com/settings/tokens para ver repositórios privados e criar/gravar ficheiros.",
+                            )}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-[12px] font-medium text-foreground mb-1.5">
+                          {configuringPlugin.id === "supabase"
+                            ? t("Project Ref ou URL do Projeto (Opcional com token sbp_)")
+                            : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
+                              ? t("REST URL do Upstash / Redis (ex: https://xxx.upstash.io)")
+                              : t("Identificador da Conta ou Workspace (Opcional)")}
+                        </label>
+                        <input
+                          type="text"
+                          value={inputAccount}
+                          onChange={(e) => {
+                            setInputAccount(e.target.value);
+                            if (validationError) setValidationError(null);
+                          }}
+                          placeholder={
+                            configuringPlugin.id === "supabase"
+                              ? t("Ex.: meu-projeto-ref ou https://xyz.supabase.co")
+                              : configuringPlugin.id === "redis" ||
+                                  configuringPlugin.id === "upstash"
+                                ? "https://xxx.upstash.io"
+                                : t("Ex.: org-principal, equipa-dev")
+                          }
+                          className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
+                        />
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          checked={inputIsPrimary}
+                          onChange={(e) => setInputIsPrimary(e.target.checked)}
+                          className="size-4 rounded accent-primary"
+                        />
+                        <span className="text-[12.5px] text-foreground font-medium">
+                          {t("Definir como conta Principal (padrão de execução)")}
+                        </span>
+                      </label>
                     </div>
-                  </div>
-                );
-              })()}
-
-              {/* Formulário de Adição de Conta */}
-              {showAddAccountForm && (
-                <div className="space-y-3 pt-1 animate-fade-in">
-                  <div>
-                    <label className="block text-[12px] font-medium text-foreground mb-1.5">
-                      {t("Nome / Etiqueta da Conta (ex: Pessoal, Equipa Dev, Empresa)")}
-                    </label>
-                    <input
-                      type="text"
-                      value={inputLabel}
-                      onChange={(e) => setInputLabel(e.target.value)}
-                      placeholder={t("Ex.: Pedro Dev ou Empresa Neoverbis")}
-                      className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[12px] font-medium text-foreground mb-1.5">
-                      {configuringPlugin.id === "supabase"
-                        ? t("Personal Access Token (sbp_...) ou Chave JWT")
-                        : configuringPlugin.authType === "webhook"
-                          ? t("Webhook URL")
-                          : t("Chave de API / Token de Acesso")}
-                    </label>
-                    <input
-                      type="password"
-                      value={inputKey}
-                      onChange={(e) => {
-                        setInputKey(e.target.value);
-                        if (validationError) setValidationError(null);
-                      }}
-                      placeholder={
-                        configuringPlugin.id === "supabase"
-                          ? "sbp_xxxxxxxxxxxx (Recomendado) ou eyJhbGciOi..."
-                          : configuringPlugin.placeholder
-                      }
-                      className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground font-mono"
-                    />
-                    {configuringPlugin.id === "supabase" && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {t(
-                          "Dica: Usa o Personal Access Token (sbp_...) para permissão total de criação de tabelas e queries SQL PostgreSQL diretas.",
-                        )}
-                      </p>
-                    )}
-                    {configuringPlugin.id === "github" && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {t(
-                          "Dica: Gera um Personal Access Token com o escopo 'repo' marcado em github.com/settings/tokens para ver repositórios privados e criar/gravar ficheiros.",
-                        )}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-[12px] font-medium text-foreground mb-1.5">
-                      {configuringPlugin.id === "supabase"
-                        ? t("Project Ref ou URL do Projeto (Opcional com token sbp_)")
-                        : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
-                          ? t("REST URL do Upstash / Redis (ex: https://xxx.upstash.io)")
-                          : t("Identificador da Conta ou Workspace (Opcional)")}
-                    </label>
-                    <input
-                      type="text"
-                      value={inputAccount}
-                      onChange={(e) => {
-                        setInputAccount(e.target.value);
-                        if (validationError) setValidationError(null);
-                      }}
-                      placeholder={
-                        configuringPlugin.id === "supabase"
-                          ? t("Ex.: meu-projeto-ref ou https://xyz.supabase.co")
-                          : configuringPlugin.id === "redis" || configuringPlugin.id === "upstash"
-                            ? "https://xxx.upstash.io"
-                            : t("Ex.: org-principal, equipa-dev")
-                      }
-                      className="w-full rounded-2xl border border-hairline bg-surface px-3.5 py-2.5 text-[13.5px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-foreground"
-                    />
-                  </div>
-
-                  <label className="flex items-center gap-2 cursor-pointer pt-1">
-                    <input
-                      type="checkbox"
-                      checked={inputIsPrimary}
-                      onChange={(e) => setInputIsPrimary(e.target.checked)}
-                      className="size-4 rounded accent-primary"
-                    />
-                    <span className="text-[12.5px] text-foreground font-medium">
-                      {t("Definir como conta Principal (padrão de execução)")}
-                    </span>
-                  </label>
-                </div>
+                  )}
+                </>
               )}
 
               {configuringPlugin.docsUrl && (
@@ -692,7 +982,7 @@ export function PluginsView({ onBack }: PluginsViewProps) {
                   ? t("Voltar")
                   : t("Concluído")}
               </button>
-              {showAddAccountForm && (
+              {showAddAccountForm && (!configuringPlugin.supportsOAuth || authTab === "manual") && (
                 <button
                   type="button"
                   disabled={isValidating}
