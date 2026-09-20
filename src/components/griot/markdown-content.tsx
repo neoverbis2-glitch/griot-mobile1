@@ -3,6 +3,7 @@ import { Copy, Check, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { GriotChart, parseRelaxedJson } from "./griot-chart";
+import { stripActionBlocks } from "@/lib/runtime/parser";
 
 interface MarkdownContentProps {
   content: string;
@@ -119,14 +120,17 @@ export const MarkdownContent = React.memo(function MarkdownContent({
     );
   }
 
+  const effectiveContent = stripActionBlocks(content);
+  if (!effectiveContent) return null;
+
   // Decomposição de blocos de código markdown (```lang ... ```) e tags <griot_chart>
   const segments: React.ReactNode[] = [];
   const codeBlockRegex = /(?:```([a-zA-Z0-9_:-]*)\n([\s\S]*?)```|<griot_chart>([\s\S]*?)<\/griot_chart>)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = codeBlockRegex.exec(content)) !== null) {
-    const textBefore = content.slice(lastIndex, match.index);
+  while ((match = codeBlockRegex.exec(effectiveContent)) !== null) {
+    const textBefore = effectiveContent.slice(lastIndex, match.index);
     if (textBefore) {
       segments.push(renderFormattedText(textBefore, `text-${lastIndex}`));
     }
@@ -152,7 +156,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({
     lastIndex = match.index + match[0].length;
   }
 
-  const remainingText = content.slice(lastIndex);
+  const remainingText = effectiveContent.slice(lastIndex);
   if (remainingText) {
     segments.push(renderFormattedText(remainingText, `text-${lastIndex}`));
   }

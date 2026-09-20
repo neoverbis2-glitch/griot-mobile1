@@ -126,8 +126,8 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
     let observationText = "";
 
     for (const action of candidateActions) {
-      // Se a ação requer confirmação do utilizador (Human-in-the-Loop)
-      if (callbacks?.onActionApprovalRequired && (action.category === "connector" || action.type === "connector.execute" || action.type === "shell.exec")) {
+      // Se a ação requer confirmação do utilizador (Human-in-the-Loop para ações de risco / destrutivas)
+      if (action.requiresApproval && callbacks?.onActionApprovalRequired) {
         const approved = await callbacks.onActionApprovalRequired(action);
         if (!approved) {
           const rejectResult: GriotExecutionResult = {

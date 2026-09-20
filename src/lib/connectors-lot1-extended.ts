@@ -72,10 +72,16 @@ export async function executeLot1Extended(
       return "";
     };
 
-    // Helper para auto-completar dono/repo quando o utilizador ou modelo passa apenas o nome do repositório
+    // Helper para auto-completar dono/repo quando o utilizador ou modelo passa apenas o nome do repositório ou URL completa
     const resolveRepo = async (targetRepo: string): Promise<string> => {
       let r = (targetRepo || "").trim();
       if (!r) return "";
+      // Limpa URLs completas do GitHub e sufixo .git
+      r = r
+        .replace(/^https?:\/\/github\.com\//i, "")
+        .replace(/^git@github\.com:/i, "")
+        .replace(/\.git$/i, "")
+        .replace(/^\/+|\/+$/g, "");
       if (r.includes("/")) return r;
       const currentOwner = await resolveOwner();
       return currentOwner ? `${currentOwner}/${r}` : r;

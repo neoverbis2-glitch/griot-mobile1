@@ -61,8 +61,37 @@ export const PLUGINS: PluginDef[] = [
   },
 ];
 
-export function pluginById(id: string) {
-  return PLUGINS.find((plugin) => plugin.id === id);
+import { PLUGINS_LIST } from "./plugins-service";
+
+export function pluginById(id: string): PluginDef | undefined {
+  if (!id) return undefined;
+  const normalizedId = id.toLowerCase().trim();
+  const legacy = PLUGINS.find((plugin) => plugin.id.toLowerCase() === normalizedId);
+  if (legacy) return legacy;
+
+  const found = PLUGINS_LIST.find(
+    (p) => p.id.toLowerCase() === normalizedId || p.name.toLowerCase() === normalizedId,
+  );
+  if (found) {
+    return {
+      id: found.id as any,
+      label: found.name,
+      vendor:
+        found.category === "infra"
+          ? "Dev & Cloud"
+          : found.category === "ai"
+            ? "IA & Modelos"
+            : found.category === "comms"
+              ? "Mensageria"
+              : found.category === "database"
+                ? "Base de Dados"
+                : "Integração",
+      short: found.name.slice(0, 2).toUpperCase(),
+      purpose: found.description,
+      args: "{}",
+    };
+  }
+  return undefined;
 }
 
 export type PluginCall = { id: PluginId; args: Record<string, unknown>; raw: string };
@@ -89,10 +118,22 @@ export function parsePluginCalls(text: string): { calls: PluginCall[]; clean: st
 }
 
 /** Esconde um bloco a meio de streaming para não piscar markup na conversa. */
-export function stripPartialPlugin(text: string) {
-  const index = text.lastIndexOf("<plugin");
-  if (index === -1) return text;
-  return text.slice(index).includes(">") ? text : text.slice(0, index);
+export function stripPartialPlugin(text: string): string {
+  if (!text) return "";
+  let clean = text;
+  clean = clean
+    .replace(/<connector_action\b[^>]*\/?>/gi, "")
+    .replace(/<connector_action[\s\S]*?<\/connector_action>/gi, "")
+    .replace(/<connector_action[\s\S]*$/, "")
+    .replace(/<griot_action\b[^>]*\/?>/gi, "")
+    .replace(/<griot_action[\s\S]*?<\/griot_action>/gi, "")
+    .replace(/<griot_action[\s\S]*$/, "");
+
+  const index = clean.lastIndexOf("<plugin");
+  if (index !== -1 && !clean.slice(index).includes(">")) {
+    clean = clean.slice(0, index);
+  }
+  return clean;
 }
 
 export function describeArgs(args: Record<string, unknown>) {

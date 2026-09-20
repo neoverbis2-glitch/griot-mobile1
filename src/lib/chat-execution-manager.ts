@@ -18,6 +18,7 @@ import { streamDirectAI } from "@/lib/ai-client-mobile-entry";
 import { modelLabel, isModelOS } from "@/lib/griot";
 import { observerEngine } from "@/lib/runtime";
 import { parseProposals } from "@/lib/capsule-proposals";
+import { stripActionBlocks } from "@/lib/runtime/parser";
 import type { GriotProject } from "@/lib/project-service";
 import { buildConnectedPluginsSystemPrompt, PLUGINS_LIST } from "@/lib/plugins-service";
 import { GRIOT_CHART_SYSTEM_PROMPT } from "@/lib/chart-system-prompt";
@@ -626,7 +627,7 @@ class ChatExecutionManager {
 
       // 2. Finalizar e salvar a mensagem do assistente localmente e no Supabase
       if (answer.trim()) {
-        const cleaned = parseProposals(answer).clean || answer;
+        const cleaned = stripActionBlocks(parseProposals(answer).clean || answer);
 
         let appKey = "custom";
         if (isModelOS(modelId)) {
