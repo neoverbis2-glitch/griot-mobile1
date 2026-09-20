@@ -7,6 +7,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { callGriotStudioApi } from "@/lib/griot-api";
 
 export interface GriotProject {
   id: string;
@@ -475,6 +476,72 @@ export async function fetchProjectRepositoryBinding(projectId: string): Promise<
     console.warn("Erro ao carregar repository binding:", err);
   }
   return null;
+}
+
+export interface BindRepositoryParams {
+  projectId: string;
+  owner: string;
+  repo: string;
+  ref?: string;
+  credentialId?: string;
+}
+
+/**
+ * Vincula e verifica criptograficamente um repositório GitHub ao projeto do Studio
+ * através da Edge Function segura do Supabase (griot-studio), sem expor o token ao cliente.
+ */
+export async function bindProjectRepository(
+  params: BindRepositoryParams,
+): Promise<{ success: boolean; binding?: any; error?: string }> {
+  const { projectId, owner, repo, ref, credentialId } = params;
+  if (!projectId || !owner || !repo) {
+    return { success: false, error: "Parâmetros de repositório incompletos (owner/repo necessários)." };
+  }
+
+  // Sanitização de entradas caso venha URL completa
+  const cleanOwner = owner.replace(/^https?:\/\/github\.com\//i, "").replace(/\/.*$/, "").trim();
+  const cleanRepo = repo.replace(/^https?:\/\/github\.com\//i, "").replace(/^.*\//, "").replace(/\.git$/i, "").trim();
+
+  const result = await callGriotStudioApi<{ success: boolean; binding: any }>(
+    `/projects/${encodeURIComponent(projectId)}/repository/github`,
+    {
+      method: "POST",
+      body: {
+        owner: cleanOwner,
+        repo: cleanRepo,
+        ref: ref?.trim() || undefined,
+        credentialId: credentialId || undefined,
+      },
+    },
+  );
+
+  if (result.error || !result.data) {
+    return { success: false, error: result.error || "Falha ao vincular repositório." };
+  }
+
+  return { success: true, binding: result.data.binding };
+}
+
+/**
+ * Remove a vinculação de repositório do projeto no GRIOT Studio.
+ */
+export async function unbindProjectRepository(
+  projectId: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (!projectId) return { success: false, error: "ID do projeto em falta." };
+
+  const result = await callGriotStudioApi<{ success: boolean; unbound: boolean }>(
+    `/projects/${encodeURIComponent(projectId)}/repository/github`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  if (result.error) {
+    return { success: false, error: result.error };
+  }
+
+  return { success: true };
 }
 
 /**

@@ -51,6 +51,29 @@ export async function callGriotApi<T = unknown>(
   }
 }
 
+export async function callGriotStudioApi<T = unknown>(
+  path: string,
+  options: { method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: unknown } = {},
+): Promise<GriotApiResult<T>> {
+  const { method = "GET", body } = options;
+  try {
+    const { data, error } = await supabase.functions.invoke(`griot-studio${path}`, {
+      method,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined ? undefined : { "content-type": "application/json" },
+    });
+    if (error) {
+      return { data: null, error: error.message || "griot-studio request failed", status: 0 };
+    }
+    if (data && typeof data === "object" && "error" in (data as Record<string, unknown>)) {
+      return { data: null, error: String((data as Record<string, unknown>).error), status: 0 };
+    }
+    return { data: data as T, error: null, status: 200 };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : String(err), status: 0 };
+  }
+}
+
 /**
  * Ensures the signed-in user has a workspace + profile row on the real
  * backend. Safe to call repeatedly — griot-api auto-provisions a personal

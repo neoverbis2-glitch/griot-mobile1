@@ -12,6 +12,7 @@ import {
   Clock,
   Lock,
   Calendar,
+  GitBranch,
 } from "lucide-react";
 import {
   setActiveProject,
@@ -23,6 +24,8 @@ import {
   createProjectTaskInDb,
   updateProjectTaskStatusInDb,
   fetchProjectRepositoryBinding,
+  bindProjectRepository,
+  unbindProjectRepository,
   fetchProjectComputeRuns,
   fetchProjectOpbEvents,
   type ProjectTaskItem,
@@ -108,6 +111,9 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showBindInput, setShowBindInput] = useState(false);
+  const [repoInput, setRepoInput] = useState("");
+  const [isBinding, setIsBinding] = useState(false);
 
   useEffect(() => {
     if (!projectId) return;
@@ -315,6 +321,74 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
     }
   }
 
+  async function handleBindRepo() {
+    if (!repoInput.trim() || !projectId) return;
+    const clean = repoInput.trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "");
+    const parts = clean.split("/");
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
+      toast.error(t("Introduza no formato dono/repositório (ex: utilizador/webapp)"));
+      return;
+    }
+    const [owner, repo] = parts;
+    setIsBinding(true);
+    try {
+      const res = await bindProjectRepository({ projectId, owner, repo });
+      if (res.success && res.binding) {
+        setRepoBinding(res.binding);
+        setShowBindInput(false);
+        setRepoInput("");
+        toast.success(t("Repositório vinculado com sucesso!"));
+        
+        // Atualizar PRs imediatamente
+        try {
+          const plugins = getConnectedPlugins();
+          const ghToken = plugins["github"]?.apiKey || "";
+          const headers: Record<string, string> = { Accept: "application/vnd.github.v3+json" };
+          if (ghToken) headers.Authorization = `Bearer ${ghToken}`;
+          const response = await fetch(
+            `https://api.github.com/repos/${res.binding.repository_full_name || `${owner}/${repo}`}/pulls?state=all&per_page=15`,
+            { headers },
+          );
+          if (response.ok) {
+            const pullRequests = await response.json();
+            if (Array.isArray(pullRequests)) {
+              setPrs(
+                pullRequests.map((pr: any) => ({
+                  id: String(pr.id || pr.number),
+                  title: pr.title || `PR #${pr.number}`,
+                  branch: pr.head?.ref || res.binding.default_branch || "main",
+                  status: pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed",
+                })),
+              );
+            }
+          }
+        } catch {}
+      } else {
+        toast.error(res.error || t("Falha ao vincular repositório."));
+      }
+    } catch (err: any) {
+      toast.error(err?.message || t("Erro ao vincular repositório."));
+    } finally {
+      setIsBinding(false);
+    }
+  }
+
+  async function handleUnbindRepo() {
+    if (!projectId) return;
+    try {
+      const res = await unbindProjectRepository(projectId);
+      if (res.success) {
+        setRepoBinding(null);
+        setPrs([]);
+        toast.success(t("Repositório desvinculado."));
+      } else {
+        toast.error(res.error || t("Falha ao desvincular."));
+      }
+    } catch (err: any) {
+      toast.error(err?.message || t("Erro ao desvincular repositório."));
+    }
+  }
+
   const prog = Math.min(100, Math.max(0, Number(project?.progress ?? 0)));
 
   return (
@@ -517,21 +591,83 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
       {/* TAB 2: PRs */}
       {activeTab === "prs" && (
         <div className="space-y-3 rise">
-          {repoBinding && (
-            <div className="flex items-center justify-between rounded-[22px] border border-hairline bg-surface/60 px-4 py-2.5 text-[12.5px] font-mono text-muted-foreground">
-              <span className="truncate">📦 {repoBinding.repository_full_name}</span>
-              <span className="shrink-0 text-[11px] rounded-full bg-secondary px-2 py-0.5 font-semibold">
-                {repoBinding.default_branch || repoBinding.ref || "main"}
-              </span>
+          {repoBinding ? (
+            <div className="flex items-center justify-between rounded-[22px] border border-hairline bg-surface/60 px-4 py-3 text-[13px] font-mono text-muted-foreground shadow-xs">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <GitBranch className="size-4 shrink-0 text-primary" />
+                <span className="truncate font-semibold text-foreground">
+                  {repoBinding.repository_full_name}
+                </span>
+                <span className="shrink-0 text-[11px] rounded-full bg-secondary px-2 py-0.5 font-semibold">
+                  {repoBinding.default_branch || repoBinding.ref || "main"}
+                </span>
+              </div>
+              <button
+                onClick={handleUnbindRepo}
+                className="ml-2 text-muted-foreground hover:text-destructive active:scale-95 transition-colors p-1"
+                title={t("Desvincular Repositório")}
+              >
+                <Trash2 className="size-4" />
+              </button>
             </div>
-          )}
-          {prs.length === 0 ? (
-            <div className="rounded-[22px] border border-hairline bg-surface p-6 text-center text-muted-foreground text-[14px]">
-              {repoBinding
-                ? t("Nenhum Pull Request aberto ou fechado neste repositório.")
-                : t("Nenhum repositório GitHub vinculado a este projeto.")}
+          ) : showBindInput ? (
+            <div className="rounded-[22px] border border-hairline bg-surface p-4 rise space-y-3 shadow-xs">
+              <div className="flex items-center gap-2">
+                <GitBranch className="size-4 text-primary shrink-0" />
+                <span className="text-[14px] font-semibold text-foreground">
+                  {t("Vincular Repositório GitHub")}
+                </span>
+              </div>
+              <input
+                value={repoInput}
+                onChange={(e) => setRepoInput(e.target.value)}
+                placeholder="ex: utilizador/nome-do-repo"
+                className="w-full rounded-xl border border-hairline bg-background px-4 py-2.5 text-[14px] font-mono text-foreground outline-none placeholder:text-muted-foreground"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleBindRepo}
+                  disabled={isBinding || !repoInput.trim()}
+                  className="flex-1 rounded-xl bg-primary py-2.5 text-[14px] font-medium text-primary-foreground disabled:opacity-40 active:scale-[0.98]"
+                >
+                  {isBinding ? t("A verificar no servidor...") : t("Vincular")}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowBindInput(false);
+                    setRepoInput("");
+                  }}
+                  disabled={isBinding}
+                  className="rounded-xl border border-hairline px-4 py-2.5 text-[14px] text-muted-foreground active:scale-[0.98]"
+                >
+                  {t("Cancelar")}
+                </button>
+              </div>
             </div>
           ) : (
+            <div className="rounded-[22px] border border-hairline bg-surface p-6 text-center space-y-3 shadow-xs">
+              <p className="text-muted-foreground text-[14px]">
+                {t("Nenhum repositório GitHub vinculado a este projeto.")}
+              </p>
+              <button
+                onClick={() => setShowBindInput(true)}
+                className="inline-flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/20 px-4 py-2.5 text-[13.5px] font-medium text-primary active:scale-[0.98] transition-all"
+              >
+                <GitBranch className="size-4" />
+                {t("Vincular Repositório")}
+              </button>
+            </div>
+          )}
+
+          {repoBinding && prs.length === 0 && (
+            <div className="rounded-[22px] border border-hairline bg-surface p-6 text-center text-muted-foreground text-[14px]">
+              {t("Nenhum Pull Request aberto ou fechado neste repositório.")}
+            </div>
+          )}
+
+          {repoBinding &&
+            prs.length > 0 &&
             prs.map((pr) => (
               <div
                 key={pr.id}
@@ -555,8 +691,7 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
                 </div>
                 <p className="mt-1.5 text-[12.5px] font-mono text-muted-foreground">{pr.branch}</p>
               </div>
-            ))
-          )}
+            ))}
         </div>
       )}
 
