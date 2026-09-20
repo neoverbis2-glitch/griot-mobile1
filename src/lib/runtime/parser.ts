@@ -80,7 +80,16 @@ export function parseGriotActions(text: string): GriotAction[] {
   let match: RegExpExecArray | null;
 
   while ((match = tagRegex.exec(text)) !== null) {
-    const typeStr = match[1].trim() as GriotActionType;
+    let typeStr = match[1].trim() as GriotActionType;
+    const lowerType = String(typeStr).toLowerCase();
+    if (
+      lowerType === "projectlist" ||
+      lowerType === "project_list" ||
+      lowerType === "list_projects" ||
+      lowerType === "projects"
+    ) {
+      typeStr = "project.list";
+    }
     const pathAttr = match[2]?.trim();
     const body = match[3]?.trim();
 
@@ -143,7 +152,7 @@ export function parseGriotActions(text: string): GriotAction[] {
     let actionType: GriotActionType = "shell.exec";
     const params: Record<string, unknown> = {};
 
-    if (rawType === "shell" || rawType === "exec") {
+    if (rawType === "shell" || rawType === "exec" || rawType === "bash" || rawType === "sh" || rawType === "terminal") {
       actionType = "shell.exec";
       params.command = content.trim();
     } else if (rawType === "install") {
@@ -159,6 +168,8 @@ export function parseGriotActions(text: string): GriotAction[] {
     } else if (rawType === "git.commit") {
       actionType = "git.commit";
       params.message = content.trim() || pathOrArg || "Update";
+    } else if (rawType === "projectlist" || rawType === "project_list" || rawType === "projects") {
+      actionType = "project.list";
     }
 
     const category = (actionType.split(".")[0] || "shell") as "fs" | "git" | "shell" | "test";
@@ -242,6 +253,26 @@ export function parseGriotActions(text: string): GriotAction[] {
     }
   }
 
+  // 4. Tags diretas de terminal: <terminal>comando</terminal> ou <shell>comando</shell>
+  const directTerminalRegex = /<(?:terminal|shell|bash)>([\s\S]*?)<\/(?:terminal|shell|bash)>/gi;
+  let termMatch: RegExpExecArray | null;
+  while ((termMatch = directTerminalRegex.exec(text)) !== null) {
+    const cmd = termMatch[1].trim();
+    if (cmd) {
+      actions.push({
+        id: stableActionId(termMatch[0]),
+        type: "shell.exec",
+        category: "shell",
+        risk: calculateRisk("shell.exec", { command: cmd }),
+        params: { command: cmd },
+        rawBlock: termMatch[0],
+        requiresApproval: false,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
   return actions;
 }
 
@@ -250,6 +281,7 @@ export function stripActionBlocks(text: string): string {
   return text
     .replace(/<connector_action\b[\s\S]*?(?:\/>|<\/connector_action>)/gi, "")
     .replace(/<griot_action[\s\S]*?<\/griot_action>/gi, "")
+    .replace(/<(?:terminal|shell|bash)>[\s\S]*?<\/(?:terminal|shell|bash)>/gi, "")
     .replace(/```griot:[\s\S]*?```/gi, "")
     .trim();
 }

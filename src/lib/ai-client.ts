@@ -137,6 +137,16 @@ export const GEMINI_TOOL_DECLARATIONS = [
     },
   },
   {
+    name: "project_list",
+    description: "Lista todos os projetos disponíveis no GRIOT (projetos do workspace local, projetos do Supabase ou repositórios conectados do GitHub/GitLab). Use sempre que o utilizador pedir 'projectList', 'projectlist', 'listar projetos' ou perguntar que projetos existem.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        filter: { type: "STRING", description: "Filtro opcional por nome ou tipo de projeto." },
+      },
+    },
+  },
+  {
     name: "call_connector",
     description: "Executa operações e integrações em serviços externos conectados no GRIOT (Total de 30 conectores suportados: github, gitlab, vercel, supabase, firebase, neon, upstash, redis, mongodb, cloudflare, qdrant, linear, notion, slack, trello, sentry, stripe, google_sheets, google_drive, figma, docker, huggingface, gmail, outlook, dropbox, planetscale, azure, salesforce, google_colab, google_analytics, canva). Permite gerir código, deploys, bancos SQL/NoSQL, cache, vetores, issues no Linear, páginas Notion, mensagens Slack, quadros Trello, erros Sentry, saldo Stripe, tabelas Google Sheets, ficheiros Google Drive, designs Figma, tags Docker, modelos de IA Hugging Face, emails Gmail e Outlook, reuniões, pastas Dropbox, branches PlanetScale, recursos Azure, CRM Salesforce, sessões Google Colab, relatórios Google Analytics e artes no Canva.",
     parameters: {
@@ -1136,32 +1146,15 @@ async function streamGeminiDirect(params: {
   // Converte mensagens para o formato do Gemini com alternância estrita garantida e suporte multimodal
   const contents = await sanitizeGeminiContentsMultimodal(messages);
 
-  // Ferramentas só são ativadas se o utilizador solicitar explicitamente operações de ficheiro/shell
-  const needsTools = messages.some((m) => {
-    const c = (m.content || "").toLowerCase();
-    return (
-      c.includes("ficheiro") ||
-      c.includes("arquivo") ||
-      c.includes("terminal") ||
-      c.includes("comando") ||
-      c.includes("shell") ||
-      c.includes("executa") ||
-      c.includes("npm ") ||
-      c.includes("git ")
-    );
-  });
-
+  // Ferramentas nativas ativadas por padrão para capacitar a IA a executar comandos, listar projetos e operar conectores
   const body: Record<string, unknown> = {
     contents,
     generationConfig: {
       temperature: 0.7,
       maxOutputTokens: 8192,
     },
+    tools: [{ functionDeclarations: GEMINI_TOOL_DECLARATIONS }],
   };
-
-  if (needsTools) {
-    body.tools = [{ functionDeclarations: GEMINI_TOOL_DECLARATIONS }];
-  }
 
   if (systemInstruction) {
     body.systemInstruction = {
@@ -1459,35 +1452,12 @@ async function fetchOpenAIDirectSync(params: {
     modelName.includes("o1") ||
     modelName.includes("o3");
 
-  const needsTools = formattedMessages.some((m) => {
-    const rawContent =
-      typeof m.content === "string"
-        ? m.content
-        : Array.isArray(m.content)
-          ? m.content
-              .filter((c: any) => c.type === "text")
-              .map((c: any) => c.text || "")
-              .join(" ")
-          : "";
-    const c = rawContent.toLowerCase();
-    return (
-      c.includes("ficheiro") ||
-      c.includes("arquivo") ||
-      c.includes("terminal") ||
-      c.includes("comando") ||
-      c.includes("shell") ||
-      c.includes("executa") ||
-      c.includes("npm ") ||
-      c.includes("git ")
-    );
-  });
-
   const reqBody: Record<string, unknown> = {
     model: modelName,
     messages: formattedMessages,
     stream: false,
   };
-  if (needsTools && !withoutTools && !isReasoning) {
+  if (!withoutTools && !isReasoning) {
     reqBody.tools = OPENAI_TOOLS;
   }
 
@@ -1677,35 +1647,12 @@ async function streamOpenAIDirect(params: {
     signal.addEventListener("abort", onParentAbort, { once: true });
   }
 
-  const needsTools = formattedMessages.some((m) => {
-    const rawContent =
-      typeof m.content === "string"
-        ? m.content
-        : Array.isArray(m.content)
-          ? m.content
-              .filter((c: any) => c.type === "text")
-              .map((c: any) => c.text || "")
-              .join(" ")
-          : "";
-    const c = rawContent.toLowerCase();
-    return (
-      c.includes("ficheiro") ||
-      c.includes("arquivo") ||
-      c.includes("terminal") ||
-      c.includes("comando") ||
-      c.includes("shell") ||
-      c.includes("executa") ||
-      c.includes("npm ") ||
-      c.includes("git ")
-    );
-  });
-
   const streamBody: Record<string, unknown> = {
     model: modelName,
     messages: formattedMessages,
     stream: true,
   };
-  if (needsTools && !isReasoning) {
+  if (!isReasoning) {
     streamBody.tools = OPENAI_TOOLS;
   }
 
@@ -2322,12 +2269,32 @@ async function streamSupabaseOrchestratorFallback(params: {
 }
 
 function mapFunctionNameToActionType(name: string): GriotActionType {
+  const lower = (name || "").toLowerCase().trim();
+  if (
+    lower === "project_list" ||
+    lower === "projectlist" ||
+    lower === "projects" ||
+    lower === "list_projects" ||
+    lower === "get_projects" ||
+    lower === "unified_projects"
+  ) {
+    return "project.list";
+  }
+
   switch (name) {
+    case "project_list":
+    case "projectlist":
+    case "list_projects":
+    case "get_projects":
+      return "project.list";
     case "call_connector":
     case "execute_connector":
     case "connector_execute":
       return "connector.execute";
     case "shell_exec":
+    case "execute_command":
+    case "terminal_exec":
+    case "run_command":
       return "shell.exec";
     case "fs_read_file":
       return "fs.read_file";
@@ -2349,6 +2316,7 @@ function mapFunctionNameToActionType(name: string): GriotActionType {
     case "test_run":
       return "test.run";
     default:
+      if (lower.includes("project")) return "project.list";
       return "shell.exec";
   }
 }

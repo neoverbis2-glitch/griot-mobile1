@@ -511,13 +511,31 @@ class ChatExecutionManager {
                 detail = "Modificação de ficheiro";
                 active.state.currentPhase = "editing";
                 active.state.currentActionDetail = `A editar ${path}...`;
-              } else if (action.type.startsWith("terminal")) {
-                const cmd = (action.params as any)?.command || "";
+              } else if (action.type.startsWith("terminal") || action.type.startsWith("shell")) {
+                const cmd = (action.params as any)?.command || (action.params as any)?.cmd || "";
                 stepType = "editing";
-                label = `A executar ${cmd}`;
+                label = cmd ? `A executar ${cmd}` : "A executar comando de terminal";
                 detail = "Comando de terminal";
                 active.state.currentPhase = "editing";
-                active.state.currentActionDetail = `A executar ${cmd}...`;
+                active.state.currentActionDetail = cmd ? `A executar ${cmd}...` : "A executar comando...";
+              } else if (action.type.startsWith("project")) {
+                stepType = "reading";
+                label = "A consultar projetos";
+                detail = "Inventário de projetos";
+                active.state.currentPhase = "reading";
+                active.state.currentActionDetail = "A listar projetos...";
+              } else if (action.type.startsWith("git")) {
+                stepType = "editing";
+                label = `Git: ${action.type}`;
+                detail = "Operação Git";
+                active.state.currentPhase = "editing";
+                active.state.currentActionDetail = `A executar ${action.type}...`;
+              } else if (action.type.startsWith("test")) {
+                stepType = "editing";
+                label = "A executar testes";
+                detail = "Verificação de testes";
+                active.state.currentPhase = "editing";
+                active.state.currentActionDetail = "A executar testes...";
               } else {
                 label = "A ponderar alternativas...";
                 active.state.currentPhase = "thinking";

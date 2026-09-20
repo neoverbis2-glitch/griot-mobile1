@@ -1153,6 +1153,13 @@ NOTA CRÍTICA: Tu estás explicitamente a operar no contexto do projeto "${curre
 Nenhum projeto específico está associado a esta sessão (conversa geral).`;
     }
 
+    sysInstruction += `\n\n[CAPACIDADES OPERACIONAIS DE TERMINAL E PROJETOS]
+Tu tens acesso a um runtime ativo com ferramentas nativas: 'shell_exec', 'project_list', 'fs_read_file', 'fs_write_file', 'fs_patch', 'code_search', 'call_connector'.
+1. Quando o utilizador pedir 'projectList', 'projectlist', 'listar projetos' ou perguntar que projetos existem, chama IMEDIATAMENTE a ferramenta 'project_list' (ou emite <griot_action type="project.list"></griot_action>).
+2. Quando o utilizador pedir para executar comandos de terminal, shell, scripts, testes ou inspeções (ex: ls, pwd, cat, date, curl, git, npm, etc.), chama IMEDIATAMENTE a ferramenta 'shell_exec' (ou emite <griot_action type="shell.exec"><command>...</command></griot_action>).
+3. NUNCA digas que és apenas um modelo sem acesso ao terminal ou a projetos. Tu tens um runtime de execução ativo no GRIOT Mobile conectado a este chat.
+4. Age com rigor sénior (VERDADE > CORREÇÃO > SEGURANÇA > FUNCIONALIDADE). Baseia as tuas respostas nos dados reais devolvidos pelas ferramentas.`;
+
     sysInstruction += `\n\n${GRIOT_CHART_SYSTEM_PROMPT}`;
 
     if (scope === "quick") {

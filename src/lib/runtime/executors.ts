@@ -109,15 +109,34 @@ export class GriotActionExecutor {
 
     const effectiveWsId = workspaceId || "local-default";
 
-    // 1. Operações de sistema de ficheiros (fs.*), pesquisa (search.*) são geridas no workspace local
-    if (action.category === "fs" || action.category === "search") {
+    // 1. Operações de sistema de ficheiros (fs.*), pesquisa (search.*) ou projetos (project.*) são geridas no workspace local
+    if (
+      action.category === "fs" ||
+      action.category === "search" ||
+      action.category === "project" ||
+      action.type.startsWith("project.")
+    ) {
       return executeLocalAction(action, effectiveWsId);
     }
 
-    // 2. Runtime Primário: GRIOT Sandbox (Container isolado)
-    // Fluxo Arquitetural: GRIOT Studio → Studio Compute → Connected Compute → GRIOT Sandbox → execução
-    // Regra: Sem fallback para Cloud Run, sem fallback para Cloud Shell, sem mocks locais.
-    return executeInGriotSandbox(action);
+    // 2. Comandos de Terminal / Shell / Git / Testes:
+    // Tenta primeiro no GRIOT Sandbox isolado (se estiver provisionado e online).
+    // Se não houver container isolado configurado ou ocorrer indisponibilidade, executa no Harness Local do workspace para garantir funcionamento resiliente.
+    try {
+      const sandboxRes = await executeInGriotSandbox(action);
+      if (
+        sandboxRes.status === "success" ||
+        (sandboxRes.status === "failed" &&
+          !sandboxRes.stderr.includes("Nenhum projeto ativo configurado") &&
+          !sandboxRes.stderr.includes("Runtime isolado indisponível"))
+      ) {
+        return sandboxRes;
+      }
+    } catch {
+      // Falha de rede ou sandbox não provisionado, segue para o harness local
+    }
+
+    return executeLocalAction(action, effectiveWsId);
   }
 
   formatFeedbackForAI(result: GriotExecutionResult): string {

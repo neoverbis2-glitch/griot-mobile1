@@ -48,7 +48,7 @@ export type ObserverEvent = {
   metadata?: Record<string, unknown>;
 };
 
-export type GriotActionCategory = "fs" | "git" | "shell" | "test" | "search" | "connector";
+export type GriotActionCategory = "fs" | "git" | "shell" | "test" | "search" | "connector" | "project";
 
 export type GriotActionType =
   // File System
@@ -76,6 +76,9 @@ export type GriotActionType =
   | "test.run"
   | "test.verify"
   | "test.coverage"
+  // Projetos & Workspace
+  | "project.list"
+  | "project.get"
   // Conectores Externos (Plugins)
   | "connector.execute";
 
