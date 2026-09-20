@@ -70,6 +70,7 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
 
   let finalAnswer = "";
   let fullReasoning = "";
+  let accumulatedText = "";
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     callbacks?.onStepChange?.(iteration);
@@ -110,6 +111,11 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
     }
 
     fullReasoning += iterationReasoning;
+
+    // Armazena texto explicativo válido desta iteração
+    if (response.text && response.text.trim()) {
+      accumulatedText = response.text.trim();
+    }
 
     // Se não há ferramentas a executar, chegámos à resposta final
     if (candidateActions.length === 0) {
@@ -182,6 +188,35 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
 
     steps.push(stepRecord);
 
+    // Se esta era a última iteração permitida, solicita a síntese final para não cortar a resposta
+    if (iteration === maxIterations) {
+      try {
+        const finalRes = await streamDirectAI({
+          modelId,
+          messages: [
+            ...currentMessages,
+            { role: "assistant", content: response.text || "[Ações executadas]" },
+            {
+              role: "user",
+              content: `[OBSERVAÇÕES DA EXECUÇÃO]\n${observationText}\nCom base em todas as observações acima, fornece agora a tua resposta final completa e conclusiva para o utilizador. Não chames novas ferramentas.`,
+            },
+          ],
+          systemInstruction,
+          callbacks: {
+            onToken: (tok) => callbacks?.onToken?.(tok),
+            onReasoning: (r) => callbacks?.onReasoning?.(r),
+          },
+          signal,
+        });
+        if (finalRes?.text?.trim()) {
+          finalAnswer = finalRes.text.trim();
+        }
+      } catch {
+        finalAnswer = accumulatedText || response.text || "Execução concluída com sucesso.";
+      }
+      break;
+    }
+
     // Alimenta o loop ReAct adicionando a resposta do assistente e a observação
     currentMessages = [
       ...currentMessages,
@@ -194,7 +229,7 @@ export async function executeReActLoop(options: ReActLoopOptions): Promise<ReAct
   }
 
   return {
-    finalAnswer: finalAnswer || "Execução concluída.",
+    finalAnswer: finalAnswer || accumulatedText || "Execução concluída.",
     reasoning: fullReasoning,
     steps,
     actionsExecuted,

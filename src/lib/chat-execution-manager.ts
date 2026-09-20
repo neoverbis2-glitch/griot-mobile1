@@ -22,6 +22,7 @@ import { stripActionBlocks } from "@/lib/runtime/parser";
 import type { GriotProject } from "@/lib/project-service";
 import { buildConnectedPluginsSystemPrompt, PLUGINS_LIST } from "@/lib/plugins-service";
 import { GRIOT_CHART_SYSTEM_PROMPT } from "@/lib/chart-system-prompt";
+import { fetchUserGcuWallet, checkGcuAllowance, consumeGcu } from "@/lib/gcu-service";
 
 export interface ExecutionStepItem {
   id: string;
@@ -302,6 +303,32 @@ class ChatExecutionManager {
     this.activeExecutions.set(conversationId, active);
     this.notify(conversationId, { ...active.state });
 
+    // Verificação de GCU real (100 GCU no plano Free)
+    const requiredGcu = effort === "high" ? 3 : effort === "medium" ? 2 : 1;
+    const wallet = await fetchUserGcuWallet(userId);
+    const allowance = checkGcuAllowance(wallet, requiredGcu);
+
+    if (!allowance.allowed) {
+      const errorMsg = `⚠️ **Limite de 100 GCU do Plano Free Atingido**\n\n${allowance.reason || "O teu saldo de GCU esgotou-se."}\n\nTodos os utilizadores começam no plano Free com 100 GCU. Quando o limite é atingido, não é possível continuar a enviar mensagens sem saldo.\n\nAcede a **Neoverbis Pay** ou **Definições** para recarregares ou atualizares o teu plano.`;
+      const finalAssistantMsg: any = {
+        id: `asst-gcu-${Date.now()}`,
+        role: "assistant",
+        content: errorMsg,
+        created_at: new Date().toISOString(),
+        feedback: null,
+      };
+      this.saveAssistantMessageLocally(conversationId, finalAssistantMsg);
+      active.state.streaming = "";
+      active.state.reasoning = "";
+      active.state.stepsList = [];
+      active.state.isExecuting = false;
+      active.state.currentPhase = "idle";
+      this.notify(conversationId, { ...active.state });
+      this.activeExecutions.delete(conversationId);
+      clearTimeout(hardTimeoutTimer);
+      return;
+    }
+
     // 1. Registar a mensagem do utilizador localmente apenas se ainda não existir
     if (userPrompt && userPrompt.trim()) {
       const userMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -422,13 +449,14 @@ class ChatExecutionManager {
           this.notify(conversationId, { ...active.state });
         }
       } else {
-        // Modo equilibrado / profundo: ReAct loop resiliente
+        // Modo equilibrado (2 iterações) / profundo (5 iterações com reflexão extensiva)
+        const maxIter = effort === "high" ? 5 : 2;
         const loopResult = await executeReActLoop({
           modelId: effectiveModelId,
           messages: effectiveMessages,
           systemInstruction: effectiveSystemInstruction,
           context,
-          maxIterations: 6,
+          maxIterations: maxIter,
           callbacks: {
             onToken: (tok) => {
               if (controller.signal.aborted) return;
@@ -645,6 +673,15 @@ class ChatExecutionManager {
 
       // 2. Finalizar e salvar a mensagem do assistente localmente e no Supabase
       if (answer.trim()) {
+        if (!controller.signal.aborted) {
+          void consumeGcu({
+            userId,
+            amount: requiredGcu,
+            label: `Execução ${effort === "high" ? "Profunda" : effort === "medium" ? "Equilibrada" : "Rápida"} (${modelLabel(effectiveModelId)})`,
+            modelId: effectiveModelId,
+          });
+        }
+
         const cleaned = stripActionBlocks(parseProposals(answer).clean || answer);
 
         let appKey = "custom";

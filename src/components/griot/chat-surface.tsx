@@ -43,6 +43,7 @@ import {
   type ExecutionStepItem,
 } from "@/lib/chat-execution-manager";
 import { DeliberationBar } from "@/components/griot/deliberation-bar";
+import { fetchUserGcuWallet, checkGcuAllowance } from "@/lib/gcu-service";
 import {
   DELIBERATION_MISSIONS,
   DELIBERATION_ROLES,
@@ -1101,6 +1102,34 @@ export function ChatSurface({ userId }: { userId: string }) {
         return updated;
       });
       setAddApiModalOpen(true);
+      return;
+    }
+
+    // 2. Verificação prévia de saldo de GCU (100 GCU no plano Free)
+    const requiredGcu = activeEffort === "high" ? 3 : activeEffort === "medium" ? 2 : 1;
+    const wallet = await fetchUserGcuWallet(userId);
+    const allowance = checkGcuAllowance(wallet, requiredGcu);
+
+    if (!allowance.allowed) {
+      setBusy(false);
+      setStreaming("");
+      toast.error(allowance.reason || t("Limite de 100 GCU do plano Free atingido."));
+      const limitMsg: Row = {
+        id: `asst-gcu-${Date.now()}`,
+        role: "assistant",
+        content: `⚠️ **Limite de 100 GCU do Plano Free Atingido**\n\n${allowance.reason || "Esgotaste o teu saldo de GCU."}\n\nTodos os utilizadores começam no plano Free com 100 GCU. Quando o limite é atingido, é necessário atualizar o plano para continuar a usar o GRIOT sem limitações.\n\nAcede a **Neoverbis Pay** ou **Definições** para subscrever um plano.`,
+        created_at: new Date().toISOString(),
+        feedback: null,
+      };
+      setMessages((current) => {
+        const updated = [...current, limitMsg];
+        if (typeof window !== "undefined" && conversationId) {
+          try {
+            localStorage.setItem("griot_messages_" + conversationId, JSON.stringify(updated));
+          } catch {}
+        }
+        return updated;
+      });
       return;
     }
 

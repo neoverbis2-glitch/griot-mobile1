@@ -228,13 +228,17 @@ export function ApisPanel({
     return () => window.removeEventListener("griot-apis-updated", handleUpdate);
   }, []);
 
-  // Mapeia TODAS as APIs adicionadas sem deduplicação forçada por provider
+  // Mapeia TODAS as APIs adicionadas com deduplicação rigorosa (ID e Rótulo/Provedor)
   const connectedApis = useMemo(() => {
     const list: ConnectedApiItem[] = [];
     const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
 
-    // 1. APIs locais (suportam múltiplas chaves do mesmo provedor)
+    // 1. APIs locais (suportam múltiplas chaves do mesmo provedor, mas não duplicatas idênticas)
     for (const api of localApis) {
+      const normKey = `${(api.label || "").trim().toLowerCase()}::${api.providerId}`;
+      if (seenKeys.has(normKey)) continue;
+
       const p = PROVIDER_INFO[api.providerId] || {
         label: api.label,
         short: api.providerId.slice(0, 2).toUpperCase(),
@@ -245,6 +249,7 @@ export function ApisPanel({
       };
       seenIds.add(api.id);
       if (api.remoteId) seenIds.add(api.remoteId);
+      seenKeys.add(normKey);
 
       list.push({
         id: api.id,
@@ -259,11 +264,14 @@ export function ApisPanel({
       });
     }
 
-    // 2. APIs remotas do Supabase (se ainda não constarem localmente)
+    // 2. APIs remotas do Supabase (se ainda não constarem localmente nem com o mesmo rótulo/provedor)
     for (const cred of credentials) {
-      if (!seenIds.has(cred.id)) {
+      const credLabel = cred.label || cred.providerId;
+      const normKey = `${credLabel.trim().toLowerCase()}::${cred.providerId}`;
+
+      if (!seenIds.has(cred.id) && !seenKeys.has(normKey)) {
         const p = PROVIDER_INFO[cred.providerId] || {
-          label: cred.label || cred.providerId,
+          label: credLabel,
           short: cred.providerId.slice(0, 2).toUpperCase(),
           vendor: cred.providerId,
           hint: "API Configurada",
@@ -271,10 +279,12 @@ export function ApisPanel({
           placeholder: "",
         };
         seenIds.add(cred.id);
+        seenKeys.add(normKey);
+
         list.push({
           id: cred.id,
           providerId: cred.providerId,
-          label: cred.label || p.label,
+          label: credLabel,
           short: p.short,
           vendor: p.vendor,
           hint: p.hint,
@@ -289,12 +299,31 @@ export function ApisPanel({
 
   const handleDelete = async (api: ConnectedApiItem) => {
     try {
+      // Atualização otimista imediata para evitar que o utilizador veja a API reaparecer
+      setLocalApis((prev) =>
+        prev.filter(
+          (a) =>
+            a.id !== api.id &&
+            a.label?.trim().toLowerCase() !== api.label?.trim().toLowerCase(),
+        ),
+      );
+      setCredentials((prev) =>
+        prev.filter(
+          (c) =>
+            c.id !== api.id &&
+            (c.label || "").trim().toLowerCase() !== api.label?.trim().toLowerCase(),
+        ),
+      );
+
       await deleteUserApi(api.id);
       toast.success(t(`API ${api.label} removida.`));
       await refreshApis();
-      if (typeof window !== "undefined") window.dispatchEvent(new Event("griot-apis-updated"));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("griot-apis-updated"));
+      }
     } catch {
       toast.error(t("Erro ao remover API."));
+      await refreshApis();
     }
   };
 

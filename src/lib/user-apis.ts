@@ -236,35 +236,79 @@ export async function saveUserApi(input: {
   return newApi;
 }
 
-/** Remove uma API específica por ID */
-export async function deleteUserApi(apiId: string): Promise<void> {
+/** Remove uma API específica por ID, remoteId ou rótulo */
+export async function deleteUserApi(apiIdOrLabel: string): Promise<void> {
   const apis = getUserSavedApis();
-  const target = apis.find((a) => a.id === apiId);
-  const remaining = apis.filter((a) => a.id !== apiId);
+  const target = apis.find(
+    (a) =>
+      a.id === apiIdOrLabel ||
+      a.remoteId === apiIdOrLabel ||
+      a.label?.toLowerCase() === apiIdOrLabel.toLowerCase(),
+  );
+
+  const targetLabel = target?.label || apiIdOrLabel;
+  const targetId = target?.id || apiIdOrLabel;
+  const targetRemoteId = target?.remoteId;
+
+  // 1. Remove do armazenamento local
+  const remaining = apis.filter(
+    (a) =>
+      a.id !== targetId &&
+      a.id !== apiIdOrLabel &&
+      (!targetRemoteId || a.remoteId !== targetRemoteId) &&
+      a.label?.toLowerCase() !== targetLabel.toLowerCase(),
+  );
 
   if (typeof window !== "undefined") {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
 
-    // Se era a única deste provedor, limpa a chave unitária
-    if (target && !remaining.some((a) => a.providerId === target.providerId)) {
-      localStorage.removeItem(`griot_api_key_${target.providerId}`);
-      localStorage.removeItem(`griot_${target.providerId}_api_key`);
-    } else if (target) {
-      // Atualiza com a próxima chave disponível
-      const next = remaining.find((a) => a.providerId === target.providerId);
+    const prov = target?.providerId;
+    if (prov && !remaining.some((a) => a.providerId === prov)) {
+      localStorage.removeItem(`griot_api_key_${prov}`);
+      localStorage.removeItem(`griot_${prov}_api_key`);
+    } else if (prov) {
+      const next = remaining.find((a) => a.providerId === prov);
       if (next) {
-        localStorage.setItem(`griot_api_key_${target.providerId}`, next.apiKey);
-        localStorage.setItem(`griot_${target.providerId}_api_key`, next.apiKey);
+        localStorage.setItem(`griot_api_key_${prov}`, next.apiKey);
+        localStorage.setItem(`griot_${prov}_api_key`, next.apiKey);
       }
     }
 
     window.dispatchEvent(new Event("griot-apis-updated"));
   }
 
-  // Se tiver remoteId ou for UUID, tenta apagar no Supabase
-  if (target?.remoteId) {
+  // 2. Remove na base de dados Supabase (tabela griot_credentials)
+  try {
+    const idsToDelete = [apiIdOrLabel, targetId, targetRemoteId].filter(
+      (id): id is string => Boolean(id) && /^[0-9a-f-]{36}$/i.test(id),
+    );
+
+    if (idsToDelete.length > 0) {
+      await (supabase as any)
+        .from("griot_credentials")
+        .delete()
+        .in("id", idsToDelete);
+    }
+
+    if (targetLabel && targetLabel.trim().length > 0) {
+      await (supabase as any)
+        .from("griot_credentials")
+        .delete()
+        .eq("label", targetLabel.trim());
+    }
+  } catch (err) {
+    console.warn("[GRIOT] Erro ao remover credencial remota do Supabase:", err);
+  }
+
+  // 3. Notifica o helper deleteGriotCredential
+  if (targetRemoteId) {
     try {
-      await deleteGriotCredential(target.remoteId);
+      await deleteGriotCredential(targetRemoteId);
+    } catch {}
+  }
+  if (apiIdOrLabel && /^[0-9a-f-]{36}$/i.test(apiIdOrLabel)) {
+    try {
+      await deleteGriotCredential(apiIdOrLabel);
     } catch {}
   }
 }
