@@ -27,8 +27,10 @@ import {
   Radio,
   ExternalLink,
   Cpu,
+  Activity,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
+import { RuntimeDiagnosticUtility } from "./runtime-diagnostic";
 
 export function RuntimeObserverCard() {
   const t = useT();
@@ -36,6 +38,7 @@ export function RuntimeObserverCard() {
   const [expanded, setExpanded] = useState(false);
   const [hubOpen, setHubOpen] = useState(false);
   const [modelGpuOpen, setModelGpuOpen] = useState(false);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [selectedResult, setSelectedResult] = useState<GriotExecutionResult | null>(null);
 
   useEffect(() => {
@@ -227,6 +230,27 @@ export function RuntimeObserverCard() {
                 <pre className="text-foreground/90 whitespace-pre-wrap max-h-40 overflow-y-auto">
                   {selectedResult.stdout || selectedResult.stderr || t("(sem saída)")}
                 </pre>
+              </div>
+            )}
+
+            {/* Diagnostic Utility Toggle */}
+            <div className="pt-2 border-t border-hairline flex items-center justify-between">
+              <button
+                onClick={() => setDiagnosticOpen(!diagnosticOpen)}
+                className="flex items-center gap-1.5 text-[12px] font-medium text-primary hover:underline py-1"
+              >
+                <Activity className="size-3.5" />
+                <span>
+                  {diagnosticOpen
+                    ? t("Ocultar Diagnóstico de Runtime")
+                    : t("Diagnóstico de Runtime & Sandbox")}
+                </span>
+              </button>
+            </div>
+
+            {diagnosticOpen && (
+              <div className="mt-2 pt-2">
+                <RuntimeDiagnosticUtility />
               </div>
             )}
           </div>

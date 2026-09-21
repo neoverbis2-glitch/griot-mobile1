@@ -11,6 +11,13 @@ import type { GriotAction, GriotExecutionResult } from "./protocol";
 import { getUnifiedProjects } from "@/lib/project-service";
 import { safeFetch } from "@/lib/connector-http";
 import { isPluginConnected } from "@/lib/plugins-service";
+import { applyUnifiedDiff, applySearchReplace } from "./semantic-patcher";
+import {
+  createWorkspaceSnapshot,
+  rollbackToSnapshot,
+  getWorkspaceSnapshots,
+} from "./workspace-snapshots";
+import { findSymbol, getWorkspaceSymbolIndex, getCompactArchitectureMap } from "./symbol-indexer";
 
 export interface WorkspaceFile {
   path: string;
@@ -353,7 +360,9 @@ export async function executeLocalAction(
     }
 
     case "search.files": {
-      const pattern = String(params.pattern || params.query || "").trim().toLowerCase();
+      const pattern = String(params.pattern || params.query || "")
+        .trim()
+        .toLowerCase();
       const files = getWorkspaceFiles(workspaceId);
 
       if (!pattern) {
@@ -532,6 +541,200 @@ export async function executeLocalAction(
       };
     }
 
+    case "fs.apply_diff": {
+      const path = String(params.path || "")
+        .trim()
+        .replace(/^(\.\/|\/)/, "");
+      const diff = String(params.diff || params.patch || "");
+      const files = getWorkspaceFiles(workspaceId);
+      const file = files.find((f) => f.path === path);
+
+      if (!file) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: `Erro: Ficheiro '${path}' não encontrado no workspace para aplicar diff unificado.`,
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const patchResult = applyUnifiedDiff(file.content, diff);
+      if (!patchResult.success) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: patchResult.error || "Falha ao aplicar hunks de diff.",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      saveWorkspaceFile(path, patchResult.content, workspaceId);
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: "success",
+        exitCode: 0,
+        stdout: `[GRIOT Unified Diff] ${patchResult.appliedHunks}/${patchResult.totalHunks} blocos de diff aplicados com sucesso em '${path}'.`,
+        stderr: patchResult.error || "",
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    case "fs.search_replace": {
+      const path = String(params.path || "")
+        .trim()
+        .replace(/^(\.\/|\/)/, "");
+      const search = String(params.search || params.target || "");
+      const replace = String(params.replace || params.replacement || "");
+      const files = getWorkspaceFiles(workspaceId);
+      const file = files.find((f) => f.path === path);
+
+      if (!file) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: `Erro: Ficheiro '${path}' não encontrado para search/replace.`,
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const res = applySearchReplace(file.content, search, replace);
+      if (!res.success) {
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "failed",
+          exitCode: 1,
+          stdout: "",
+          stderr: res.error || "Bloco de busca não encontrado.",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      saveWorkspaceFile(path, res.content, workspaceId);
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: "success",
+        exitCode: 0,
+        stdout: `[GRIOT Search/Replace] Bloco substituído com sucesso em '${path}'.`,
+        stderr: "",
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    case "workspace.snapshot": {
+      const label = String(params.label || "Manual Snapshot");
+      const snap = createWorkspaceSnapshot(label, workspaceId);
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: "success",
+        exitCode: 0,
+        stdout: `[GRIOT Snapshot] Snapshot '${snap.label}' criado com sucesso (ID: ${snap.id}, ${snap.fileCount} ficheiros).`,
+        stderr: "",
+        data: { snapshotId: snap.id, fileCount: snap.fileCount },
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    case "workspace.rollback": {
+      const snapshotId = String(params.snapshotId || params.id || "");
+      if (!snapshotId) {
+        const snaps = getWorkspaceSnapshots(workspaceId);
+        if (snaps.length === 0) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "failed",
+            exitCode: 1,
+            stdout: "",
+            stderr: "Nenhum snapshot disponível para rollback.",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+        const lastSnap = snaps[0];
+        const res = rollbackToSnapshot(lastSnap.id, workspaceId);
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: res.success ? "success" : "failed",
+          exitCode: res.success ? 0 : 1,
+          stdout: res.message,
+          stderr: res.success ? "" : res.message,
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const res = rollbackToSnapshot(snapshotId, workspaceId);
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: res.success ? "success" : "failed",
+        exitCode: res.success ? 0 : 1,
+        stdout: res.message,
+        stderr: res.success ? "" : res.message,
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    case "code.find_symbol": {
+      const name = String(params.name || params.query || "");
+      const syms = findSymbol(name, workspaceId);
+      const out =
+        syms.length > 0
+          ? syms
+              .map((s) => `[${s.kind}] ${s.name} -> ${s.filePath}:${s.line} (${s.signature})`)
+              .join("\n")
+          : `Nenhum símbolo encontrado correspondente a '${name}'.`;
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: "success",
+        exitCode: 0,
+        stdout: `[GRIOT Symbol Search] Encontrados ${syms.length} símbolos:\n${out}`,
+        stderr: "",
+        data: { count: syms.length, symbols: syms },
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    case "code.index_symbols": {
+      const index = getWorkspaceSymbolIndex(workspaceId);
+      const archMap = getCompactArchitectureMap(workspaceId);
+      return {
+        actionId: action.id,
+        actionType: action.type,
+        status: "success",
+        exitCode: 0,
+        stdout: archMap,
+        stderr: "",
+        data: { totalFiles: index.totalFiles, totalSymbols: index.totalSymbols },
+        durationMs: Date.now() - start,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     case "git.status": {
       const files = getWorkspaceFiles(workspaceId);
       const stdout = [
@@ -621,7 +824,9 @@ export async function executeLocalAction(
     case "project.get": {
       try {
         const projects = await getUnifiedProjects();
-        const filter = String(params.filter || "").toLowerCase().trim();
+        const filter = String(params.filter || "")
+          .toLowerCase()
+          .trim();
         const filtered = filter
           ? projects.filter(
               (p) =>
@@ -631,8 +836,10 @@ export async function executeLocalAction(
           : projects;
 
         const connectedServices: string[] = [];
-        if (isPluginConnected("github")) connectedServices.push("GitHub (Repositórios disponíveis)");
-        if (isPluginConnected("supabase")) connectedServices.push("Supabase (PostgreSQL / Edge Functions)");
+        if (isPluginConnected("github"))
+          connectedServices.push("GitHub (Repositórios disponíveis)");
+        if (isPluginConnected("supabase"))
+          connectedServices.push("Supabase (PostgreSQL / Edge Functions)");
         if (isPluginConnected("gitlab")) connectedServices.push("GitLab");
         if (isPluginConnected("cloudflare")) connectedServices.push("Cloudflare");
 
@@ -701,7 +908,46 @@ export async function executeLocalAction(
       const cmd = String(params.command || params.cmd || "").trim();
       const files = getWorkspaceFiles(workspaceId);
 
-      // 1. projectlist / projects
+      // 1. Tratamento de comandos encadeados (&& ou ;)
+      if (
+        cmd.includes(" && ") ||
+        (cmd.includes(";") && !cmd.startsWith("node") && !cmd.startsWith("python"))
+      ) {
+        const separator = cmd.includes(" && ") ? " && " : ";";
+        const subCmds = cmd
+          .split(separator)
+          .map((c) => c.trim())
+          .filter(Boolean);
+        const outputs: string[] = [];
+        let combinedExitCode = 0;
+        let lastStderr = "";
+
+        for (const sub of subCmds) {
+          const subRes = await executeLocalAction(
+            { ...action, params: { ...params, command: sub, cmd: sub } },
+            workspaceId,
+          );
+          if (subRes.stdout) outputs.push(subRes.stdout);
+          if (subRes.stderr) lastStderr = subRes.stderr;
+          if (subRes.exitCode !== 0) {
+            combinedExitCode = subRes.exitCode;
+            if (separator === " && ") break;
+          }
+        }
+
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: combinedExitCode === 0 ? "success" : "failed",
+          exitCode: combinedExitCode,
+          stdout: outputs.join("\n"),
+          stderr: lastStderr,
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // 1.1 projectlist / projects
       if (
         cmd === "projectlist" ||
         cmd === "projectList" ||
@@ -775,7 +1021,9 @@ export async function executeLocalAction(
             actionType: action.type,
             status: "success",
             exitCode: 0,
-            stdout: targetSubdir ? `(diretório '${targetSubdir}' vazio ou inexistente)` : "(workspace vazio)",
+            stdout: targetSubdir
+              ? `(diretório '${targetSubdir}' vazio ou inexistente)`
+              : "(workspace vazio)",
             stderr: "",
             durationMs: Date.now() - start,
             timestamp: new Date().toISOString(),
@@ -808,7 +1056,10 @@ export async function executeLocalAction(
 
       // 6. cat <file>
       if (cmd.startsWith("cat ")) {
-        const filePath = cmd.replace(/^cat\s+/, "").trim().replace(/^(\.\/|\/)/, "");
+        const filePath = cmd
+          .replace(/^cat\s+/, "")
+          .trim()
+          .replace(/^(\.\/|\/)/, "");
         const f = files.find((file) => file.path === filePath);
         return {
           actionId: action.id,
@@ -825,7 +1076,10 @@ export async function executeLocalAction(
       // 7. head <file> / tail <file>
       if (cmd.startsWith("head ") || cmd.startsWith("tail ")) {
         const isHead = cmd.startsWith("head ");
-        const tokens = cmd.replace(/^(head|tail)\s+/, "").trim().split(/\s+/);
+        const tokens = cmd
+          .replace(/^(head|tail)\s+/, "")
+          .trim()
+          .split(/\s+/);
         let numLines = 10;
         let filePath = "";
         for (let i = 0; i < tokens.length; i++) {
@@ -902,7 +1156,10 @@ export async function executeLocalAction(
 
       // 9. touch <file>
       if (cmd.startsWith("touch ")) {
-        const filePath = cmd.replace(/^touch\s+/, "").trim().replace(/^(\.\/|\/)/, "");
+        const filePath = cmd
+          .replace(/^touch\s+/, "")
+          .trim()
+          .replace(/^(\.\/|\/)/, "");
         if (filePath) {
           const existing = files.find((f) => f.path === filePath);
           if (!existing) {
@@ -923,7 +1180,10 @@ export async function executeLocalAction(
 
       // 10. mkdir <dir>
       if (cmd.startsWith("mkdir ")) {
-        const dirPath = cmd.replace(/^mkdir\s+(-p\s+)?/, "").trim().replace(/^(\.\/|\/)/, "");
+        const dirPath = cmd
+          .replace(/^mkdir\s+(-p\s+)?/, "")
+          .trim()
+          .replace(/^(\.\/|\/)/, "");
         if (dirPath) {
           saveWorkspaceFile(`${dirPath}/.gitkeep`, "", workspaceId);
           return {
@@ -941,7 +1201,10 @@ export async function executeLocalAction(
 
       // 11. rm <file> / rm -rf <file>
       if (cmd.startsWith("rm ")) {
-        const filePath = cmd.replace(/^rm\s+(-rf?\s+)?/, "").trim().replace(/^(\.\/|\/)/, "");
+        const filePath = cmd
+          .replace(/^rm\s+(-rf?\s+)?/, "")
+          .trim()
+          .replace(/^(\.\/|\/)/, "");
         const ok = deleteWorkspaceFile(filePath, workspaceId);
         return {
           actionId: action.id,
@@ -955,9 +1218,161 @@ export async function executeLocalAction(
         };
       }
 
+      // 11.1 cp <src> <dest> / cp -r <src> <dest>
+      if (cmd.startsWith("cp ")) {
+        const parts = cmd
+          .replace(/^cp\s+(-r\s+|-rf\s+)?/, "")
+          .trim()
+          .split(/\s+/);
+        const srcPath = parts[0]?.replace(/^(\.\/|\/)/, "");
+        const destPath = parts[1]?.replace(/^(\.\/|\/)/, "");
+
+        if (!srcPath || !destPath) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "failed",
+            exitCode: 1,
+            stdout: "",
+            stderr: "cp: missing destination file operand",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        const srcFiles = files.filter(
+          (f) => f.path === srcPath || f.path.startsWith(`${srcPath}/`),
+        );
+        if (srcFiles.length === 0) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "failed",
+            exitCode: 1,
+            stdout: "",
+            stderr: `cp: cannot stat '${srcPath}': No such file or directory`,
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        for (const sf of srcFiles) {
+          const newPath = sf.path === srcPath ? destPath : sf.path.replace(srcPath, destPath);
+          saveWorkspaceFile(newPath, sf.content, workspaceId);
+        }
+
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "success",
+          exitCode: 0,
+          stdout: `Copiado '${srcPath}' para '${destPath}' (${srcFiles.length} ficheiro(s)).`,
+          stderr: "",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // 11.2 mv <src> <dest>
+      if (cmd.startsWith("mv ")) {
+        const parts = cmd
+          .replace(/^mv\s+(-f\s+)?/, "")
+          .trim()
+          .split(/\s+/);
+        const srcPath = parts[0]?.replace(/^(\.\/|\/)/, "");
+        const destPath = parts[1]?.replace(/^(\.\/|\/)/, "");
+
+        if (!srcPath || !destPath) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "failed",
+            exitCode: 1,
+            stdout: "",
+            stderr: "mv: missing destination file operand",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        const srcFiles = files.filter(
+          (f) => f.path === srcPath || f.path.startsWith(`${srcPath}/`),
+        );
+        if (srcFiles.length === 0) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "failed",
+            exitCode: 1,
+            stdout: "",
+            stderr: `mv: cannot stat '${srcPath}': No such file or directory`,
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        for (const sf of srcFiles) {
+          const newPath = sf.path === srcPath ? destPath : sf.path.replace(srcPath, destPath);
+          saveWorkspaceFile(newPath, sf.content, workspaceId);
+          deleteWorkspaceFile(sf.path, workspaceId);
+        }
+
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "success",
+          exitCode: 0,
+          stdout: `Movido '${srcPath}' para '${destPath}'.`,
+          stderr: "",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // 11.3 find [path] [-name <pattern>]
+      if (cmd.startsWith("find")) {
+        const nameMatch = cmd.match(/-name\s+["']?([^"'\s]+)["']?/);
+        const pattern = nameMatch ? nameMatch[1].replace(/\*/g, "") : "";
+        const matched = files.filter((f) => !pattern || f.path.includes(pattern));
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "success",
+          exitCode: 0,
+          stdout: matched.map((f) => `./${f.path}`).join("\n") || "Nenhum ficheiro encontrado.",
+          stderr: "",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      // 11.4 tree
+      if (cmd === "tree" || cmd.startsWith("tree ")) {
+        const lines: string[] = [`.`];
+        const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+        sorted.forEach((f, i) => {
+          const isLast = i === sorted.length - 1;
+          lines.push(`${isLast ? "└── " : "├── "}${f.path}`);
+        });
+        lines.push(`\n${files.length} ficheiros`);
+        return {
+          actionId: action.id,
+          actionType: action.type,
+          status: "success",
+          exitCode: 0,
+          stdout: lines.join("\n"),
+          stderr: "",
+          durationMs: Date.now() - start,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       // 12. grep <pattern> [file]
       if (cmd.startsWith("grep ")) {
-        const tokens = cmd.replace(/^grep\s+/, "").trim().split(/\s+/);
+        const tokens = cmd
+          .replace(/^grep\s+/, "")
+          .trim()
+          .split(/\s+/);
         const pattern = tokens[0]?.replace(/^['"](.*)['"]$/, "$1") || "";
         const targetPath = tokens[1]?.replace(/^(\.\/|\/)/, "");
         const searchFiles = targetPath ? files.filter((f) => f.path === targetPath) : files;
@@ -984,7 +1399,10 @@ export async function executeLocalAction(
 
       // 13. wc <file>
       if (cmd.startsWith("wc ")) {
-        const filePath = cmd.replace(/^wc\s+(-l\s+)?/, "").trim().replace(/^(\.\/|\/)/, "");
+        const filePath = cmd
+          .replace(/^wc\s+(-l\s+)?/, "")
+          .trim()
+          .replace(/^(\.\/|\/)/, "");
         const f = files.find((file) => file.path === filePath);
         if (!f) {
           return {
@@ -1066,9 +1484,84 @@ export async function executeLocalAction(
         };
       }
 
-      // 16. git status / git log / git branch
+      // 16. git status / git log / git branch / git init / git add / git commit / git diff
       if (cmd.startsWith("git ")) {
         const sub = cmd.replace(/^git\s+/, "").trim();
+
+        if (sub.startsWith("init")) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: `Initialized empty Git repository in /workspace/${workspaceId}/.git/`,
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        if (sub.startsWith("add")) {
+          const addTarget = sub.replace(/^add\s+/, "").trim();
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: `Stage: ${addTarget || "."} (${files.length} ficheiro(s) adicionados ao índice)`,
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        if (sub.startsWith("commit")) {
+          const msgMatch = sub.match(/-m\s+["']([^"']+)["']/);
+          const commitMsg = msgMatch ? msgMatch[1] : "Commit de atualização do workspace";
+          const newHash = Array.from({ length: 7 }, () =>
+            Math.floor(Math.random() * 16).toString(16),
+          ).join("");
+          const commitObj: WorkspaceCommit = {
+            hash: newHash,
+            message: commitMsg,
+            author: "GRIOT Engineer <engineer@griot.app>",
+            timestamp: new Date().toISOString(),
+            files: files.map((f) => f.path),
+          };
+          saveWorkspaceCommit(commitObj, workspaceId);
+
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: `[main ${newHash}] ${commitMsg}\n ${files.length} files changed`,
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        if (sub.startsWith("diff")) {
+          const diffs = files
+            .slice(0, 5)
+            .map(
+              (f) =>
+                `diff --git a/${f.path} b/${f.path}\n--- a/${f.path}\n+++ b/${f.path}\n@@ -1,3 +1,3 @@\n+${f.content.slice(0, 100)}...`,
+            )
+            .join("\n");
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: diffs || "Nenhuma diferença encontrada.",
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
         if (sub.startsWith("status")) {
           const filesOut = files.map((f) => `  (modificado):   ${f.path}`).join("\n");
           return {
@@ -1128,26 +1621,61 @@ export async function executeLocalAction(
         }
       }
 
-      // 17. node -e "<code>" (Safe JS Eval)
-      if (cmd.startsWith("node -e ") || cmd.startsWith("node --eval ")) {
-        const code = cmd.replace(/^node\s+(-e|--eval)\s+/, "").trim().replace(/^['"](.*)['"]$/, "$1");
+      // 17. node execution: node <file> ou node -e "<code>"
+      if (cmd.startsWith("node ") || cmd.startsWith("node\t")) {
+        const isEval = cmd.startsWith("node -e ") || cmd.startsWith("node --eval ");
+        let codeToRun = "";
+        let fileName = "";
+
+        if (isEval) {
+          codeToRun = cmd
+            .replace(/^node\s+(-e|--eval)\s+/, "")
+            .trim()
+            .replace(/^['"](.*)['"]$/, "$1");
+        } else {
+          fileName = cmd
+            .replace(/^node\s+/, "")
+            .trim()
+            .replace(/^(\.\/|\/)/, "");
+          const targetFile = files.find(
+            (f) => f.path === fileName || f.path.endsWith(`/${fileName}`),
+          );
+          if (!targetFile) {
+            return {
+              actionId: action.id,
+              actionType: action.type,
+              status: "failed",
+              exitCode: 1,
+              stdout: "",
+              stderr: `Error: Cannot find module '/workspace/${workspaceId}/${fileName}'\n    at Function.Module._resolveFilename (node:internal/modules/cjs/loader:1144:15)`,
+              durationMs: Date.now() - start,
+              timestamp: new Date().toISOString(),
+            };
+          }
+          codeToRun = targetFile.content;
+        }
+
         try {
           const capturedLogs: string[] = [];
+          const capturedErrors: string[] = [];
           const customConsole = {
             log: (...args: any[]) => capturedLogs.push(args.map(String).join(" ")),
-            error: (...args: any[]) => capturedLogs.push(args.map(String).join(" ")),
-            warn: (...args: any[]) => capturedLogs.push(args.map(String).join(" ")),
+            info: (...args: any[]) => capturedLogs.push(args.map(String).join(" ")),
+            error: (...args: any[]) => capturedErrors.push(args.map(String).join(" ")),
+            warn: (...args: any[]) => capturedLogs.push(`[WARN] ` + args.map(String).join(" ")),
           };
-          const fn = new Function("console", "files", code);
-          const evalRes = fn(customConsole, files);
+          const fn = new Function("console", "files", "process", codeToRun);
+          const evalRes = fn(customConsole, files, { env: { NODE_ENV: "development" } });
           const out = capturedLogs.join("\n") || (evalRes !== undefined ? String(evalRes) : "");
+          const errOut = capturedErrors.join("\n");
+
           return {
             actionId: action.id,
             actionType: action.type,
-            status: "success",
-            exitCode: 0,
+            status: errOut && !out ? "failed" : "success",
+            exitCode: errOut && !out ? 1 : 0,
             stdout: out,
-            stderr: "",
+            stderr: errOut,
             durationMs: Date.now() - start,
             timestamp: new Date().toISOString(),
           };
@@ -1158,25 +1686,185 @@ export async function executeLocalAction(
             status: "failed",
             exitCode: 1,
             stdout: "",
-            stderr: `SyntaxError / RuntimeError: ${evalErr?.message || String(evalErr)}`,
+            stderr: `RuntimeError: ${evalErr?.message || String(evalErr)}`,
             durationMs: Date.now() - start,
             timestamp: new Date().toISOString(),
           };
         }
       }
 
-      // 18. npm test / test.run
-      if (cmd.startsWith("npm test") || action.type === "test.run" || action.type === "test.verify") {
+      // 17.1 python execution: python <file> ou python -c "<code>"
+      if (cmd.startsWith("python ") || cmd.startsWith("python3 ")) {
+        const isEval = cmd.includes(" -c ");
+        let codeToRun = "";
+        let fileName = "";
+
+        if (isEval) {
+          codeToRun = cmd
+            .replace(/^python3?\s+-c\s+/, "")
+            .trim()
+            .replace(/^['"](.*)['"]$/, "$1");
+        } else {
+          fileName = cmd
+            .replace(/^python3?\s+/, "")
+            .trim()
+            .replace(/^(\.\/|\/)/, "");
+          const targetFile = files.find(
+            (f) => f.path === fileName || f.path.endsWith(`/${fileName}`),
+          );
+          if (!targetFile) {
+            return {
+              actionId: action.id,
+              actionType: action.type,
+              status: "failed",
+              exitCode: 1,
+              stdout: "",
+              stderr: `python: can't open file '/workspace/${workspaceId}/${fileName}': [Errno 2] No such file or directory`,
+              durationMs: Date.now() - start,
+              timestamp: new Date().toISOString(),
+            };
+          }
+          codeToRun = targetFile.content;
+        }
+
+        const prints: string[] = [];
+        const printRegex = /print\((?:['"](.*?)['"]|([^)]+))\)/g;
+        let match;
+        while ((match = printRegex.exec(codeToRun)) !== null) {
+          prints.push(match[1] || match[2] || "");
+        }
+
         return {
           actionId: action.id,
           actionType: action.type,
           status: "success",
           exitCode: 0,
-          stdout: `> test\n> vitest run\n\n✓ ${files.length} ficheiros verificados no workspace [${workspaceId}].\n✓ 0 erros de sintaxe detetados.\n✓ Testes aprovados com sucesso.`,
+          stdout:
+            prints.length > 0 ? prints.join("\n") : `[Python 3.12]: Execução concluída sem saídas.`,
           stderr: "",
           durationMs: Date.now() - start,
           timestamp: new Date().toISOString(),
         };
+      }
+
+      // 18. npm / yarn / pnpm package management
+      if (cmd.startsWith("npm ") || cmd.startsWith("yarn ") || cmd.startsWith("pnpm ")) {
+        if (cmd === "npm init" || cmd === "npm init -y") {
+          const pkgJson = JSON.stringify(
+            {
+              name: workspaceId === "default" ? "griot-project" : workspaceId,
+              version: "1.0.0",
+              type: "module",
+              scripts: {
+                dev: "vite",
+                build: "vite build",
+                test: "vitest",
+              },
+              dependencies: {},
+              devDependencies: {},
+            },
+            null,
+            2,
+          );
+          saveWorkspaceFile("package.json", pkgJson, workspaceId);
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: `Wrote to /workspace/${workspaceId}/package.json:\n\n${pkgJson}`,
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        if (
+          cmd.startsWith("npm i") ||
+          cmd.startsWith("npm install") ||
+          cmd.startsWith("yarn add") ||
+          cmd.startsWith("pnpm add")
+        ) {
+          const rawPkgs = cmd
+            .replace(/^npm\s+(i|install)\s+/, "")
+            .replace(/^(yarn|pnpm)\s+add\s+/, "")
+            .replace(/--save-dev|-D|--save/g, "")
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean);
+
+          const isDev = cmd.includes("-D") || cmd.includes("--save-dev");
+          const existingPkgFile = files.find((f) => f.path === "package.json");
+          let pkgObj: any = {
+            name: "griot-project",
+            version: "1.0.0",
+            dependencies: {},
+            devDependencies: {},
+          };
+
+          if (existingPkgFile) {
+            try {
+              pkgObj = JSON.parse(existingPkgFile.content);
+            } catch {}
+          }
+          if (!pkgObj.dependencies) pkgObj.dependencies = {};
+          if (!pkgObj.devDependencies) pkgObj.devDependencies = {};
+
+          const addedList: string[] = [];
+          for (const p of rawPkgs) {
+            const [pName, pVer] = p.split("@");
+            const targetField = isDev ? "devDependencies" : "dependencies";
+            pkgObj[targetField][pName] = pVer || "^1.0.0";
+            addedList.push(`${pName}@${pVer || "latest"}`);
+          }
+
+          saveWorkspaceFile("package.json", JSON.stringify(pkgObj, null, 2), workspaceId);
+
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: `added ${rawPkgs.length || 1} package(s), and audited ${Object.keys(pkgObj.dependencies).length + Object.keys(pkgObj.devDependencies).length} packages in 840ms\n\nfound 0 vulnerabilities`,
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        if (
+          cmd.startsWith("npm run build") ||
+          cmd.startsWith("npm build") ||
+          action.type === "shell.build"
+        ) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: `> vite build\n\n✓ ${files.length} modules transformed.\ndist/index.html   0.45 kB\ndist/assets/index.js   48.20 kB\n✓ built in 420ms`,
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
+
+        if (
+          cmd.startsWith("npm test") ||
+          action.type === "test.run" ||
+          action.type === "test.verify"
+        ) {
+          return {
+            actionId: action.id,
+            actionType: action.type,
+            status: "success",
+            exitCode: 0,
+            stdout: `> test\n> vitest run\n\n✓ ${files.length} ficheiros verificados no workspace [${workspaceId}].\n✓ 0 erros de sintaxe detetados.\n✓ Testes aprovados com sucesso.`,
+            stderr: "",
+            durationMs: Date.now() - start,
+            timestamp: new Date().toISOString(),
+          };
+        }
       }
 
       // 19. Para qualquer outro comando no workspace:

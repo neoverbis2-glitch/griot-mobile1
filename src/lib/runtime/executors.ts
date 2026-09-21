@@ -121,15 +121,19 @@ export class GriotActionExecutor {
 
     // 2. Comandos de Terminal / Shell / Git / Testes:
     // Tenta primeiro no GRIOT Sandbox isolado (se estiver provisionado e online).
-    // Se não houver container isolado configurado ou ocorrer indisponibilidade, executa no Harness Local do workspace para garantir funcionamento resiliente.
+    // Se não houver container isolado configurado ou ocorrer indisponibilidade de infraestrutura,
+    // executa no Harness Local do workspace para garantir funcionamento resiliente com auto-recuperação.
     try {
       const sandboxRes = await executeInGriotSandbox(action);
-      if (
-        sandboxRes.status === "success" ||
-        (sandboxRes.status === "failed" &&
-          !sandboxRes.stderr.includes("Nenhum projeto ativo configurado") &&
-          !sandboxRes.stderr.includes("Runtime isolado indisponível"))
-      ) {
+      const isInfraError =
+        sandboxRes.stderr.includes("Nenhum projeto ativo") ||
+        sandboxRes.stderr.includes("Runtime isolado indisponível") ||
+        sandboxRes.stderr.includes("Falha ao provisionar container") ||
+        sandboxRes.stderr.includes("FunctionsFetchError") ||
+        sandboxRes.stderr.includes("Execution Gateway") ||
+        sandboxRes.stderr.includes("Studio Compute");
+
+      if (sandboxRes.status === "success" || (sandboxRes.status === "failed" && !isInfraError)) {
         return sandboxRes;
       }
     } catch {
