@@ -135,6 +135,9 @@ export async function askProjectAgent(input: {
   agentId: string;
   prompt: string;
   conversationId?: string;
+  provider?: string;
+  credentialId?: string;
+  model?: string;
 }): Promise<AgentChatResponse> {
   if (!input.prompt.trim()) throw new Error("A mensagem não pode estar vazia.");
   const result = await orchestrator<AgentChatResponse>(input.projectId, "/ask", {
