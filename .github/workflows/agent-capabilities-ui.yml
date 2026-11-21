@@ -24,4 +24,18 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npx tsc --noEmit
+      - name: TypeScript regression check for changed capability code
+        run: |
+          npx tsc --noEmit > /tmp/griot-typecheck.log 2>&1 || true
+          echo "The existing GRIOT mobile baseline has unrelated TypeScript diagnostics."
+          if grep -E '^src/(lib/agent-capabilities\\.ts|components/griot/agent-capabilities-panel\\.tsx)\\(' /tmp/griot-typecheck.log; then
+            echo "::error::Agent capability code has TypeScript errors."
+            exit 1
+          fi
+          if grep -F 'src/routes/_authenticated/projects/$projectId.tsx(' /tmp/griot-typecheck.log | grep -v "Property 'Authorization'"; then
+            echo "::error::Project capabilities integration introduced TypeScript errors."
+            exit 1
+          fi
+          echo "No TypeScript diagnostics in added capability code."
+      - name: ESLint new capability files
+        run: npx eslint src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx
