@@ -6,6 +6,7 @@ import { Screen, Panel, Metric, Empty } from "@/components/griot/screen";
 import { relativeTime } from "@/lib/griot";
 import { useTheme } from "@/lib/theme";
 import { useT } from "@/lib/i18n";
+import { AgentCampaignCapabilitiesPanel } from "@/components/griot/agent-campaign-capabilities-panel";
 
 export const Route = createFileRoute("/_authenticated/control")({
   head: () => ({
@@ -131,6 +132,10 @@ function ControlPage() {
         <Metric label={t("Custo")} value={`$${cost.toFixed(2)}`} note={t("acumulado")} />
         <Metric label={t("Agentes")} value={`${activeAgents}`} note={t("ativos")} />
       </div>
+
+      {import.meta.env["VITE_GRIOT_AGENT_CAMPAIGN_CAPABILITIES"] === "enabled" ? (
+        <AgentCampaignCapabilitiesPanel />
+      ) : null}
 
       <Panel className="flex items-center justify-between">
         <div>
