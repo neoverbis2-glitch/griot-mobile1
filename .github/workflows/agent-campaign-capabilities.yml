@@ -1,0 +1,35 @@
+name: Agent capabilities UI checks
+
+on:
+  push:
+    branches: ["feature/agent-marketing-campaign-capabilities"]
+    paths:
+      - "src/lib/campaign-capabilities.ts"
+      - "src/components/griot/agent-campaign-capabilities-panel.tsx"
+      - "src/routes/_authenticated/control.tsx"
+      - ".github/workflows/agent-campaign-capabilities.yml"
+  pull_request:
+    paths:
+      - "src/lib/campaign-capabilities.ts"
+      - "src/components/griot/agent-campaign-capabilities-panel.tsx"
+      - "src/routes/_authenticated/control.tsx"
+      - ".github/workflows/agent-campaign-capabilities.yml"
+
+permissions:
+  contents: read
+jobs:
+  client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      # Full tsc currently fails on unrelated existing app diagnostics. Keep
+      # full build as the blocking check; the TS debt is tracked separately.
+      - name: Build app
+        run: npm run build

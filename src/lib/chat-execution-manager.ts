@@ -15,6 +15,8 @@ import { getPrimaryWorkspaceId } from "@/lib/griot-api";
 import { getUserSavedApis } from "@/lib/user-apis";
 import { executeReActLoop } from "@/lib/runtime/react-loop";
 import { streamDirectAI } from "@/lib/ai-client-mobile-entry";
+import { getActiveMarketingAgent } from "@/lib/campaign-agent-mode";
+import { runMarketingAgentChat } from "@/lib/marketing-agent-client";
 import { modelLabel, isModelOS } from "@/lib/griot";
 import { observerEngine } from "@/lib/runtime";
 import { parseProposals } from "@/lib/capsule-proposals";
@@ -397,8 +399,9 @@ class ChatExecutionManager {
       console.log("[GRIOT_DEBUG] chamando streamDirectAI ou executeReActLoop", { isFastMode });
 
       // Em modo rápido, o cliente móvel marca explicitamente o Fast Path do Orchestrator.
-      if (isFastMode) {
-        const directRes = await streamDirectAI({
+      const marketingAgentId = scope === "main" ? getActiveMarketingAgent(currentProject?.id) : null;
+      if (isFastMode || marketingAgentId) {
+        const aiParams: Parameters<typeof streamDirectAI>[0] = {
           modelId: effectiveModelId,
           messages: effectiveMessages,
           systemInstruction: `[GRIOT_FAST_PATH]\n${effectiveSystemInstruction}`,
@@ -437,7 +440,18 @@ class ChatExecutionManager {
             },
           },
           signal: controller.signal,
-        });
+        };
+        const directRes = marketingAgentId && currentProject
+          ? await runMarketingAgentChat({
+              projectId: currentProject.id,
+              agentId: marketingAgentId,
+              modelId: effectiveModelId,
+              prompt: userPrompt,
+              localConversationId: conversationId,
+              callbacks: aiParams.callbacks,
+              signal: controller.signal,
+            })
+          : await streamDirectAI(aiParams);
 
         console.log("[GRIOT_DEBUG] streamDirectAI/executeReActLoop retornou", {
           textoRecebido: directRes.text?.length || answer?.length || 0,
