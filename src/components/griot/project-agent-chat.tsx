@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { listGriotCredentials, type GriotCredential } from "@/lib/griot-api";
 import { Bot, Send, LoaderCircle } from "lucide-react";
 import { askProjectAgent } from "@/lib/agent-capabilities";
 
@@ -18,17 +19,55 @@ export function ProjectAgentChat({
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [credentials, setCredentials] = useState<GriotCredential[]>([]);
+  const [credentialId, setCredentialId] = useState("");
+  const [credentialsLoading, setCredentialsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    void listGriotCredentials("provider")
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (error) throw new Error(error);
+        const supported = new Set(["gemini", "openai", "anthropic", "groq", "openrouter"]);
+        const active = (data?.credentials ?? []).filter(
+          (entry) => entry.status === "active" && supported.has(entry.providerId),
+        );
+        setCredentials(active);
+        setCredentialId(active[0]?.id ?? "");
+      })
+      .catch((cause) => {
+        if (alive) setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (alive) setCredentialsLoading(false);
+      });
+    return () => { alive = false; };
+  }, []);
+
+  const activeCredential = credentials.find((item) => item.id === credentialId);
+
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const prompt = draft.trim();
     if (!prompt || sending) return;
+    if (!activeCredential) {
+      setError("Configura uma credencial ativa de modelo no Griot para conversar com o agente.");
+      return;
+    }
     setSending(true);
     setError("");
     setDraft("");
     setMessages((existing) => [...existing, { role: "user", content: prompt }]);
     try {
-      const response = await askProjectAgent({ projectId, agentId, prompt, conversationId });
+      const model = activeCredential.settings?.model;
+      const response = await askProjectAgent({
+        projectId, agentId, prompt, conversationId,
+        provider: activeCredential.providerId,
+        credentialId: activeCredential.id,
+        ...(typeof model === "string" && model.trim() ? { model: model.trim() } : {}),
+      });
       setConversationId(response.conversationId);
       setMessages((existing) => [...existing, { role: "agent", content: response.result.content }]);
       if (
@@ -59,6 +98,24 @@ export function ProjectAgentChat({
           </p>
         </div>
       </header>
+      <label htmlFor="project-agent-model" className="block text-[12px] text-muted-foreground">
+        Modelo do agente
+      </label>
+      <select
+        id="project-agent-model"
+        aria-label="Escolher credencial para o agente"
+        className="w-full rounded-xl border border-hairline bg-background p-2 text-[13px]"
+        value={credentialId}
+        disabled={credentialsLoading || sending}
+        onChange={(event) => setCredentialId(event.target.value)}
+      >
+        {credentials.length === 0 && <option value="">Sem credenciais de IA ativas</option>}
+        {credentials.map((credential) => (
+          <option key={credential.id} value={credential.id}>
+            {credential.label || credential.providerId} ({credential.providerId})
+          </option>
+        ))}
+      </select>
       <div aria-live="polite" className="max-h-72 space-y-2 overflow-y-auto">
         {messages.length === 0 && (
           <p className="rounded-xl bg-secondary/40 p-3 text-[12px] text-muted-foreground">
@@ -104,7 +161,7 @@ export function ProjectAgentChat({
         />
         <button
           type="submit"
-          disabled={sending || !draft.trim()}
+          disabled={sending || credentialsLoading || !activeCredential || !draft.trim()}
           aria-label="Enviar mensagem ao agente"
           className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground disabled:opacity-40"
         >
@@ -112,7 +169,7 @@ export function ProjectAgentChat({
         </button>
       </form>
       <p className="text-[11px] text-muted-foreground">
-        Necessita de uma credencial de modelo ativa no backend do Griot. Os ficheiros criados pelo
+        Usa uma credencial ativa do backend do Griot. Os ficheiros criados pelo
         agente aparecem acima após a execução.
       </p>
     </section>
