@@ -1,7 +1,10 @@
 /** Admin panel for permissions of actual registered project agents, not for user-facing campaigns. */
 import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Loader2, RefreshCw, Megaphone } from "lucide-react";
 import { Panel } from "@/components/griot/screen";
+import { setActiveMarketingAgent, getActiveMarketingAgent } from "@/lib/campaign-agent-mode";
+import { setActiveProject } from "@/lib/project-service";
 import {
   loadAgentMarketingCatalog, loadRegisteredCampaignAgents, registerCampaignAgent,
   readAgentMarketingCapability, setAgentMarketingCapability,
@@ -23,6 +26,7 @@ export function AgentCampaignCapabilitiesPanel() {
   const [ready,setReady]=useState(false);
   const [error,setError]=useState("");
   const [registrationMessage,setRegistrationMessage]=useState("");
+  const [chatSelected,setChatSelected]=useState(false);
 
   async function reload() {
     setLoading(true);setReady(false);setError("");setRegistrationMessage("");
@@ -60,6 +64,19 @@ export function AgentCampaignCapabilitiesPanel() {
     return()=>{active=false;};
   },[workspaceId,projectId,agentId,agents]);
 
+  useEffect(()=>{setChatSelected(!!agentId && getActiveMarketingAgent(projectId)===agentId);},[projectId,agentId]);
+  function selectChatAgent() {
+    if(!ready||!enabled)return;
+    setActiveMarketingAgent(projectId,agentId);
+    setActiveProject(projectId);
+    setChatSelected(true);
+    setRegistrationMessage("Agente escolhido. Abre uma conversa do projeto no chat para utilizar as ferramentas nativas.");
+  }
+  function clearChatAgent() {
+    setActiveMarketingAgent(projectId,null);
+    setChatSelected(false);
+    setRegistrationMessage("Modo agente desativado no chat.");
+  }
   async function register() {
     if(registering||pending||!projectId||!agentName.trim())return;
     setRegistering(true);setError("");setRegistrationMessage("");
@@ -76,6 +93,7 @@ export function AgentCampaignCapabilitiesPanel() {
     try {
       const result=await setAgentMarketingCapability(workspaceId,projectId,agentId,next);
       setEnabled(result.enabled);
+      if(!next && getActiveMarketingAgent(projectId)===agentId)clearChatAgent();
     }catch(e){setError(e instanceof Error?e.message:"Não foi possível guardar a permissão.");}
     finally{setPending(false);}
   }
@@ -140,6 +158,18 @@ export function AgentCampaignCapabilitiesPanel() {
                   <span className={`absolute top-1 size-4 rounded-full bg-background transition-transform ${enabled?"translate-x-6":"translate-x-1"}`}/>
                 </span>
               </button>
+            ):null}
+            {agentId&&enabled&&ready?(
+              <div className="space-y-2 rounded-xl border border-hairline px-3 py-3">
+                <p className="text-[12px] text-muted-foreground">Seleciona esta identidade para executar o agente no chat principal do projeto. O Quick Chat mantém-se independente.</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={chatSelected?clearChatAgent:selectChatAgent}
+                    className="flex-1 rounded-xl border border-hairline px-3 py-2 text-[12px] font-medium">
+                    {chatSelected?"Desativar no chat":"Usar este agente no chat"}
+                  </button>
+                  {chatSelected?<Link to="/chat" className="rounded-xl border border-hairline px-3 py-2 text-[12px] font-medium">Abrir chat</Link>:null}
+                </div>
+              </div>
             ):null}
           </>
         ):null}
