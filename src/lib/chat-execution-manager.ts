@@ -447,6 +447,7 @@ class ChatExecutionManager {
               agentId: marketingAgentId,
               modelId: effectiveModelId,
               prompt: userPrompt,
+              localConversationId: conversationId,
               callbacks: aiParams.callbacks,
               signal: controller.signal,
             })
