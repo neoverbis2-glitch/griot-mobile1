@@ -452,7 +452,7 @@ class ChatExecutionManager {
             })
           : await streamDirectAI(aiParams);
 
-        console.log("[GRIOT_DEBUG] streamDirectAI/executeReActLoop retornou, {
+        console.log("[GRIOT_DEBUG] streamDirectAI/executeReActLoop retornou", {
           textoRecebido: directRes.text?.length || answer?.length || 0,
         });
 
