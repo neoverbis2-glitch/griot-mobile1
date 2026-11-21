@@ -27,8 +27,11 @@ export type AgentDeckDetail = {
 };
 
 async function projectWorkspaceId(projectId: string): Promise<string> {
-  const { data, error } = await (supabase as any).from("griot_studio_projects")
-    .select("workspace_id").eq("id", projectId).maybeSingle();
+  const { data, error } = await (supabase as any)
+    .from("griot_studio_projects")
+    .select("workspace_id")
+    .eq("id", projectId)
+    .maybeSingle();
   if (error || !data?.workspace_id) {
     throw new Error("Não foi possível verificar o espaço de trabalho do projeto.");
   }
@@ -63,14 +66,16 @@ const agentScope = (projectId: string, agentId: string) =>
 
 export async function listProjectAgents(projectId: string) {
   const result = await orchestrator<{ agents: GriotRegisteredAgent[] }>(
-    projectId, scoped(projectId) + "/agents",
+    projectId,
+    scoped(projectId) + "/agents",
   );
   return result.agents;
 }
 
 export async function registerProjectAgent(projectId: string, name: string) {
   const result = await orchestrator<{ agent: GriotRegisteredAgent }>(
-    projectId, scoped(projectId) + "/agents",
+    projectId,
+    scoped(projectId) + "/agents",
     { method: "POST", body: { name } },
   );
   return result.agent;
@@ -78,26 +83,30 @@ export async function registerProjectAgent(projectId: string, name: string) {
 
 export async function readPitchDeckCapability(projectId: string, agentId: string) {
   return orchestrator<PitchDeckCapability>(
-    projectId, agentScope(projectId, agentId) + "/capabilities/pitch_deck.generate",
+    projectId,
+    agentScope(projectId, agentId) + "/capabilities/pitch_deck.generate",
   );
 }
 
 export async function setPitchDeckCapability(projectId: string, agentId: string, enabled: boolean) {
   return orchestrator<PitchDeckCapability>(
-    projectId, agentScope(projectId, agentId) + "/capabilities/pitch_deck.generate",
+    projectId,
+    agentScope(projectId, agentId) + "/capabilities/pitch_deck.generate",
     { method: "PUT", body: { enabled } },
   );
 }
 
 export async function listAgentPitchDecks(projectId: string, agentId: string) {
   const result = await orchestrator<{ artifacts: AgentPitchDeck[] }>(
-    projectId, agentScope(projectId, agentId) + "/pitch-decks",
+    projectId,
+    agentScope(projectId, agentId) + "/pitch-decks",
   );
   return result.artifacts;
 }
 
 export async function getAgentPitchDeck(projectId: string, agentId: string, artifactId: string) {
   return orchestrator<AgentDeckDetail>(
-    projectId, agentScope(projectId, agentId) + "/pitch-decks/" + encodeURIComponent(artifactId),
+    projectId,
+    agentScope(projectId, agentId) + "/pitch-decks/" + encodeURIComponent(artifactId),
   );
 }
