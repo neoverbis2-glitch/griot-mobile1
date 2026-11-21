@@ -110,3 +110,49 @@ export async function getAgentPitchDeck(projectId: string, agentId: string, arti
     agentScope(projectId, agentId) + "/pitch-decks/" + encodeURIComponent(artifactId),
   );
 }
+
+export type AgentToolTrace = {
+  step: number;
+  tool: string;
+  status: number;
+  ok: boolean;
+  approvalRequired?: boolean;
+};
+
+export type AgentChatResponse = {
+  conversationId: string;
+  result: { content: string };
+  context?: { studioToolTrace?: AgentToolTrace[] };
+};
+
+/**
+ * A conversation belongs to the selected registered agent.
+ * The orchestrator binds agent_id on first use and refuses cross-agent reuse.
+ * This invokes the REAL agent runtime, not a user-facing deck-generation form.
+ */
+export async function askProjectAgent(input: {
+  projectId: string;
+  agentId: string;
+  prompt: string;
+  conversationId?: string;
+}): Promise<AgentChatResponse> {
+  if (!input.prompt.trim()) throw new Error("A mensagem não pode estar vazia.");
+  const result = await orchestrator<AgentChatResponse>(
+    input.projectId,
+    "/ask",
+    {
+      method: "POST",
+      body: {
+        prompt: input.prompt.trim(),
+        projectId: input.projectId,
+        agentId: input.agentId,
+        ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+        maxAgentSteps: 6,
+      },
+    },
+  );
+  if (!result.conversationId || typeof result.result?.content !== "string") {
+    throw new Error("O agente não devolveu uma conversa válida.");
+  }
+  return result;
+}
