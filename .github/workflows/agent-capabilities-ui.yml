@@ -1,0 +1,27 @@
+name: Agent Capabilities UI Check
+
+on:
+  push:
+    branches: [feat/agent-pitch-deck-capabilities]
+  pull_request:
+    paths:
+      - "src/lib/agent-capabilities.ts"
+      - "src/components/griot/agent-capabilities-panel.tsx"
+      - "src/routes/_authenticated/projects/**"
+      - ".github/workflows/agent-capabilities-ui.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
