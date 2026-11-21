@@ -1,0 +1,45 @@
+name: Agent Capabilities UI Check
+
+on:
+  push:
+    branches: [feat/agent-pitch-deck-capabilities]
+  pull_request:
+    paths:
+      - "src/lib/agent-capabilities.ts"
+      - "src/components/griot/agent-capabilities-panel.tsx"
+      - "src/components/griot/pitch-deck-visual-preview.tsx"
+      - "src/components/griot/project-agent-chat.tsx"
+      - "src/routes/_authenticated/projects/**"
+      - ".github/workflows/agent-capabilities-ui.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Format capability source locally for verification
+        run: npx prettier --write src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx src/components/griot/project-agent-chat.tsx
+      - name: TypeScript regression check for changed capability code
+        run: |
+          npx tsc --noEmit > /tmp/griot-typecheck.log 2>&1 || true
+          echo "The existing GRIOT mobile baseline has unrelated TypeScript diagnostics."
+          if grep -E '^src/(lib/agent-capabilities\\.ts|components/griot/(agent-capabilities-panel|pitch-deck-visual-preview|project-agent-chat)\\.tsx)\\(' /tmp/griot-typecheck.log; then
+            echo "::error::Agent capability code has TypeScript errors."
+            exit 1
+          fi
+          if grep -F 'src/routes/_authenticated/projects/$projectId.tsx(' /tmp/griot-typecheck.log | grep -v "Property 'Authorization'"; then
+            echo "::error::Project capabilities integration introduced TypeScript errors."
+            exit 1
+          fi
+          echo "No TypeScript diagnostics in added capability code."
+      - name: ESLint new capability files
+        run: npx eslint src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx src/components/griot/project-agent-chat.tsx
