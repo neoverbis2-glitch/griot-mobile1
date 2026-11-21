@@ -30,13 +30,12 @@ export function ProjectAgentChat({
     try {
       const response = await askProjectAgent({ projectId, agentId, prompt, conversationId });
       setConversationId(response.conversationId);
-      setMessages((existing) => [
-        ...existing,
-        { role: "agent", content: response.result.content },
-      ]);
-      if (response.context?.studioToolTrace?.some(
-        (entry) => entry.tool === "pitch_deck.generate" && entry.ok,
-      )) {
+      setMessages((existing) => [...existing, { role: "agent", content: response.result.content }]);
+      if (
+        response.context?.studioToolTrace?.some(
+          (entry) => entry.tool === "pitch_deck.generate" && entry.ok,
+        )
+      ) {
         onArtifactsChanged();
       }
     } catch (cause) {
@@ -63,8 +62,8 @@ export function ProjectAgentChat({
       <div aria-live="polite" className="max-h-72 space-y-2 overflow-y-auto">
         {messages.length === 0 && (
           <p className="rounded-xl bg-secondary/40 p-3 text-[12px] text-muted-foreground">
-            Conversa diretamente com este agente. Podes pedir uma apresentação,
-            explicar um produto ou solicitar alterações.
+            Conversa diretamente com este agente. Podes pedir uma apresentação, explicar um produto
+            ou solicitar alterações.
           </p>
         )}
         {messages.map((message, index) => (
@@ -84,9 +83,15 @@ export function ProjectAgentChat({
           </p>
         )}
       </div>
-      {error && <p role="alert" className="text-[12px] text-destructive">{error}</p>}
+      {error && (
+        <p role="alert" className="text-[12px] text-destructive">
+          {error}
+        </p>
+      )}
       <form onSubmit={(event) => void handleSubmit(event)} className="flex items-end gap-2">
-        <label className="sr-only" htmlFor="project-agent-chat-input">Mensagem ao agente</label>
+        <label className="sr-only" htmlFor="project-agent-chat-input">
+          Mensagem ao agente
+        </label>
         <textarea
           id="project-agent-chat-input"
           rows={2}
@@ -107,8 +112,8 @@ export function ProjectAgentChat({
         </button>
       </form>
       <p className="text-[11px] text-muted-foreground">
-        Necessita de uma credencial de modelo ativa no backend do Griot. Os
-        ficheiros criados pelo agente aparecem acima após a execução.
+        Necessita de uma credencial de modelo ativa no backend do Griot. Os ficheiros criados pelo
+        agente aparecem acima após a execução.
       </p>
     </section>
   );

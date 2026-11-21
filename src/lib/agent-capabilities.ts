@@ -137,20 +137,16 @@ export async function askProjectAgent(input: {
   conversationId?: string;
 }): Promise<AgentChatResponse> {
   if (!input.prompt.trim()) throw new Error("A mensagem não pode estar vazia.");
-  const result = await orchestrator<AgentChatResponse>(
-    input.projectId,
-    "/ask",
-    {
-      method: "POST",
-      body: {
-        prompt: input.prompt.trim(),
-        projectId: input.projectId,
-        agentId: input.agentId,
-        ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-        maxAgentSteps: 6,
-      },
+  const result = await orchestrator<AgentChatResponse>(input.projectId, "/ask", {
+    method: "POST",
+    body: {
+      prompt: input.prompt.trim(),
+      projectId: input.projectId,
+      agentId: input.agentId,
+      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+      maxAgentSteps: 6,
     },
-  );
+  });
   if (!result.conversationId || typeof result.result?.content !== "string") {
     throw new Error("O agente não devolveu uma conversa válida.");
   }
