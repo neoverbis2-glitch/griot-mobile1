@@ -8,6 +8,7 @@ on:
       - "src/lib/agent-capabilities.ts"
       - "src/components/griot/agent-capabilities-panel.tsx"
       - "src/components/griot/pitch-deck-visual-preview.tsx"
+      - "src/components/griot/project-agent-chat.tsx"
       - "src/routes/_authenticated/projects/**"
       - ".github/workflows/agent-capabilities-ui.yml"
 
@@ -26,14 +27,14 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Format capability source with project Prettier
-        run: npx prettier --write src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx
+        run: npx prettier --write src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx src/components/griot/project-agent-chat.tsx
       - name: Commit formatting to feature branch only
         if: github.event_name == 'push'
         run: |
-          if ! git diff --quiet -- src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx; then
+          if ! git diff --quiet -- src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx src/components/griot/project-agent-chat.tsx; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx
+            git add src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx src/components/griot/project-agent-chat.tsx
             git commit -m "style: format agent capabilities source"
             git push origin HEAD:refs/heads/feat/agent-pitch-deck-capabilities
           fi
@@ -41,7 +42,7 @@ jobs:
         run: |
           npx tsc --noEmit > /tmp/griot-typecheck.log 2>&1 || true
           echo "The existing GRIOT mobile baseline has unrelated TypeScript diagnostics."
-          if grep -E '^src/(lib/agent-capabilities\\.ts|components/griot/(agent-capabilities-panel|pitch-deck-visual-preview)\\.tsx)\\(' /tmp/griot-typecheck.log; then
+          if grep -E '^src/(lib/agent-capabilities\\.ts|components/griot/(agent-capabilities-panel|pitch-deck-visual-preview|project-agent-chat)\\.tsx)\\(' /tmp/griot-typecheck.log; then
             echo "::error::Agent capability code has TypeScript errors."
             exit 1
           fi
@@ -51,4 +52,4 @@ jobs:
           fi
           echo "No TypeScript diagnostics in added capability code."
       - name: ESLint new capability files
-        run: npx eslint src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx
+        run: npx eslint src/lib/agent-capabilities.ts src/components/griot/agent-capabilities-panel.tsx src/components/griot/pitch-deck-visual-preview.tsx src/components/griot/project-agent-chat.tsx
