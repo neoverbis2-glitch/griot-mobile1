@@ -23,6 +23,7 @@ export type AgentDeckDetail = {
   fileName: string;
   presentation: AgentPitchDeck["presentation_json"];
   signedUrl: string;
+  pdfSignedUrl?: string | null;
   expiresInSeconds: number;
 };
 
