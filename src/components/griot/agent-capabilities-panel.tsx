@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { PitchDeckVisualPreview } from "@/components/griot/pitch-deck-visual-preview";
+import { ProjectAgentChat } from "@/components/griot/project-agent-chat";
 import { Bot, Presentation, Plus, RefreshCcw, ShieldCheck, Download, Eye } from "lucide-react";
 import {
   listProjectAgents,
@@ -270,6 +271,15 @@ export function AgentCapabilitiesPanel({ projectId }: { projectId: string }) {
             </button>
           ))}
         </div>
+      )}
+
+      {agentId && (
+        <ProjectAgentChat
+          key={agentId}
+          projectId={projectId}
+          agentId={agentId}
+          onArtifactsChanged={() => void reloadDecks()}
+        />
       )}
 
       {selected && (
