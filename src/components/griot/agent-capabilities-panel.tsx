@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { PitchDeckVisualPreview } from "@/components/griot/pitch-deck-visual-preview";
 import { Bot, Presentation, Plus, RefreshCcw, ShieldCheck, Download, Eye } from "lucide-react";
 import {
   listProjectAgents,
@@ -274,21 +275,7 @@ export function AgentCapabilitiesPanel({ projectId }: { projectId: string }) {
       {selected && (
         <div className="rounded-[22px] border border-hairline bg-surface p-4 space-y-3">
           <h4 className="text-[16px] font-semibold">{selected.presentation.title}</h4>
-          <p className="text-[12px] text-muted-foreground">
-            Estrutura dos slides. A pré-visualização visual completa será integrada separadamente.
-          </p>
-          {selected.presentation.slides.map((slide, index) => (
-            <div
-              key={index}
-              className="rounded-xl border border-hairline bg-background p-3 space-y-1"
-            >
-              <p className="text-[12px] font-semibold">
-                {index + 2}. {slide.title}
-              </p>
-              <p className="text-[11px] text-muted-foreground">{slide.bullets.join(" · ")}</p>
-              <p className="text-[10px] uppercase text-muted-foreground">{slide.evidence}</p>
-            </div>
-          ))}
+          <PitchDeckVisualPreview presentation={selected.presentation} />
           <a
             href={selected.signedUrl}
             download={selected.fileName}
