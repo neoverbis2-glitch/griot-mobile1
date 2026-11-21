@@ -45,7 +45,10 @@ export function PitchDeckVisualPreview({
               {slide.metrics.length > 0 && (
                 <div className="flex w-[31%] flex-col gap-[5%]">
                   {slide.metrics.map((metric, metricIndex) => (
-                    <div key={metricIndex} className="min-h-0 rounded-lg border border-[#253C58] bg-[#122039] p-[7%]">
+                    <div
+                      key={metricIndex}
+                      className="min-h-0 rounded-lg border border-[#253C58] bg-[#122039] p-[7%]"
+                    >
                       <div className="truncate text-[clamp(10px,2.25vw,22px)] font-semibold leading-tight text-[#6BE4C5]">
                         {metric.value}
                       </div>
@@ -79,15 +82,25 @@ export function PitchDeckVisualPreview({
         )}
       </div>
       <div className="flex items-center justify-between">
-        <button type="button" disabled={index <= 0} onClick={() => setIndex((v) => Math.max(0, v - 1))}
-          className="rounded-lg border border-hairline p-2 disabled:opacity-30" aria-label="Slide anterior">
+        <button
+          type="button"
+          disabled={index <= 0}
+          onClick={() => setIndex((v) => Math.max(0, v - 1))}
+          className="rounded-lg border border-hairline p-2 disabled:opacity-30"
+          aria-label="Slide anterior"
+        >
           <ChevronLeft className="size-4" />
         </button>
         <span className="text-[12px] tabular-nums text-muted-foreground">
           Slide {index + 1} de {total}
         </span>
-        <button type="button" disabled={index >= total - 1} onClick={() => setIndex((v) => Math.min(total - 1, v + 1))}
-          className="rounded-lg border border-hairline p-2 disabled:opacity-30" aria-label="Slide seguinte">
+        <button
+          type="button"
+          disabled={index >= total - 1}
+          onClick={() => setIndex((v) => Math.min(total - 1, v + 1))}
+          className="rounded-lg border border-hairline p-2 disabled:opacity-30"
+          aria-label="Slide seguinte"
+        >
           <ChevronRight className="size-4" />
         </button>
       </div>
