@@ -295,6 +295,17 @@ export function AgentCapabilitiesPanel({ projectId }: { projectId: string }) {
           >
             <Download className="size-4" /> Descarregar PPTX editável
           </a>
+          {selected.pdfSignedUrl && (
+            <a
+              href={selected.pdfSignedUrl}
+              download={selected.fileName.replace(/\.pptx$/i, ".pdf")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-secondary px-4 py-3 text-[13px] font-semibold text-foreground"
+            >
+              <Download className="size-4" /> Descarregar PDF
+            </a>
+          )}
           <p className="text-[11px] text-muted-foreground">
             A ligação de descarga expira em 15 minutos.
           </p>
