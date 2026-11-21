@@ -33,6 +33,7 @@ import {
 import { getConnectedPlugins } from "@/lib/plugins-service";
 import { ConfirmationModal } from "@/components/griot/confirmation-modal";
 import { AutonomousTaskModal } from "@/components/griot/autonomous-task-modal";
+import { AgentCapabilitiesPanel } from "@/components/griot/agent-capabilities-panel";
 
 export type ProjectDetail = {
   id: string;
@@ -79,7 +80,7 @@ function relativeTime(dateStr?: string | null): string {
   }
 }
 
-type ProjectTab = "tasks" | "prs" | "logs";
+type ProjectTab = "tasks" | "prs" | "logs" | "agents";
 
 export interface ProjectDetailViewProps {
   projectId: string;
@@ -450,8 +451,8 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
 
       {/* Pill Tab Switcher Container */}
       <div className="mb-6 rounded-full border border-hairline bg-surface p-1.5 flex items-center justify-between">
-        {(["tasks", "prs", "logs"] as const).map((tabKey) => {
-          const label = tabKey === "tasks" ? t("Tarefas") : tabKey === "prs" ? "PRs" : "Logs";
+        {(["tasks", "prs", "logs", "agents"] as const).map((tabKey) => {
+          const label = tabKey === "tasks" ? t("Tarefas") : tabKey === "prs" ? "PRs" : tabKey === "agents" ? "Agentes" : "Logs";
           const isActive = activeTab === tabKey;
           return (
             <button
@@ -719,6 +720,9 @@ export function ProjectDetailView({ projectId, onBack, onDeleted }: ProjectDetai
           )}
         </div>
       )}
+
+      {/* AGENT-ONLY CAPABILITIES (no user-facing deck generation) */}
+      {activeTab === "agents" && <AgentCapabilitiesPanel projectId={projectId} />}
 
       {/* Confirmation Modal to Delete Project */}
       <ConfirmationModal
