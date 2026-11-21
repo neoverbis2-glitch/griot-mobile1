@@ -51,7 +51,7 @@ async function orchestrator<T>(
   });
   if (error) throw new Error(error.message || "O serviço de Capacidades não está disponível.");
   if (data && typeof data === "object" && "error" in data) {
-    throw new Error(String((data as Record<string, unknown>).error));
+    throw new Error(String((data as Record<string, unknown>)["error"]));
   }
   if (!data || typeof data !== "object") throw new Error("Resposta inválida do servidor.");
   return data as T;
